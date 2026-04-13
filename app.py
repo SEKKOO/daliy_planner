@@ -1172,11 +1172,10 @@ INDEX_HTML = """<!DOCTYPE html>
         <div class="weekly-plan" id="weekly-plan-box">
           <div class="weekly-plan-head">
             <div class="weekly-plan-meta">
-              <div class="weekly-plan-subtitle" id="weekly-plan-range">每周工作安排：按周维护上午、下午安排，并记录其他待定事项。</div>
+              <div class="weekly-plan-subtitle" id="weekly-plan-range">每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录其他待定事项。</div>
             </div>
             <div class="weekly-plan-actions">
               <div class="weekly-plan-saved-at" id="weekly-plan-saved-at">最近保存：未保存</div>
-              <button type="button" class="primary tiny-btn" id="save-weekly-plan">保存安排</button>
               <button type="button" class="danger tiny-btn" id="clear-weekly-plan">清除本周安排</button>
             </div>
           </div>
@@ -1349,7 +1348,6 @@ INDEX_HTML = """<!DOCTYPE html>
     const nextWeekButton = document.getElementById("next-week");
     const themeToggleButton = document.getElementById("theme-toggle");
     const weeklyPlanSavedAt = document.getElementById("weekly-plan-saved-at");
-    const saveWeeklyPlanButton = document.getElementById("save-weekly-plan");
     const clearWeeklyPlanButton = document.getElementById("clear-weekly-plan");
 
     const addRowButton = document.getElementById("add-row");
@@ -1361,7 +1359,12 @@ INDEX_HTML = """<!DOCTYPE html>
     const refreshMonthButton = document.getElementById("refresh-month");
     const exportMonthButton = document.getElementById("export-month");
     const THEME_STORAGE_KEY = "daily_planner_theme";
+    const WEEKLY_PLAN_AUTOSAVE_DELAY_MS = 800;
     let currentWeeklyPlanWeekStart = "";
+    let weeklyPlanAutosaveTimer = null;
+    let weeklyPlanSaveSequence = 0;
+    const weeklyPlanSavedSnapshots = new Map();
+    const weeklyPlanLatestRequestIds = new Map();
     const weeklyScheduleInputs = {
       weekly_monday_am: document.getElementById("weekly-monday-am"),
       weekly_monday_pm: document.getElementById("weekly-monday-pm"),
@@ -1407,17 +1410,21 @@ INDEX_HTML = """<!DOCTYPE html>
 
     function updateWeeklyPlanRange(anchorDate) {
       if (!anchorDate) {
-        weeklyPlanRange.textContent = "每周工作安排：按周维护上午、下午安排，并记录其他待定事项。";
+        weeklyPlanRange.textContent = "每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录其他待定事项。";
         return;
       }
       const monday = getMonday(parseDateString(anchorDate));
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
-      weeklyPlanRange.textContent = `每周工作安排：${formatDate(monday)} 至 ${formatDate(sunday)} · 按周维护上午、下午安排，并记录其他待定事项。`;
+      weeklyPlanRange.textContent = `每周工作安排：${formatDate(monday)} 至 ${formatDate(sunday)} · 按周维护上午、下午安排，编辑后自动保存，并记录其他待定事项。`;
+    }
+
+    function setWeeklyPlanSavedAtText(text) {
+      weeklyPlanSavedAt.textContent = text;
     }
 
     function updateWeeklyPlanSavedAt(value) {
-      weeklyPlanSavedAt.textContent = value ? `最近保存：${value}` : "最近保存：未保存";
+      setWeeklyPlanSavedAtText(value ? `最近保存：${value}` : "最近保存：未保存");
     }
 
     function parseDateString(value) {
@@ -1453,11 +1460,57 @@ INDEX_HTML = """<!DOCTYPE html>
       });
     }
 
-    async function savePageSettings() {
+    function getWeeklyPlanSnapshot(weekStart, settings) {
+      return JSON.stringify({
+        week_start: weekStart || "",
+        settings: settings || {}
+      });
+    }
+
+    function rememberWeeklyPlanState(weekStart, settings, updatedAt) {
+      if (!weekStart) {
+        return;
+      }
+      weeklyPlanSavedSnapshots.set(weekStart, getWeeklyPlanSnapshot(weekStart, settings));
+      if (currentWeeklyPlanWeekStart === weekStart) {
+        updateWeeklyPlanSavedAt(updatedAt || "");
+      }
+    }
+
+    function cancelWeeklyPlanAutosave() {
+      if (weeklyPlanAutosaveTimer) {
+        window.clearTimeout(weeklyPlanAutosaveTimer);
+        weeklyPlanAutosaveTimer = null;
+      }
+    }
+
+    async function savePageSettings(options = {}) {
+      const weekStart = options.weekStart || currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value);
+      const settings = options.settings || getCurrentSettings();
+      const silent = Boolean(options.silent);
+      const force = Boolean(options.force);
       const payload = {
-        week_start: currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value),
-        settings: getCurrentSettings()
+        week_start: weekStart,
+        settings
       };
+      if (!weekStart) {
+        if (!silent) {
+          setStatus("未找到当前周信息。", "warning");
+        }
+        return false;
+      }
+      const snapshot = getWeeklyPlanSnapshot(weekStart, settings);
+      if (!force && snapshot === (weeklyPlanSavedSnapshots.get(weekStart) || "")) {
+        if (!silent) {
+          setStatus("每周工作安排已是最新。", "success");
+        }
+        return true;
+      }
+      const requestId = ++weeklyPlanSaveSequence;
+      weeklyPlanLatestRequestIds.set(weekStart, requestId);
+      if (silent && currentWeeklyPlanWeekStart === weekStart) {
+        setWeeklyPlanSavedAtText("自动保存中...");
+      }
       try {
         const response = await fetch("/api/weekly-plan", {
           method: "POST",
@@ -1468,12 +1521,48 @@ INDEX_HTML = """<!DOCTYPE html>
         if (!response.ok) {
           throw new Error(data.error || "保存每周工作安排失败");
         }
-        applyPageSettings(data.settings);
-        updateWeeklyPlanSavedAt(data.updated_at || "");
-        setStatus("每周工作安排已保存。", "success");
+        const savedWeekStart = data.week_start || weekStart;
+        const savedSettings = data.settings || {};
+        if (weeklyPlanLatestRequestIds.get(savedWeekStart) !== requestId) {
+          return true;
+        }
+        rememberWeeklyPlanState(savedWeekStart, savedSettings, data.updated_at || "");
+        if (currentWeeklyPlanWeekStart === savedWeekStart) {
+          applyPageSettings(savedSettings);
+          if (!silent) {
+            setStatus("每周工作安排已保存。", "success");
+          }
+        }
+        return true;
       } catch (error) {
+        if (currentWeeklyPlanWeekStart === weekStart) {
+          setWeeklyPlanSavedAtText("自动保存失败，请稍后重试");
+        }
         setStatus(error.message || "保存每周工作安排失败。", "error");
+        return false;
       }
+    }
+
+    function scheduleWeeklyPlanAutosave() {
+      const weekStart = currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value);
+      if (!weekStart) {
+        return;
+      }
+      const settings = getCurrentSettings();
+      if (getWeeklyPlanSnapshot(weekStart, settings) === (weeklyPlanSavedSnapshots.get(weekStart) || "")) {
+        cancelWeeklyPlanAutosave();
+        return;
+      }
+      cancelWeeklyPlanAutosave();
+      setWeeklyPlanSavedAtText("自动保存中...");
+      weeklyPlanAutosaveTimer = window.setTimeout(() => {
+        weeklyPlanAutosaveTimer = null;
+        savePageSettings({
+          weekStart,
+          settings,
+          silent: true
+        });
+      }, WEEKLY_PLAN_AUTOSAVE_DELAY_MS);
     }
 
     async function clearWeeklyPlan() {
@@ -1485,6 +1574,7 @@ INDEX_HTML = """<!DOCTYPE html>
       if (!window.confirm(`确认清除 ${weekStart} 这一周的全部工作安排吗？`)) {
         return;
       }
+      cancelWeeklyPlanAutosave();
       try {
         const response = await fetch("/api/weekly-plan", {
           method: "POST",
@@ -1500,7 +1590,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
         currentWeeklyPlanWeekStart = data.week_start || weekStart;
         applyPageSettings(data.settings || {});
-        updateWeeklyPlanSavedAt(data.updated_at || "");
+        rememberWeeklyPlanState(currentWeeklyPlanWeekStart, data.settings || {}, data.updated_at || "");
         setStatus("本周工作安排已清除。", "success");
       } catch (error) {
         setStatus(error.message || "清除本周安排失败。", "error");
@@ -1522,12 +1612,13 @@ INDEX_HTML = """<!DOCTYPE html>
         }
         currentWeeklyPlanWeekStart = data.week_start || weekStart;
         applyPageSettings(data.settings || {});
-        updateWeeklyPlanSavedAt(data.updated_at || "");
+        rememberWeeklyPlanState(currentWeeklyPlanWeekStart, data.settings || {}, data.updated_at || "");
         if (showMessage) {
           setStatus(`已读取 ${currentWeeklyPlanWeekStart} 所在周的工作安排。`, "success");
         }
       } catch (error) {
         applyPageSettings({});
+        weeklyPlanSavedSnapshots.delete(weekStart);
         updateWeeklyPlanSavedAt("");
         if (showMessage) {
           setStatus(error.message || "读取每周工作安排失败。", "error");
@@ -1978,8 +2069,10 @@ INDEX_HTML = """<!DOCTYPE html>
       window.location.href = `/api/export-log?date=${encodeURIComponent(targetDate)}`;
       setStatus(`正在生成 ${targetDate} 的工作日志，请稍候。`, "success");
     });
-    saveWeeklyPlanButton.addEventListener("click", savePageSettings);
     clearWeeklyPlanButton.addEventListener("click", clearWeeklyPlan);
+    Object.values(weeklyScheduleInputs).forEach((input) => {
+      input.addEventListener("input", scheduleWeeklyPlanAutosave);
+    });
     refreshMonthButton.addEventListener("click", () => refreshMonthEntries(true));
     exportMonthButton.addEventListener("click", () => {
       const month = monthInput.value;
