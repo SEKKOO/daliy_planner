@@ -5,3 +5,4 @@ __pycache__/
 # Local runtime data
 data/*.db
 logs/
+*日志.docx
