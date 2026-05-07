@@ -1,0 +1,103 @@
+{
+  // 仓库内置模板配置。
+  // 程序会先读取本文件，再用同目录下的 config.json 覆盖同名字段。
+  // 这个文件支持 // 与 /* */ 注释，可直接按需复制修改。
+  // 推荐把真实环境参数写进 config.json；如果直接改这里，也请避免提交真实密钥和密码。
+
+  "server": {
+    // 建议单机自用时改为 127.0.0.1；需要局域网访问时再改成 0.0.0.0。
+    "host": "127.0.0.1",
+    "port": 8000
+  },
+
+  // 所有相对路径都以项目根目录为基准。
+  "paths": {
+    "database_path": "data/planner.db",
+    "log_dir": "logs",
+    "prompts_dir": "prompts",
+    // 启动时会在这里保存版本快照；当代码内容变化时会自动生成下一个版本目录。
+    "version_history_dir": "version_history"
+  },
+
+  "executables": {
+    // 留空时程序会尝试从 PATH 自动查找。
+    // 如果你的环境里有多个版本，建议直接填写绝对路径。
+    "codex_bin": "",
+    "node_bin": "",
+    "swift_bin": "",
+
+    // 调用子进程时会额外拼接到 PATH 前面。
+    // Apple Silicon 常见为 /opt/homebrew/bin；Intel Mac 常见为 /usr/local/bin。
+    "path_prefixes": [
+      "/opt/homebrew/bin",
+      "/usr/local/bin"
+    ]
+  },
+
+  "auth": {
+    // 未登录时使用的默认本地用户，仅用于单机默认态。
+    "default_local_user_id": "local_default_user",
+    "default_local_user_name": "本地默认用户",
+
+    // 登录会话 Cookie 名称与有效期（天）。
+    "session_cookie_name": "dp_session",
+    "session_duration_days": 7,
+
+    // 首次初始化时的默认管理员账号。
+    // 强烈建议部署完成后立刻在页面里修改密码。
+    "admin_account_default_username": "admin",
+    "admin_account_default_password": "ChangeMe123!",
+    "admin_password_pbkdf2_iterations": 210000
+  },
+
+  "dingtalk": {
+    // 发送钉钉日志时使用的来源标识。
+    "report_source": "daily_planner_web",
+    "report_to_chat_default": false,
+
+    // 可预置默认接收人；不需要时保持空数组即可。
+    // 示例：
+    // "report_recipients": [
+    //   { "userId": "manager_userid", "name": "管理员" }
+    // ],
+    "report_recipients": [],
+    // 日报 / 周报模板不再通过配置文件统一维护。
+    // 现在改为每个用户在页面右上角“钉钉MCP”里读取自己可见的模板后分别选择。
+    // 如果用户没有选择模板，将无法发送日报或周报。
+
+    "oauth": {
+      // 以下接口地址一般无需改动。
+      "authorize_url": "https://login.dingtalk.com/oauth2/auth",
+      "user_access_token_url": "https://api.dingtalk.com/v1.0/oauth2/userAccessToken",
+      "user_me_url": "https://api.dingtalk.com/v1.0/contact/users/me",
+      "default_scope": "openid corpid Contact.User.Read",
+
+      // 扫码登录短期会话过期时间（分钟）。
+      "scan_session_ttl_minutes": 5,
+
+      // 当前端未直接拿到二维码图片时，回退使用的公共二维码模板。
+      // 必须包含 {data} 占位符。
+      "public_qr_service_template": "https://api.qrserver.com/v1/create-qr-code/?size=320x320&data={data}"
+    },
+
+    "oauth_defaults": {
+      // 这里只是数据库尚未保存管理员配置时的默认值。
+      // 若不准备启用钉钉扫码登录，可保持默认关闭。
+      // redirect_base_url 填写外部访问根地址，例如 https://example.com 或 http://192.168.1.10:8000。
+      "enabled": false,
+      "allow_org_auto_login": true,
+      "client_id": "",
+      "client_secret": "",
+      "corp_id": "",
+      "redirect_base_url": ""
+    }
+  },
+
+  "launchd": {
+    // 仅在 macOS LaunchAgent 常驻运行时使用；
+    // 如果你只是手工执行 python3 app.py，可先保持默认值。
+    // ensure_app_running.sh 会读取这里的 agent_label 和 agent_plist_path。
+    "agent_label": "com.dailyplanner.app",
+    "agent_plist_path": "~/Library/LaunchAgents/com.dailyplanner.app.plist"
+  }
+}

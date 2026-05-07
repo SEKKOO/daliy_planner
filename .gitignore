@@ -2,7 +2,21 @@
 __pycache__/
 *.pyc
 
-# Local runtime data
-data/*.db
+# Local secrets and runtime data
+config.json
+data/
 logs/
+version_history/
+planner.db
+*.db
+*.sqlite
+*.sqlite3
+-X
+
+# Generated exports
 *日志.docx
+*售后周报.docx
+*本周兵力盘点.docx
+*本周兵力盘点.xlsx
+*.docx
+*.xlsx
