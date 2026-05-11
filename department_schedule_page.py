@@ -486,8 +486,27 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       padding: 10px 6px;
       border-bottom: 1px solid var(--line);
       background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+      transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, opacity 0.16s ease;
     }
     .plan-member-row:last-child { border-bottom: none; }
+    .plan-member-row:hover {
+      background: rgba(var(--table-head-rgb), var(--shell-surface-alpha));
+    }
+    .plan-member-row.is-dragging {
+      opacity: 0.72;
+      cursor: grabbing;
+      transform: scale(0.985);
+      box-shadow: inset 0 0 0 2px rgba(46, 119, 208, 0.22);
+    }
+    .plan-member-row.drop-before {
+      box-shadow: inset 0 4px 0 rgba(46, 119, 208, 0.86);
+    }
+    .plan-member-row.drop-after {
+      box-shadow: inset 0 -4px 0 rgba(46, 119, 208, 0.86);
+    }
     .plan-table {
       width: max(1480px, 100%);
       border-collapse: separate;
@@ -545,6 +564,13 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       white-space: normal;
       word-break: break-word;
       overflow-wrap: anywhere;
+    }
+    .member-drag-grip {
+      flex: 0 0 auto;
+      color: var(--text-soft);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      line-height: 1;
     }
     .plan-day-cell { min-width: 188px; }
     .plan-day-editor { display: grid; gap: 8px; }
@@ -878,6 +904,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       white-space: pre-wrap;
     }
     [hidden] { display: none !important; }
+    body.member-order-dragging {
+      user-select: none;
+    }
     body[data-theme="dark"] .eyebrow,
     body[data-theme="dark"] .chip,
     body[data-theme="dark"] .tiny-tag {
@@ -965,6 +994,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     }
     body[data-theme="dark"] .plan-member-row {
       background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
+    }
+    body[data-theme="dark"] .plan-member-row:hover {
+      background: rgba(54, 77, 112, 0.78);
+    }
+    body[data-theme="dark"] .member-drag-grip {
+      color: var(--muted);
     }
     body[data-theme="dark"] .plan-table th,
     body[data-theme="dark"] .daily-week-table th,
@@ -1316,7 +1351,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       <div class="section-head">
         <div class="section-head-main">
           <h2>部门本周安排</h2>
-          <div class="muted">按用户横向查看周一到周日安排，编辑后会自动保存。</div>
+          <div class="muted">按用户横向查看周一到周日安排，编辑后会自动保存；拖动左侧人员姓名可调整上下顺序。</div>
         </div>
         <div class="plan-week-meta" id="plan-week-meta"></div>
       </div>
@@ -1452,6 +1487,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
     const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
+    const MEMBER_ORDER_STORAGE_KEY = "daily_planner_department_schedule_member_order_v1";
+    const MEMBER_ORDER_DRAG_THRESHOLD_PX = 6;
     const BING_DAILY_BACKGROUND_PATH = "/api/backgrounds/bing-daily";
     const AUTO_THEME_DAY_START_HOUR = 6;
     const AUTO_THEME_NIGHT_START_HOUR = 19;
@@ -1463,6 +1500,15 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     let isPasswordOverlayOpen = false;
     const planAutoSaveTimers = new Map();
     const planSaveInFlightUsers = new Set();
+    const memberOrderDragState = {
+      pointerId: null,
+      userId: "",
+      sourceRow: null,
+      startY: 0,
+      started: false,
+      dropUserId: "",
+      dropPosition: "",
+    };
 
     function initializePasswordToggleFields() {
       document.querySelectorAll('input[type="password"][data-password-toggle]').forEach((input) => {
@@ -1785,6 +1831,83 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return Array.isArray(latestPayload && latestPayload.members) ? latestPayload.members : [];
     }
 
+    function getMemberUserId(member) {
+      return String(member && member.user && member.user.user_id || "").trim();
+    }
+
+    function getMemberDisplayName(member) {
+      const userId = getMemberUserId(member);
+      return String(member && member.user && (member.user.display_name || userId) || userId || "未命名用户").trim() || "未命名用户";
+    }
+
+    function readStoredMemberOrders() {
+      try {
+        const rawValue = window.localStorage.getItem(MEMBER_ORDER_STORAGE_KEY);
+        const parsed = rawValue ? JSON.parse(rawValue) : {};
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function writeStoredMemberOrders(value) {
+      try {
+        window.localStorage.setItem(MEMBER_ORDER_STORAGE_KEY, JSON.stringify(value || {}));
+      } catch (error) {
+        // Ignore storage failures and keep the in-memory order.
+      }
+    }
+
+    function buildMemberOrderScopeKey(payload = latestPayload) {
+      const viewerUserId = String(payload && payload.viewer && payload.viewer.user_id || "").trim() || "__anonymous__";
+      const departmentKey = String(payload && payload.selected_department || "").trim() || "__all__";
+      return `${viewerUserId}::${departmentKey}`;
+    }
+
+    function getStoredMemberOrder(payload = latestPayload) {
+      const allOrders = readStoredMemberOrders();
+      const scopeKey = buildMemberOrderScopeKey(payload);
+      return Array.isArray(allOrders[scopeKey]) ? allOrders[scopeKey].map((value) => String(value || "").trim()).filter(Boolean) : [];
+    }
+
+    function persistCurrentMemberOrder(payload = latestPayload) {
+      const members = Array.isArray(payload && payload.members) ? payload.members : [];
+      const orderedUserIds = members.map(getMemberUserId).filter(Boolean);
+      if (!orderedUserIds.length) {
+        return;
+      }
+      const allOrders = readStoredMemberOrders();
+      allOrders[buildMemberOrderScopeKey(payload)] = orderedUserIds;
+      writeStoredMemberOrders(allOrders);
+    }
+
+    function applyStoredMemberOrder(payload) {
+      const members = Array.isArray(payload && payload.members) ? payload.members : [];
+      const storedOrder = getStoredMemberOrder(payload);
+      if (members.length < 2 || !storedOrder.length) {
+        return;
+      }
+      const orderIndex = new Map();
+      storedOrder.forEach((userId, index) => {
+        if (!orderIndex.has(userId)) {
+          orderIndex.set(userId, index);
+        }
+      });
+      payload.members = members
+        .map((member, index) => ({ member, index }))
+        .sort((left, right) => {
+          const leftUserId = getMemberUserId(left.member);
+          const rightUserId = getMemberUserId(right.member);
+          const leftOrder = orderIndex.has(leftUserId) ? orderIndex.get(leftUserId) : Number.MAX_SAFE_INTEGER;
+          const rightOrder = orderIndex.has(rightUserId) ? orderIndex.get(rightUserId) : Number.MAX_SAFE_INTEGER;
+          if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+          }
+          return left.index - right.index;
+        })
+        .map((item) => item.member);
+    }
+
     function getMemberByUserId(userId) {
       const normalized = String(userId || "").trim();
       return getMembers().find((member) => String(member && member.user && member.user.user_id || "").trim() === normalized) || null;
@@ -1878,6 +2001,179 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       });
     }
 
+    function syncPlanDraftValuesIntoMembers() {
+      getMembers().forEach((member) => {
+        const userId = getMemberUserId(member);
+        const rowPayload = getWeeklyPlanRowPayload(userId);
+        if (!rowPayload) {
+          return;
+        }
+        member.weekly_plan_rows = Array.isArray(rowPayload.weekly_plan_rows) ? rowPayload.weekly_plan_rows : [];
+        member.weekly_other_pending = String(rowPayload.weekly_other_pending || "");
+      });
+    }
+
+    function getPlanMemberRows() {
+      return Array.from(departmentPlanMembersEl.querySelectorAll('.plan-member-row[data-user-id]'));
+    }
+
+    function clearDepartmentPlanMemberDropHints() {
+      getPlanMemberRows().forEach((row) => {
+        row.classList.remove('drop-before', 'drop-after');
+      });
+    }
+
+    function resetDepartmentPlanMemberDragState() {
+      const { pointerId, sourceRow } = memberOrderDragState;
+      clearDepartmentPlanMemberDropHints();
+      document.body.classList.remove('member-order-dragging');
+      if (sourceRow) {
+        sourceRow.classList.remove('is-dragging');
+        if (pointerId !== null && typeof sourceRow.hasPointerCapture === 'function' && sourceRow.hasPointerCapture(pointerId)) {
+          try {
+            sourceRow.releasePointerCapture(pointerId);
+          } catch (error) {
+            // Ignore pointer-capture cleanup failures.
+          }
+        }
+      }
+      memberOrderDragState.pointerId = null;
+      memberOrderDragState.userId = "";
+      memberOrderDragState.sourceRow = null;
+      memberOrderDragState.startY = 0;
+      memberOrderDragState.started = false;
+      memberOrderDragState.dropUserId = "";
+      memberOrderDragState.dropPosition = "";
+    }
+
+    function updateDepartmentPlanMemberDropTarget(clientY) {
+      const draggedUserId = String(memberOrderDragState.userId || '').trim();
+      const memberRows = getPlanMemberRows().filter((row) => String(row.getAttribute('data-user-id') || '').trim() !== draggedUserId);
+      clearDepartmentPlanMemberDropHints();
+      memberOrderDragState.dropUserId = "";
+      memberOrderDragState.dropPosition = "";
+      if (!memberRows.length) {
+        return;
+      }
+      let targetRow = memberRows[memberRows.length - 1];
+      let dropPosition = 'after';
+      memberRows.some((row) => {
+        const rect = row.getBoundingClientRect();
+        const midpoint = rect.top + rect.height / 2;
+        if (clientY < midpoint) {
+          targetRow = row;
+          dropPosition = 'before';
+          return true;
+        }
+        targetRow = row;
+        dropPosition = 'after';
+        return false;
+      });
+      if (!targetRow) {
+        return;
+      }
+      const targetUserId = String(targetRow.getAttribute('data-user-id') || '').trim();
+      if (!targetUserId) {
+        return;
+      }
+      memberOrderDragState.dropUserId = targetUserId;
+      memberOrderDragState.dropPosition = dropPosition;
+      targetRow.classList.add(dropPosition === 'before' ? 'drop-before' : 'drop-after');
+    }
+
+    function moveDepartmentMemberInPayload(draggedUserId, dropUserId, dropPosition) {
+      const members = Array.isArray(latestPayload && latestPayload.members) ? latestPayload.members.slice() : [];
+      const fromIndex = members.findIndex((member) => getMemberUserId(member) === draggedUserId);
+      const targetIndex = members.findIndex((member) => getMemberUserId(member) === dropUserId);
+      if (fromIndex < 0 || targetIndex < 0) {
+        return false;
+      }
+      let insertIndex = targetIndex + (dropPosition === 'after' ? 1 : 0);
+      const [movedMember] = members.splice(fromIndex, 1);
+      if (!movedMember) {
+        return false;
+      }
+      if (fromIndex < insertIndex) {
+        insertIndex -= 1;
+      }
+      insertIndex = Math.max(0, Math.min(members.length, insertIndex));
+      if (insertIndex === fromIndex) {
+        return false;
+      }
+      members.splice(insertIndex, 0, movedMember);
+      latestPayload.members = members;
+      persistCurrentMemberOrder(latestPayload);
+      renderDepartmentPlanTable(latestPayload);
+      renderMemberSelect(latestPayload);
+      renderSelectedMemberDailyItems();
+      setStatus(`已调整 ${getMemberDisplayName(movedMember)} 的上下顺序。`);
+      return true;
+    }
+
+    function handleDepartmentPlanMemberPointerDown(event) {
+      if (event.button !== undefined && event.button !== 0) {
+        return;
+      }
+      if (getMembers().length < 2) {
+        return;
+      }
+      const row = event.target.closest('.plan-member-row[data-user-id]');
+      if (!row || !departmentPlanMembersEl.contains(row)) {
+        return;
+      }
+      resetDepartmentPlanMemberDragState();
+      memberOrderDragState.pointerId = event.pointerId;
+      memberOrderDragState.userId = String(row.getAttribute('data-user-id') || '').trim();
+      memberOrderDragState.sourceRow = row;
+      memberOrderDragState.startY = Number(event.clientY || 0);
+      if (typeof row.setPointerCapture === 'function') {
+        try {
+          row.setPointerCapture(event.pointerId);
+        } catch (error) {
+          // Ignore pointer-capture setup failures.
+        }
+      }
+    }
+
+    function handleDepartmentPlanMemberPointerMove(event) {
+      if (memberOrderDragState.pointerId !== event.pointerId || !memberOrderDragState.userId) {
+        return;
+      }
+      const clientY = Number(event.clientY || 0);
+      if (!memberOrderDragState.started) {
+        if (Math.abs(clientY - memberOrderDragState.startY) < MEMBER_ORDER_DRAG_THRESHOLD_PX) {
+          return;
+        }
+        memberOrderDragState.started = true;
+        document.body.classList.add('member-order-dragging');
+        if (memberOrderDragState.sourceRow) {
+          memberOrderDragState.sourceRow.classList.add('is-dragging');
+        }
+      }
+      event.preventDefault();
+      updateDepartmentPlanMemberDropTarget(clientY);
+    }
+
+    function finalizeDepartmentPlanMemberDrag(pointerId, clientY) {
+      if (memberOrderDragState.pointerId !== pointerId) {
+        return;
+      }
+      const draggedUserId = String(memberOrderDragState.userId || '').trim();
+      const didStartDrag = Boolean(memberOrderDragState.started);
+      if (didStartDrag) {
+        const resolvedClientY = clientY === undefined || clientY === null ? memberOrderDragState.startY : clientY;
+        updateDepartmentPlanMemberDropTarget(Number(resolvedClientY));
+      }
+      const dropUserId = String(memberOrderDragState.dropUserId || '').trim();
+      const dropPosition = String(memberOrderDragState.dropPosition || '').trim();
+      resetDepartmentPlanMemberDragState();
+      if (!didStartDrag || !draggedUserId || !dropUserId || !dropPosition) {
+        return;
+      }
+      syncPlanDraftValuesIntoMembers();
+      moveDepartmentMemberInPayload(draggedUserId, dropUserId, dropPosition);
+    }
+
     function renderDepartmentSelect(payload) {
       const departments = Array.isArray(payload && payload.departments) ? payload.departments : [];
       const options = [];
@@ -1962,7 +2258,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       departmentPlanMembersEl.innerHTML += members.map((member) => {
         const user = member.user || {};
         const userId = String(user.user_id || "").trim();
-        const userDisplayName = String(user.display_name || userId || "未命名用户").trim();
+        const userDisplayName = getMemberDisplayName(member);
         const userPositions = String(
           user.position_labels
           || (Array.isArray(user.positions) ? user.positions.filter(Boolean).join("、") : "")
@@ -1971,7 +2267,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         ).trim();
         const userMetaTitle = [userDisplayName, formatRole(user)].filter(Boolean).join(" · ");
         return `
-          <div class="plan-member-row" data-user-id="${escapeHtml(userId)}">
+          <div class="plan-member-row" data-user-id="${escapeHtml(userId)}" title="拖动姓名可调整上下顺序">
+            <div class="member-drag-grip" aria-hidden="true">⋮⋮</div>
             <div class="member-text-wrap">
               <div class="member-text" title="${escapeHtml(userMetaTitle)}">${escapeHtml(userDisplayName)}</div>
               ${userPositions ? `<div class="member-subtext">${escapeHtml(userPositions)}</div>` : ''}
@@ -2253,8 +2550,10 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     function applyPayload(payload) {
+      applyStoredMemberOrder(payload);
       latestPayload = payload;
       clearAllPlanAutoSaveTimers();
+      resetDepartmentPlanMemberDragState();
       hideStateCard();
       applyPayloadViewVisibility(payload);
       renderDepartmentSelect(payload);
@@ -2435,6 +2734,16 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       }
       window.requestAnimationFrame(syncDepartmentPlanMemberHeights);
       scheduleMemberWeeklyPlanAutosave(input.getAttribute('data-user-id') || '');
+    });
+    departmentPlanMembersEl.addEventListener('pointerdown', handleDepartmentPlanMemberPointerDown);
+    window.addEventListener('pointermove', handleDepartmentPlanMemberPointerMove);
+    window.addEventListener('pointerup', (event) => {
+      finalizeDepartmentPlanMemberDrag(event.pointerId, event.clientY);
+    });
+    window.addEventListener('pointercancel', (event) => {
+      if (memberOrderDragState.pointerId === event.pointerId) {
+        resetDepartmentPlanMemberDragState();
+      }
     });
 
     initializePasswordToggleFields();
