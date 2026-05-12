@@ -112,44 +112,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       align-items: flex-end;
       gap: 8px;
     }
-    .page-user-badge {
-      position: fixed;
-      top: 16px;
-      left: 20px;
-      z-index: 20;
-      min-width: 220px;
-      max-width: min(460px, calc(100vw - 168px));
-      padding: 12px 14px;
-      border-radius: 20px;
-      border: 1px solid rgba(49, 102, 173, 0.14);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.94), rgba(244,249,255,0.84)),
-        linear-gradient(135deg, rgba(46,119,208,0.08), transparent 72%);
-      box-shadow: 0 16px 36px rgba(35, 86, 156, 0.12);
-      backdrop-filter: blur(14px);
-    }
-    .page-user-badge-label {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent-strong);
-    }
-    .page-user-badge-name {
-      margin-top: 4px;
-      font-size: 20px;
-      font-weight: 800;
-      line-height: 1.2;
-      color: var(--accent-deep);
-      word-break: break-word;
-    }
-    .page-user-badge-meta {
-      margin-top: 4px;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--text-soft);
-      word-break: break-word;
-    }
     .login-status-chip {
       display: inline-flex;
       align-items: center;
@@ -565,6 +527,26 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       word-break: break-word;
       overflow-wrap: anywhere;
     }
+    .member-audit-note {
+      margin-top: 6px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--text-soft);
+      text-align: center;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .member-audit-note strong {
+      display: block;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .member-audit-note span {
+      display: block;
+      margin-top: 2px;
+    }
     .member-drag-grip {
       flex: 0 0 auto;
       color: var(--text-soft);
@@ -602,7 +584,42 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       line-height: 1.5;
     }
     .pending-cell { min-width: 220px; }
+    .pending-cell-content { display: grid; gap: 10px; }
     .pending-input { min-height: 132px; font-size: 12px; line-height: 1.6; }
+    .plan-edit-history {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px dashed rgba(42,111,214,0.16);
+      background: rgba(var(--surface-soft-rgb), var(--shell-surface-soft-alpha));
+    }
+    .plan-edit-history-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--primary-deep);
+      letter-spacing: 0.03em;
+    }
+    .plan-edit-history-list {
+      display: grid;
+      gap: 6px;
+    }
+    .plan-edit-history-item {
+      font-size: 11px;
+      line-height: 1.55;
+      color: var(--text-soft);
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .plan-edit-history-item strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+    .plan-edit-history-empty {
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--text-soft);
+    }
     .action-cell {
       min-width: 170px;
       background: linear-gradient(
@@ -1054,8 +1071,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       color: #ffe6e8;
     }
     body[data-theme="dark"] .daily-day-stat,
-    body[data-theme="dark"] .plan-day-label,
-    body[data-theme="dark"] .page-user-badge-label {
+    body[data-theme="dark"] .plan-day-label {
       color: var(--ink);
     }
     body[data-theme="dark"] .muted,
@@ -1093,6 +1109,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     }
     body[data-theme="dark"] .member-subtext {
       color: var(--muted);
+    }
+    body[data-theme="dark"] .member-audit-note {
+      color: var(--muted);
+    }
+    body[data-theme="dark"] .member-audit-note strong {
+      color: #f8fbff;
     }
     body[data-theme="dark"] .plan-member-list {
       border-color: rgba(255,255,255,0.08);
@@ -1169,12 +1191,17 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-color: rgba(255, 154, 164, 0.34);
       background: linear-gradient(180deg, rgba(99, 42, 51, 0.82) 0%, rgba(69, 29, 36, 0.72) 100%);
     }
-    body[data-theme="dark"] .page-user-badge {
+    body[data-theme="dark"] .plan-edit-history {
       border-color: rgba(255,255,255,0.12);
-      background:
-        linear-gradient(180deg, rgba(36, 54, 82, 0.88), rgba(24, 38, 61, 0.78)),
-        linear-gradient(135deg, rgba(125, 183, 255, 0.12), transparent 72%);
-      box-shadow: 0 18px 42px rgba(5, 10, 18, 0.34);
+      background: rgba(32, 46, 70, 0.72);
+    }
+    body[data-theme="dark"] .plan-edit-history-title,
+    body[data-theme="dark"] .plan-edit-history-item strong {
+      color: #f8fbff;
+    }
+    body[data-theme="dark"] .plan-edit-history-item,
+    body[data-theme="dark"] .plan-edit-history-empty {
+      color: var(--muted);
     }
     body[data-theme="dark"] .background-settings-menu,
     body[data-theme="dark"] .background-settings-group {
@@ -1235,11 +1262,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         margin-bottom: 12px;
         align-items: stretch;
         gap: 10px;
-      }
-      .page-user-badge {
-        position: static;
-        margin-bottom: 12px;
-        max-width: none;
       }
       .page-theme-toggle button,
       .page-theme-toggle .login-status-chip { width: 100%; }
@@ -1420,11 +1442,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
   </script>
   <div class="page-background" aria-hidden="true"></div>
   <div class="wrap">
-    <div class="page-user-badge">
-      <div class="page-user-badge-label">当前登录</div>
-      <div class="page-user-badge-name" id="page-user-display-name">未登录</div>
-      <div class="page-user-badge-meta" id="viewer-meta">请先登录后查看部门日程与编辑安排。</div>
-    </div>
     <div class="page-theme-toggle">
       <button type="button" class="theme-toggle tiny-btn" id="auth-login-button">登录</button>
       <button type="button" class="theme-toggle tiny-btn" id="logout-page" hidden>退出</button>
@@ -1633,7 +1650,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const departmentSelect = document.getElementById("schedule-department");
     const memberUserSelect = document.getElementById("member-user-select");
     const viewerMetaEl = document.getElementById("viewer-meta");
-    const pageUserDisplayNameEl = document.getElementById("page-user-display-name");
     const pageStatusEl = document.getElementById("page-status");
     const toolbarSummaryEl = document.getElementById("toolbar-summary");
     const planWeekMetaEl = document.getElementById("plan-week-meta");
@@ -1837,11 +1853,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       logoutPageButton.hidden = !isAuthenticated;
       passwordButton.hidden = !canCurrentUserChangePassword(currentUser);
       stateLoginButton.hidden = isAuthenticated;
-      if (pageUserDisplayNameEl) {
-        pageUserDisplayNameEl.textContent = isAuthenticated
-          ? (currentUser.display_name || currentUser.user_id || "当前用户")
-          : "未登录";
-      }
       setViewerMetaText(
         isAuthenticated
           ? (formatRole(currentUser) || "已登录")
@@ -2374,6 +2385,82 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return String(member && member.user && (member.user.display_name || userId) || userId || "未命名用户").trim() || "未命名用户";
     }
 
+    function getMemberWeeklyPlanEditLogs(member) {
+      return Array.isArray(member && member.weekly_plan_edit_logs) ? member.weekly_plan_edit_logs : [];
+    }
+
+    function getMemberLatestWeeklyPlanEdit(member) {
+      const logs = getMemberWeeklyPlanEditLogs(member);
+      if (logs.length) {
+        return logs[0];
+      }
+      return member && member.weekly_plan_last_editor && typeof member.weekly_plan_last_editor === 'object'
+        ? member.weekly_plan_last_editor
+        : null;
+    }
+
+    function formatDateTimeLabel(value) {
+      const text = String(value || '').trim();
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)) {
+        return text.slice(5, 16);
+      }
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(text)) {
+        return text.slice(5);
+      }
+      return text || '-';
+    }
+
+    function buildWeeklyPlanEditSummary(log) {
+      const entry = log && typeof log === 'object' ? log : {};
+      const editorName = String(entry.editor_display_name || entry.editor_user_id || '未知用户').trim() || '未知用户';
+      const targetName = String(entry.target_display_name || entry.target_user_id || '当前用户').trim() || '当前用户';
+      if (entry.is_self_edit || (entry.editor_user_id && entry.target_user_id && entry.editor_user_id === entry.target_user_id)) {
+        return `${editorName} 编辑了自己的日程`;
+      }
+      return `${editorName} 编辑了 ${targetName}`;
+    }
+
+    function getMemberLatestWeeklyPlanEditTitle(member) {
+      const latestEdit = getMemberLatestWeeklyPlanEdit(member);
+      if (!latestEdit) {
+        return '暂无编辑记录';
+      }
+      return `${buildWeeklyPlanEditSummary(latestEdit)} · ${String(latestEdit.edited_at || '').trim() || '时间未知'}`;
+    }
+
+    function renderMemberLatestWeeklyPlanEditNote(member) {
+      const latestEdit = getMemberLatestWeeklyPlanEdit(member);
+      if (!latestEdit) {
+        return '<strong>暂无编辑记录</strong><span>本周还没有人修改该安排</span>';
+      }
+      const editorName = String(latestEdit.editor_display_name || latestEdit.editor_user_id || '未知用户').trim() || '未知用户';
+      return `
+        <strong>最近编辑：${escapeHtml(editorName)}</strong>
+        <span>${escapeHtml(formatDateTimeLabel(latestEdit.edited_at))}</span>
+      `;
+    }
+
+    function renderMemberWeeklyPlanEditHistory(member) {
+      const logs = getMemberWeeklyPlanEditLogs(member).slice(0, 3);
+      if (!logs.length) {
+        return `
+          <div class="plan-edit-history-title">本周编辑记录</div>
+          <div class="plan-edit-history-empty">当前周还没有人修改该用户的日程安排。</div>
+        `;
+      }
+      return `
+        <div class="plan-edit-history-title">本周编辑记录</div>
+        <div class="plan-edit-history-list">
+          ${logs.map((log) => `
+            <div class="plan-edit-history-item" title="${escapeHtml(`${buildWeeklyPlanEditSummary(log)} · ${String(log && log.edited_at || '').trim() || '时间未知'}`)}">
+              <strong>${escapeHtml(formatDateTimeLabel(log && log.edited_at))}</strong>
+              ${escapeHtml(buildWeeklyPlanEditSummary(log))}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
     function readStoredMemberOrders() {
       try {
         const rawValue = window.localStorage.getItem(MEMBER_ORDER_STORAGE_KEY);
@@ -2510,6 +2597,29 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       statusEl.innerHTML = renderPlanRowStatusMarkup(statusText, tone);
     }
 
+    function refreshMemberWeeklyPlanEditAudit(userId) {
+      const member = getMemberByUserId(userId);
+      if (!member) {
+        return;
+      }
+      const memberRow = findDepartmentPlanMemberRow(userId);
+      if (memberRow) {
+        const auditEl = memberRow.querySelector('[data-role="member-edit-audit"]');
+        if (auditEl) {
+          auditEl.innerHTML = renderMemberLatestWeeklyPlanEditNote(member);
+          auditEl.title = getMemberLatestWeeklyPlanEditTitle(member);
+        }
+      }
+      const planRow = findDepartmentPlanRow(userId);
+      if (planRow) {
+        const historyEl = planRow.querySelector('[data-role="weekly-plan-edit-history"]');
+        if (historyEl) {
+          historyEl.innerHTML = renderMemberWeeklyPlanEditHistory(member);
+        }
+      }
+      scheduleDepartmentPlanHeightSync();
+    }
+
     function clearAllPlanAutoSaveTimers() {
       planAutoSaveTimers.forEach((timerId) => window.clearTimeout(timerId));
       planAutoSaveTimers.clear();
@@ -2590,6 +2700,11 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 
     function getPlanMemberRows() {
       return Array.from(departmentPlanMembersEl.querySelectorAll('.plan-member-row[data-user-id]'));
+    }
+
+    function findDepartmentPlanMemberRow(userId) {
+      const normalized = String(userId || '').trim();
+      return getPlanMemberRows().find((row) => String(row.getAttribute('data-user-id') || '').trim() === normalized) || null;
     }
 
     function clearDepartmentPlanMemberDropHints() {
@@ -2847,6 +2962,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
             <div class="member-text-wrap">
               <div class="member-text" title="${escapeHtml(userMetaTitle)}">${escapeHtml(userDisplayName)}</div>
               ${userPositions ? `<div class="member-subtext">${escapeHtml(userPositions)}</div>` : ''}
+              <div class="member-audit-note" data-role="member-edit-audit" title="${escapeHtml(getMemberLatestWeeklyPlanEditTitle(member))}">
+                ${renderMemberLatestWeeklyPlanEditNote(member)}
+              </div>
             </div>
           </div>
         `;
@@ -2859,7 +2977,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
           <tr data-user-id="${escapeHtml(userId)}">
             ${weeklyRows.map((row, index) => `<td class="plan-day-cell">${renderPlanDayEditor(userId, row, index)}</td>`).join("")}
             <td class="pending-cell">
-              <textarea class="pending-input" data-user-id="${escapeHtml(userId)}" data-field="weekly_other_pending" placeholder="补充本周其他待办或跨天事项"${canEdit ? "" : " disabled"}>${escapeHtml(member.weekly_other_pending || "")}</textarea>
+              <div class="pending-cell-content">
+                <textarea class="pending-input" data-user-id="${escapeHtml(userId)}" data-field="weekly_other_pending" placeholder="补充本周其他待办或跨天事项"${canEdit ? "" : " disabled"}>${escapeHtml(member.weekly_other_pending || "")}</textarea>
+                <div class="plan-edit-history" data-role="weekly-plan-edit-history">
+                  ${renderMemberWeeklyPlanEditHistory(member)}
+                </div>
+              </div>
             </td>
           </tr>
         `;
@@ -3113,7 +3236,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         member.weekly_plan_rows = Array.isArray(payload.weekly_plan_rows) ? payload.weekly_plan_rows : [];
         member.weekly_other_pending = String(payload.weekly_other_pending || '');
         member.weekly_plan_updated_at = String(payload.updated_at || '');
+        member.weekly_plan_last_editor = payload.weekly_plan_last_editor && typeof payload.weekly_plan_last_editor === 'object'
+          ? payload.weekly_plan_last_editor
+          : null;
+        member.weekly_plan_edit_logs = Array.isArray(payload.weekly_plan_edit_logs) ? payload.weekly_plan_edit_logs : [];
         renderToolbarSummary(latestPayload);
+        refreshMemberWeeklyPlanEditAudit(normalizedUserId);
         scheduleDepartmentPlanHeightSync();
         setStatus(`${member.user && member.user.display_name || normalizedUserId} 的本周安排已保存。`);
         setPlanRowStatus(normalizedUserId, `最近保存：${member.weekly_plan_updated_at || '刚刚'}`);

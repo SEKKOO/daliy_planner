@@ -9122,6 +9122,12 @@ def build_department_schedule_payload(
             _normalize_department_label(item.get("display_name")) or _normalize_department_label(item.get("user_id")),
         )
     )
+    department_user_ids = [str(item.get("user_id") or "").strip() for item in department_users if str(item.get("user_id") or "").strip()]
+    weekly_plan_edit_logs_map = list_weekly_plan_edit_logs_for_targets(
+        week_start,
+        department_user_ids,
+        limit_per_target=3,
+    )
 
     daily_totals = [
         {"work_date": work_date, "weekday_label": DEPARTMENT_SCHEDULE_WEEKDAY_LABELS[index], "filled_users": 0, "total_items": 0, "total_hours": 0.0}
@@ -9136,6 +9142,7 @@ def build_department_schedule_payload(
         member_user_id = str(member.get("user_id") or "").strip()
         _, weekly_plan_settings, weekly_plan_updated_at = get_weekly_plan_settings(target_date, user_id=member_user_id)
         weekly_plan_rows = build_department_weekly_plan_rows(weekly_plan_settings)
+        weekly_plan_edit_logs = list(weekly_plan_edit_logs_map.get(member_user_id) or [])
         week_entries = fetch_week_entries(target_date, user_id=member_user_id) if viewer_can_view_daily_details else []
         entry_map = {str(entry["work_date"]): entry for entry in week_entries if entry}
         member_total_hours = 0.0
@@ -9188,6 +9195,8 @@ def build_department_schedule_payload(
                 "weekly_plan_rows": weekly_plan_rows,
                 "weekly_other_pending": str(weekly_plan_settings.get("weekly_other_pending", "") or "").strip(),
                 "weekly_plan_updated_at": weekly_plan_updated_at,
+                "weekly_plan_last_editor": weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None,
+                "weekly_plan_edit_logs": weekly_plan_edit_logs,
                 "days": days,
                 "week_stats": {
                     "total_hours": format_hours(member_total_hours),
@@ -9342,6 +9351,25 @@ def init_db() -> None:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_weekly_plans_user_week ON weekly_plans(user_id, week_start)"
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_plan_edit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_start TEXT NOT NULL,
+                target_user_id TEXT NOT NULL,
+                target_display_name TEXT NOT NULL DEFAULT '',
+                editor_user_id TEXT NOT NULL,
+                editor_display_name TEXT NOT NULL DEFAULT '',
+                edited_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_weekly_plan_edit_logs_target_week
+            ON weekly_plan_edit_logs(target_user_id, week_start, edited_at DESC, id DESC)
+            """
+        )
         existing_weekly_rows = connection.execute(
             "SELECT COUNT(*) AS row_count FROM weekly_plans WHERE user_id = ?",
             (DEFAULT_LOCAL_USER_ID,),
@@ -9448,6 +9476,127 @@ def save_weekly_plan_settings(
             ),
         )
     return normalized_week_start, settings, timestamp
+
+
+def build_weekly_plan_edit_log_payload(row: sqlite3.Row | dict | None) -> dict:
+    source = row if isinstance(row, (sqlite3.Row, dict)) else {}
+    editor_user_id = str(source.get("editor_user_id") or "").strip()
+    target_user_id = str(source.get("target_user_id") or "").strip()
+    return {
+        "editor_user_id": editor_user_id,
+        "editor_display_name": str(source.get("editor_display_name") or editor_user_id).strip() or editor_user_id,
+        "target_user_id": target_user_id,
+        "target_display_name": str(source.get("target_display_name") or target_user_id).strip() or target_user_id,
+        "edited_at": str(source.get("edited_at") or "").strip(),
+        "is_self_edit": bool(editor_user_id and target_user_id and editor_user_id == target_user_id),
+    }
+
+
+def record_weekly_plan_edit_log(
+    week_start: str,
+    *,
+    target_user: dict | None,
+    editor_user: dict | None,
+    edited_at: str | None = None,
+) -> dict:
+    normalized_week_start = get_week_start(week_start)
+    target_user_id = normalize_user_id(str(target_user.get("user_id") or "") if isinstance(target_user, dict) else "")
+    editor_user_id = normalize_user_id(str(editor_user.get("user_id") or "") if isinstance(editor_user, dict) else "")
+    timestamp = str(edited_at or "").strip() or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload = {
+        "week_start": normalized_week_start,
+        "target_user_id": target_user_id,
+        "target_display_name": str(
+            (target_user.get("display_name") or target_user_id) if isinstance(target_user, dict) else target_user_id
+        ).strip()
+        or target_user_id,
+        "editor_user_id": editor_user_id,
+        "editor_display_name": str(
+            (editor_user.get("display_name") or editor_user_id) if isinstance(editor_user, dict) else editor_user_id
+        ).strip()
+        or editor_user_id,
+        "edited_at": timestamp,
+    }
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO weekly_plan_edit_logs (
+                week_start,
+                target_user_id,
+                target_display_name,
+                editor_user_id,
+                editor_display_name,
+                edited_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["week_start"],
+                payload["target_user_id"],
+                payload["target_display_name"],
+                payload["editor_user_id"],
+                payload["editor_display_name"],
+                payload["edited_at"],
+            ),
+        )
+    return build_weekly_plan_edit_log_payload(payload)
+
+
+def list_weekly_plan_edit_logs(
+    week_start: str,
+    *,
+    target_user_id: str | None = None,
+    limit: int = 3,
+) -> list[dict]:
+    normalized_week_start = get_week_start(week_start)
+    normalized_target_user_id = normalize_user_id(target_user_id)
+    resolved_limit = max(1, int(limit or 0))
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT target_user_id, target_display_name, editor_user_id, editor_display_name, edited_at
+            FROM weekly_plan_edit_logs
+            WHERE week_start = ? AND target_user_id = ?
+            ORDER BY edited_at DESC, id DESC
+            LIMIT ?
+            """,
+            (normalized_week_start, normalized_target_user_id, resolved_limit),
+        ).fetchall()
+    return [build_weekly_plan_edit_log_payload(row) for row in rows]
+
+
+def list_weekly_plan_edit_logs_for_targets(
+    week_start: str,
+    target_user_ids: list[str] | tuple[str, ...],
+    *,
+    limit_per_target: int = 3,
+) -> dict[str, list[dict]]:
+    normalized_week_start = get_week_start(week_start)
+    normalized_user_ids = []
+    for item in target_user_ids:
+        normalized_user_id = normalize_user_id(item)
+        if normalized_user_id and normalized_user_id not in normalized_user_ids:
+            normalized_user_ids.append(normalized_user_id)
+    if not normalized_user_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in normalized_user_ids)
+    params = [normalized_week_start, *normalized_user_ids]
+    query = f"""
+        SELECT target_user_id, target_display_name, editor_user_id, editor_display_name, edited_at
+        FROM weekly_plan_edit_logs
+        WHERE week_start = ? AND target_user_id IN ({placeholders})
+        ORDER BY target_user_id ASC, edited_at DESC, id DESC
+    """
+    grouped: dict[str, list[dict]] = {user_id: [] for user_id in normalized_user_ids}
+    with get_connection() as connection:
+        rows = connection.execute(query, params).fetchall()
+    for row in rows:
+        target_user_id = normalize_user_id(row["target_user_id"])
+        bucket = grouped.setdefault(target_user_id, [])
+        if len(bucket) >= max(1, int(limit_per_target or 0)):
+            continue
+        bucket.append(build_weekly_plan_edit_log_payload(row))
+    return grouped
 
 
 def normalize_ui_settings(payload: dict | None) -> dict:
@@ -14046,23 +14195,46 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                     str(payload.get("user_id", "")).strip(),
                 )
                 week_start = str(payload.get("week_start", date.today().isoformat())).strip() or date.today().isoformat()
+                target_user_id = str(target_user.get("user_id", "")).strip()
+                saved_week_start = get_week_start(week_start)
+                _, current_settings, current_updated_at = get_weekly_plan_settings(
+                    saved_week_start,
+                    user_id=target_user_id,
+                )
                 settings = build_department_weekly_plan_settings_from_rows(
                     payload.get("weekly_plan_rows", []),
                     weekly_other_pending=payload.get("weekly_other_pending", ""),
                 )
-                saved_week_start, saved_settings, updated_at = save_weekly_plan_settings(
-                    week_start,
-                    settings,
-                    user_id=str(target_user.get("user_id", "")).strip(),
+                if settings != current_settings:
+                    saved_week_start, saved_settings, updated_at = save_weekly_plan_settings(
+                        week_start,
+                        settings,
+                        user_id=target_user_id,
+                    )
+                    record_weekly_plan_edit_log(
+                        saved_week_start,
+                        target_user=target_user,
+                        editor_user=current_user,
+                        edited_at=updated_at,
+                    )
+                else:
+                    saved_settings = current_settings
+                    updated_at = current_updated_at
+                weekly_plan_edit_logs = list_weekly_plan_edit_logs(
+                    saved_week_start,
+                    target_user_id=target_user_id,
+                    limit=3,
                 )
                 self._send_json(
                     {
                         "ok": True,
-                        "user_id": str(target_user.get("user_id", "")).strip(),
+                        "user_id": target_user_id,
                         "week_start": saved_week_start,
                         "weekly_plan_rows": build_department_weekly_plan_rows(saved_settings),
                         "weekly_other_pending": str(saved_settings.get("weekly_other_pending", "") or "").strip(),
                         "updated_at": updated_at,
+                        "weekly_plan_last_editor": weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None,
+                        "weekly_plan_edit_logs": weekly_plan_edit_logs,
                     },
                     status=HTTPStatus.OK,
                 )
