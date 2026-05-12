@@ -2252,7 +2252,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         </div>
       `;
       if (!members.length) {
-        departmentPlanBody.innerHTML = '<tr><td colspan="8"><div class="empty-card">当前部门暂无成员，请先补充成员所属部门后再查看。</div></td></tr>';
+        departmentPlanBody.innerHTML = '<tr><td colspan="8"><div class="empty-card">当前部门暂无可展示成员，请先在本地账号管理中为对应用户开启“在日程管理页展示”。</div></td></tr>';
         return;
       }
       departmentPlanMembersEl.innerHTML += members.map((member) => {
@@ -2304,7 +2304,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       }
       const members = Array.isArray(payload && payload.members) ? payload.members : [];
       if (!members.length) {
-        memberUserSelect.innerHTML = '<option value="">当前部门暂无成员</option>';
+        memberUserSelect.innerHTML = '<option value="">当前部门暂无可展示成员</option>';
         memberUserSelect.disabled = true;
         selectedMemberUserId = "";
         return;

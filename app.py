@@ -9093,7 +9093,7 @@ def _is_department_schedule_visible_user(user: dict | None) -> bool:
         return False
     if bool(user.get("has_local_account")) and not bool(user.get("enabled", True)):
         return False
-    return True
+    return bool(user.get("show_in_department_schedule"))
 
 
 def resolve_department_schedule_target_user(
@@ -9109,7 +9109,7 @@ def resolve_department_schedule_target_user(
     if not target_user:
         raise ValueError("目标用户不存在。")
     if not _is_department_schedule_visible_user(target_user):
-        raise ValueError("目标用户已停用，无法维护其日程安排。")
+        raise ValueError("目标用户当前未开启日程管理展示，无法维护其日程安排。")
     if str(current_user.get("role") or "") == "admin":
         return target_user
 
@@ -14190,6 +14190,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                     enabled=bool(payload.get("enabled", True)),
                     is_admin=bool(payload.get("is_admin", False)),
                     is_department_admin=bool(payload.get("is_department_admin", False)),
+                    show_in_department_schedule=bool(payload.get("show_in_department_schedule", False)),
                 )
                 self._send_json({"ok": True, "account": account}, status=HTTPStatus.OK)
             except ValueError as error:

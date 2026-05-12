@@ -693,6 +693,7 @@ def init_auth_storage() -> None:
                 department TEXT NOT NULL DEFAULT '',
                 is_admin INTEGER NOT NULL DEFAULT 0,
                 is_department_admin INTEGER NOT NULL DEFAULT 0,
+                show_in_department_schedule INTEGER NOT NULL DEFAULT 0,
                 password_hash TEXT NOT NULL,
                 salt_hex TEXT NOT NULL,
                 iterations INTEGER NOT NULL,
@@ -723,6 +724,10 @@ def init_auth_storage() -> None:
         if "is_department_admin" not in local_account_columns:
             connection.execute(
                 "ALTER TABLE local_accounts ADD COLUMN is_department_admin INTEGER NOT NULL DEFAULT 0"
+            )
+        if "show_in_department_schedule" not in local_account_columns:
+            connection.execute(
+                "ALTER TABLE local_accounts ADD COLUMN show_in_department_schedule INTEGER NOT NULL DEFAULT 0"
             )
         if local_account_admin_column_added:
             legacy_admin_user_ids = sorted(_get_legacy_local_account_admin_user_ids(connection))
@@ -968,7 +973,8 @@ def get_user_by_id(user_id: str | None) -> dict[str, Any] | None:
                 local_accounts.username AS local_account_username,
                 COALESCE(local_accounts.is_enabled, 1) AS local_account_enabled_flag,
                 COALESCE(local_accounts.is_admin, 0) AS local_account_admin_flag,
-                COALESCE(local_accounts.is_department_admin, 0) AS department_admin_flag
+                COALESCE(local_accounts.is_department_admin, 0) AS department_admin_flag,
+                COALESCE(local_accounts.show_in_department_schedule, 0) AS department_schedule_visible_flag
             FROM users
             LEFT JOIN local_accounts ON local_accounts.user_id = users.user_id
             WHERE users.user_id = ?
@@ -992,6 +998,7 @@ def get_user_by_id(user_id: str | None) -> dict[str, Any] | None:
         "has_local_account": has_local_account,
         "enabled": bool(int(row["local_account_enabled_flag"] or 0)) if has_local_account else True,
         "is_department_admin": bool(int(row["department_admin_flag"] or 0)),
+        "show_in_department_schedule": bool(int(row["department_schedule_visible_flag"] or 0)) if has_local_account else False,
         "created_at": str(row["created_at"] or ""),
         "updated_at": str(row["updated_at"] or ""),
     }
@@ -1013,7 +1020,8 @@ def list_all_users() -> list[dict[str, Any]]:
                 local_accounts.username AS local_account_username,
                 COALESCE(local_accounts.is_enabled, 1) AS local_account_enabled_flag,
                 COALESCE(local_accounts.is_admin, 0) AS local_account_admin_flag,
-                COALESCE(local_accounts.is_department_admin, 0) AS department_admin_flag
+                COALESCE(local_accounts.is_department_admin, 0) AS department_admin_flag,
+                COALESCE(local_accounts.show_in_department_schedule, 0) AS department_schedule_visible_flag
             FROM users
             LEFT JOIN local_accounts ON local_accounts.user_id = users.user_id
             ORDER BY
@@ -1040,6 +1048,7 @@ def list_all_users() -> list[dict[str, Any]]:
                 "has_local_account": has_local_account,
                 "enabled": bool(int(row["local_account_enabled_flag"] or 0)) if has_local_account else True,
                 "is_department_admin": bool(int(row["department_admin_flag"] or 0)),
+                "show_in_department_schedule": bool(int(row["department_schedule_visible_flag"] or 0)) if has_local_account else False,
                 "created_at": str(row["created_at"] or ""),
                 "updated_at": str(row["updated_at"] or ""),
             }
@@ -1770,6 +1779,10 @@ def _serialize_local_account(row: sqlite3.Row) -> dict[str, Any]:
         is_department_admin = bool(int(row["is_department_admin"] or 0))
     except (IndexError, KeyError, TypeError, ValueError):
         is_department_admin = is_department_admin_user_id(user_id)
+    try:
+        show_in_department_schedule = bool(int(row["show_in_department_schedule"] or 0))
+    except (IndexError, KeyError, TypeError, ValueError):
+        show_in_department_schedule = False
     if not stored_positions and isinstance(user, dict):
         stored_positions = list(user.get("positions") or [])
     return {
@@ -1783,6 +1796,7 @@ def _serialize_local_account(row: sqlite3.Row) -> dict[str, Any]:
         "enabled": bool(int(row["is_enabled"] or 0)),
         "is_admin": is_admin,
         "is_department_admin": is_department_admin,
+        "show_in_department_schedule": show_in_department_schedule,
         "created_at": str(row["created_at"] or ""),
         "updated_at": str(row["updated_at"] or ""),
     }
@@ -1793,7 +1807,7 @@ def get_local_account_by_username(username: str | None) -> dict[str, Any] | None
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, is_enabled, created_at, updated_at
+            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, show_in_department_schedule, is_enabled, created_at, updated_at
             FROM local_accounts
             WHERE username = ?
             """,
@@ -1809,7 +1823,7 @@ def get_local_account_by_user_id(user_id: str | None) -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, is_enabled, created_at, updated_at
+            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, show_in_department_schedule, is_enabled, created_at, updated_at
             FROM local_accounts
             WHERE user_id = ?
             """,
@@ -1824,7 +1838,7 @@ def list_local_accounts() -> list[dict[str, Any]]:
     with get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, is_enabled, created_at, updated_at
+            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, show_in_department_schedule, is_enabled, created_at, updated_at
             FROM local_accounts
             ORDER BY
                 CASE WHEN user_id = ? THEN 0 ELSE 1 END ASC,
@@ -1846,6 +1860,7 @@ def save_local_account(
     enabled: bool = True,
     is_admin: bool = False,
     is_department_admin: bool = False,
+    show_in_department_schedule: bool = False,
 ) -> dict[str, Any]:
     normalized_username = normalize_local_username(username)
     normalized_display_name = str(display_name or "").strip() or normalized_username
@@ -1869,7 +1884,7 @@ def save_local_account(
     with get_connection() as connection:
         existing = connection.execute(
             """
-            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, password_hash, salt_hex, iterations, is_enabled, created_at, updated_at
+            SELECT username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, show_in_department_schedule, password_hash, salt_hex, iterations, is_enabled, created_at, updated_at
             FROM local_accounts
             WHERE username = ?
             """,
@@ -1884,6 +1899,7 @@ def save_local_account(
         enabled_value = True if is_default_admin else bool(enabled)
         admin_value = True if is_default_admin else bool(is_admin)
         department_admin_value = False if is_default_admin else bool(is_department_admin)
+        department_schedule_visible_value = bool(show_in_department_schedule)
         ensure_user(
             user_id,
             display_name=normalized_display_name,
@@ -1903,7 +1919,7 @@ def save_local_account(
             connection.execute(
                 """
                 UPDATE local_accounts
-                SET user_id = ?, display_name = ?, position = ?, positions_json = ?, department = ?, is_admin = ?, is_department_admin = ?, password_hash = ?, salt_hex = ?, iterations = ?, is_enabled = ?, updated_at = ?
+                SET user_id = ?, display_name = ?, position = ?, positions_json = ?, department = ?, is_admin = ?, is_department_admin = ?, show_in_department_schedule = ?, password_hash = ?, salt_hex = ?, iterations = ?, is_enabled = ?, updated_at = ?
                 WHERE username = ?
                 """,
                 (
@@ -1914,6 +1930,7 @@ def save_local_account(
                     normalized_department,
                     1 if admin_value else 0,
                     1 if department_admin_value else 0,
+                    1 if department_schedule_visible_value else 0,
                     password_hash,
                     salt_hex,
                     iterations,
@@ -1929,9 +1946,9 @@ def save_local_account(
             connection.execute(
                 """
                 INSERT INTO local_accounts (
-                    username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, password_hash, salt_hex, iterations, is_enabled, created_at, updated_at
+                    username, user_id, display_name, position, positions_json, department, is_admin, is_department_admin, show_in_department_schedule, password_hash, salt_hex, iterations, is_enabled, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized_username,
@@ -1942,6 +1959,7 @@ def save_local_account(
                     normalized_department,
                     1 if admin_value else 0,
                     1 if department_admin_value else 0,
+                    1 if department_schedule_visible_value else 0,
                     str(credentials["password_hash"]),
                     str(credentials["salt_hex"]),
                     int(credentials["iterations"]),

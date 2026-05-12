@@ -1230,7 +1230,7 @@ def render_admin_html(
       </div>
       <div class="card">
         <h2>本地账号管理</h2>
-        <div class="muted">本地账号可直接用于网页登录；账号启停、管理员权限、部门管理员权限、岗位和所属部门都在这里统一维护。</div>
+        <div class="muted">本地账号可直接用于网页登录；账号启停、管理员权限、部门管理员权限、日程展示权限、岗位和所属部门都在这里统一维护。</div>
         <div class="row" style="margin-top:10px;">
           <div class="col"><label>账号 <input id="local-account-username" type="text" placeholder="例如 zhangsan"></label></div>
           <div class="col"><label>显示名称 <input id="local-account-display-name" type="text" placeholder="例如 张三"></label></div>
@@ -1280,9 +1280,10 @@ def render_admin_html(
             <label class="checkline"><input id="local-account-enabled" type="checkbox" checked>启用账号</label>
             <label class="checkline"><input id="local-account-is-admin" type="checkbox">管理员</label>
             <label class="checkline"><input id="local-account-is-department-admin" type="checkbox">部门管理员</label>
+            <label class="checkline"><input id="local-account-show-in-department-schedule" type="checkbox">在日程管理页展示</label>
           </div>
         </div>
-        <div class="muted" style="margin-top:10px;">账号仅支持 3-64 位字母、数字、._@-；默认 <span class="code">admin</span> 账号始终保留管理员权限。</div>
+        <div class="muted" style="margin-top:10px;">账号仅支持 3-64 位字母、数字、._@-；默认 <span class="code">admin</span> 账号始终保留管理员权限。未勾选“在日程管理页展示”的用户不会出现在日程管理页面。</div>
         <div class="row" style="margin-top:10px;">
           <button id="save-local-account">保存本地账号</button>
           <button class="secondary" id="reset-local-account-form">清空表单</button>
@@ -1292,7 +1293,7 @@ def render_admin_html(
         <div class="table-shell">
           <table>
             <thead>
-              <tr><th>账号</th><th>显示名</th><th>岗位</th><th>所属部门</th><th>本地 userId</th><th>状态</th><th>角色</th><th>最近更新时间</th><th>操作</th></tr>
+              <tr><th>账号</th><th>显示名</th><th>岗位</th><th>所属部门</th><th>本地 userId</th><th>状态</th><th>角色</th><th>日程展示</th><th>最近更新时间</th><th>操作</th></tr>
             </thead>
             <tbody id="local-accounts-body"></tbody>
           </table>
@@ -1443,6 +1444,7 @@ def render_admin_html(
     const localAccountEnabledEl = document.getElementById("local-account-enabled");
     const localAccountIsAdminEl = document.getElementById("local-account-is-admin");
     const localAccountIsDepartmentAdminEl = document.getElementById("local-account-is-department-admin");
+    const localAccountShowInDepartmentScheduleEl = document.getElementById("local-account-show-in-department-schedule");
     const localAccountsBody = document.getElementById("local-accounts-body");
     const localAccountStatus = document.getElementById("local-account-status");
     const dingtalkEnabledEl = document.getElementById("dingtalk-enabled");
@@ -2171,6 +2173,7 @@ def render_admin_html(
       localAccountEnabledEl.checked = true;
       localAccountIsAdminEl.checked = false;
       localAccountIsDepartmentAdminEl.checked = false;
+      localAccountShowInDepartmentScheduleEl.checked = false;
       renderLocalAccountPositionOptions("");
       renderLocalAccountDepartmentOptions("");
       setMessage(localAccountStatus, "", false);
@@ -2184,6 +2187,7 @@ def render_admin_html(
       localAccountEnabledEl.checked = row.enabled !== false;
       localAccountIsAdminEl.checked = Boolean(row.is_admin);
       localAccountIsDepartmentAdminEl.checked = Boolean(row.is_department_admin);
+      localAccountShowInDepartmentScheduleEl.checked = Boolean(row.show_in_department_schedule);
       renderLocalAccountPositionOptions(row.positions || row.position || []);
       renderLocalAccountDepartmentOptions(row.department || "");
     }
@@ -2239,11 +2243,12 @@ def render_admin_html(
     function renderLocalAccounts(rows) {
       localAccounts = Array.isArray(rows) ? rows.slice() : [];
       if (!localAccounts.length) {
-        localAccountsBody.innerHTML = '<tr><td colspan="9">暂无本地账号</td></tr>';
+        localAccountsBody.innerHTML = '<tr><td colspan="10">暂无本地账号</td></tr>';
         return;
       }
       localAccountsBody.innerHTML = localAccounts.map((row) => {
         const status = row.enabled ? "启用" : "停用";
+        const scheduleVisibility = row.show_in_department_schedule ? "展示" : "不展示";
         const roleList = [];
         if (row.is_admin) {
           roleList.push("管理员");
@@ -2267,6 +2272,7 @@ def render_admin_html(
           <td><span class="code">${escapeHtml(row.user_id || "")}</span></td>
           <td>${status}</td>
           <td>${role}</td>
+          <td>${scheduleVisibility}</td>
           <td>${escapeHtml(row.updated_at || "") || "未记录"}</td>
           <td>
             <div class="local-account-actions">
@@ -2304,6 +2310,7 @@ def render_admin_html(
         enabled: localAccountEnabledEl.checked,
         is_admin: localAccountIsAdminEl.checked,
         is_department_admin: localAccountIsDepartmentAdminEl.checked,
+        show_in_department_schedule: localAccountShowInDepartmentScheduleEl.checked,
       };
       if (!payload.positions.length) {
         setMessage(localAccountStatus, "请至少选择一个岗位。", true);
