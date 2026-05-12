@@ -360,9 +360,7 @@ INDEX_HTML = """<!DOCTYPE html>
       padding: 12px 14px;
       border-radius: 20px;
       border: 1px solid rgba(49, 102, 173, 0.14);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.94), rgba(244,249,255,0.84)),
-        linear-gradient(135deg, rgba(46,119,208,0.08), transparent 72%);
+      background: var(--boot-region-background, linear-gradient(180deg, rgba(255,255,255,0.94), rgba(244,249,255,0.84)));
       box-shadow: 0 16px 36px rgba(35, 86, 156, 0.12);
       backdrop-filter: blur(14px);
     }
@@ -2612,9 +2610,6 @@ INDEX_HTML = """<!DOCTYPE html>
 
     body[data-theme="dark"] .page-user-badge {
       border-color: rgba(255,255,255,0.12);
-      background:
-        linear-gradient(180deg, rgba(36, 54, 82, 0.88), rgba(24, 38, 61, 0.78)),
-        linear-gradient(135deg, rgba(125, 183, 255, 0.12), transparent 72%);
       box-shadow: 0 18px 42px rgba(5, 10, 18, 0.34);
     }
 
@@ -3735,6 +3730,7 @@ INDEX_HTML = """<!DOCTYPE html>
     const editorPanel = document.getElementById("editor-panel");
     const monthPanel = document.getElementById("month-panel");
     const pageBackground = document.getElementById("page-background");
+    const pageUserBadge = document.getElementById("page-user-badge");
     const customerNameOptions = document.getElementById("customer-name-options");
     const pageUserBadgeLabel = document.getElementById("page-user-badge-label");
     const pageUserDisplayName = document.getElementById("page-user-display-name");
@@ -5610,6 +5606,9 @@ INDEX_HTML = """<!DOCTYPE html>
     function applyVisualSettings(settings) {
       currentUiSettings = normalizeUiSettings(settings);
       const theme = document.body.dataset.theme === "dark" ? "dark" : "light";
+      const root = document.documentElement;
+      const regionSurface = buildRegionSurface(theme, currentUiSettings.region_opacity);
+      const panelSurface = buildRegionSurface(theme, Math.max(0.18, currentUiSettings.region_opacity - 0.04));
       document.documentElement.style.backgroundImage = buildViewportFallback(theme);
       document.documentElement.style.backgroundColor = theme === "dark" ? "#101a29" : "#e2edfb";
       pageBackground.style.backgroundColor = theme === "dark" ? "#101a29" : "#e2edfb";
@@ -5622,12 +5621,17 @@ INDEX_HTML = """<!DOCTYPE html>
       pageBackground.style.backgroundPosition = backgroundLayerStyle.position;
       pageBackground.style.backgroundRepeat = backgroundLayerStyle.repeat;
       scheduleBackgroundStretch();
+      root.style.setProperty("--boot-panel-background", panelSurface);
+      root.style.setProperty("--boot-region-background", regionSurface);
 
-      weeklyPlanPanel.style.background = buildRegionSurface(theme, Math.max(0.18, currentUiSettings.region_opacity - 0.04));
-      weeklyPlanBox.style.background = buildRegionSurface(theme, currentUiSettings.region_opacity);
+      weeklyPlanPanel.style.background = panelSurface;
+      weeklyPlanBox.style.background = regionSurface;
       weeklyBoardScroll.style.background = "";
-      editorPanel.style.background = buildRegionSurface(theme, currentUiSettings.region_opacity);
-      monthPanel.style.background = buildRegionSurface(theme, currentUiSettings.region_opacity);
+      editorPanel.style.background = regionSurface;
+      monthPanel.style.background = regionSurface;
+      if (pageUserBadge) {
+        pageUserBadge.style.background = regionSurface;
+      }
       weeklyPlanBox.querySelectorAll(".weekly-head, .weekly-cell, .weekly-label, .weekly-pending").forEach((element) => {
         element.style.background = "";
       });
@@ -7437,12 +7441,6 @@ INDEX_HTML = """<!DOCTYPE html>
               <span>客户名称：</span>
               <input type="text" data-field="customer_name" list="customer-name-options" autocomplete="off" value="${escapeHtml(item.customer_name || "")}" placeholder="请输入客户名称">
             </label>
-            <div class="customer-profile-helper" data-role="customer-profile-helper" hidden>
-              <div class="customer-profile-tip">该客户存在多组历史项目类型和销售，请选择后自动带出。</div>
-              <select class="customer-profile-select" data-role="customer-profile-select">
-                <option value="">请选择历史项目类型 / 销售</option>
-              </select>
-            </div>
             <label class="base-info-line">
               <span>项目类型：</span>
               <select data-field="project_type">
@@ -7575,16 +7573,11 @@ INDEX_HTML = """<!DOCTYPE html>
     function normalizeProfileCombination(profile) {
       const projectType = String(profile && profile.project_type || "").trim();
       const sales = String(profile && profile.sales || "").trim();
-      if (!projectType && !sales) {
+      const itemType = String(profile && profile.item_type || "").trim();
+      if (!projectType && !sales && !itemType) {
         return "";
       }
-      return `${projectType}__${sales}`;
-    }
-
-    function buildCustomerProfileLabel(profile) {
-      const projectType = String(profile && profile.project_type || "").trim() || "未设项目类型";
-      const sales = String(profile && profile.sales || "").trim() || "未设销售";
-      return `${projectType} / ${sales}`;
+      return `${projectType}__${sales}__${itemType}`;
     }
 
     function updateCustomerNameOptions() {
@@ -7613,6 +7606,7 @@ INDEX_HTML = """<!DOCTYPE html>
             customer_name: String(profile.customer_name || "").trim(),
             project_type: String(profile.project_type || "").trim(),
             sales: String(profile.sales || "").trim(),
+            item_type: String(profile.item_type || "").trim(),
           });
         });
         nextProfiles[normalizedKey] = dedupedProfiles;
@@ -7640,6 +7634,7 @@ INDEX_HTML = """<!DOCTYPE html>
             customer_name: String(profile.customer_name || "").trim(),
             project_type: String(profile.project_type || "").trim(),
             sales: String(profile.sales || "").trim(),
+            item_type: String(profile.item_type || "").trim(),
           });
         });
         mergedProfiles[normalizedKey] = currentProfiles;
@@ -7660,10 +7655,11 @@ INDEX_HTML = """<!DOCTYPE html>
         const normalizedName = normalizeCustomerNameValue(customerName);
         const projectType = String(item && item.project_type || "").trim();
         const sales = String(item && item.sales || "").trim();
+        const itemType = String(item && item.item_type || "").trim();
         if (!normalizedName) {
           return;
         }
-        if (!projectType && !sales) {
+        if (!projectType && !sales && !itemType) {
           return;
         }
         profiles[normalizedName] = profiles[normalizedName] || [];
@@ -7671,6 +7667,7 @@ INDEX_HTML = """<!DOCTYPE html>
           customer_name: customerName,
           project_type: projectType,
           sales,
+          item_type: itemType,
         });
       });
       return profiles;
@@ -7775,36 +7772,16 @@ INDEX_HTML = """<!DOCTYPE html>
     function fillCustomerProfileFields(row, profile) {
       const projectTypeSelect = row.querySelector('select[data-field="project_type"]');
       const salesSelect = row.querySelector('select[data-field="sales"]');
+      const itemTypeSelect = row.querySelector('select[data-field="item_type"]');
       if (projectTypeSelect && profile.project_type) {
         projectTypeSelect.value = profile.project_type;
       }
       if (salesSelect && profile.sales) {
         salesSelect.value = profile.sales;
       }
-    }
-
-    function hideCustomerProfilePicker(row) {
-      const helper = row.querySelector('[data-role="customer-profile-helper"]');
-      const select = row.querySelector('[data-role="customer-profile-select"]');
-      if (!helper || !select) {
-        return;
+      if (itemTypeSelect && profile.item_type) {
+        itemTypeSelect.value = profile.item_type;
       }
-      select.innerHTML = '<option value="">请选择历史项目类型 / 销售</option>';
-      helper.hidden = true;
-    }
-
-    function showCustomerProfilePicker(row, customerName, profiles) {
-      const helper = row.querySelector('[data-role="customer-profile-helper"]');
-      const select = row.querySelector('[data-role="customer-profile-select"]');
-      if (!helper || !select) {
-        return;
-      }
-
-      select.innerHTML = `
-        <option value="">请选择 ${escapeHtml(customerName)} 的历史项目类型 / 销售</option>
-        ${profiles.map((profile, index) => `<option value="${index}">${escapeHtml(buildCustomerProfileLabel(profile))}</option>`).join("")}
-      `;
-      helper.hidden = false;
     }
 
     function syncCustomerRelatedFields(input, options = {}) {
@@ -7815,49 +7792,24 @@ INDEX_HTML = """<!DOCTYPE html>
 
       const customerName = input.value.trim();
       if (!customerName) {
-        hideCustomerProfilePicker(row);
         return;
       }
 
       const profiles = getCustomerProfilesByName(customerName);
       if (!profiles.length) {
-        hideCustomerProfilePicker(row);
         return;
       }
 
-      const projectTypeSelect = row.querySelector('select[data-field="project_type"]');
-      const salesSelect = row.querySelector('select[data-field="sales"]');
-      const currentProfileKey = normalizeProfileCombination({
-        project_type: projectTypeSelect && projectTypeSelect.value || "",
-        sales: salesSelect && salesSelect.value || "",
-      });
-      const matchedCurrentProfile = profiles.find((profile) => normalizeProfileCombination(profile) === currentProfileKey);
-
-      if (profiles.length === 1) {
-        hideCustomerProfilePicker(row);
-        fillCustomerProfileFields(row, profiles[0]);
-        if (options.showStatus) {
-          setStatus(`已自动带出 ${customerName} 的项目类型和销售。`, "success");
-        }
-        return;
-      }
-
-      if (matchedCurrentProfile) {
-        hideCustomerProfilePicker(row);
-        return;
-      }
-
-      showCustomerProfilePicker(row, customerName, profiles);
+      fillCustomerProfileFields(row, profiles[0]);
       if (options.showStatus) {
-        setStatus(`已找到 ${customerName} 的多组历史项目类型和销售，请选择一组带出。`, "warning");
+        setStatus(`已自动带出 ${customerName} 最近一次的项目类型、销售和类型。`, "success");
       }
     }
 
     function attachCustomerNameInputs() {
       listEditor.querySelectorAll(".item-row").forEach((row) => {
         const input = row.querySelector('input[data-field="customer_name"]');
-        const profileSelect = row.querySelector('[data-role="customer-profile-select"]');
-        if (!input || !profileSelect) {
+        if (!input) {
           return;
         }
         input.onkeydown = handleCustomerNameKeydown;
@@ -7866,15 +7818,6 @@ INDEX_HTML = """<!DOCTYPE html>
           syncCustomerRelatedFields(input, { showStatus: false });
         };
         input.onblur = () => syncCustomerRelatedFields(input, { showStatus: false });
-        profileSelect.onchange = () => {
-          const index = Number(profileSelect.value);
-          const profiles = getCustomerProfilesByName(input.value);
-          if (!Number.isInteger(index) || index < 0 || index >= profiles.length) {
-            return;
-          }
-          fillCustomerProfileFields(row, profiles[index]);
-          setStatus(`已带出 ${input.value.trim()} 的项目类型和销售。`, "success");
-        };
         syncCustomerRelatedFields(input, { showStatus: false });
       });
     }
@@ -9151,8 +9094,10 @@ def build_department_schedule_payload(
             if not matched_label:
                 raise ValueError("所选部门不存在，请刷新后重试。")
             selected_department = matched_label
-        else:
+        elif requested_label == "__all__":
             selected_department = ""
+        else:
+            selected_department = viewer_department or ""
     else:
         if not viewer_department:
             raise PermissionError("当前账号尚未配置所属部门，暂无法查看部门日程。")
@@ -10302,11 +10247,12 @@ def fetch_customer_directory(user_id: str | None = None) -> dict:
 
             project_type = str(item.get("project_type", "")).strip()
             sales = str(item.get("sales", "")).strip()
-            if not project_type and not sales:
+            item_type = str(item.get("item_type", "")).strip()
+            if not project_type and not sales and not item_type:
                 continue
-            profile_key = f"{project_type}\u0000{sales}"
+            profile_key = f"{project_type}\u0000{sales}\u0000{item_type}"
             existing_keys = {
-                f"{profile.get('project_type', '')}\u0000{profile.get('sales', '')}"
+                f"{profile.get('project_type', '')}\u0000{profile.get('sales', '')}\u0000{profile.get('item_type', '')}"
                 for profile in customer_profiles[normalized]
             }
             if profile_key in existing_keys:
@@ -10316,6 +10262,7 @@ def fetch_customer_directory(user_id: str | None = None) -> dict:
                     "customer_name": customer_name,
                     "project_type": project_type,
                     "sales": sales,
+                    "item_type": item_type,
                 }
             )
     return {
