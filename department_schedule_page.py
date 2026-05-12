@@ -810,6 +810,121 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     .state-title { font-size: 20px; font-weight: 800; color: var(--text); }
     .state-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
     .full-width-note { width: 100%; }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .actions button {
+      flex: 0 0 auto;
+    }
+    .auth-overlay[hidden] { display: none; }
+    .auth-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 41;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(9, 17, 31, 0.4);
+      backdrop-filter: blur(12px);
+    }
+    .auth-dialog {
+      width: min(980px, 100%);
+      display: grid;
+      gap: 18px;
+      padding: 24px;
+      border-radius: 28px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background:
+        linear-gradient(180deg, rgba(252, 253, 255, 0.96), rgba(241, 247, 255, 0.88)),
+        linear-gradient(135deg, rgba(46,119,208,0.08), transparent 72%);
+      box-shadow: 0 28px 70px rgba(15, 36, 66, 0.2);
+    }
+    .auth-dialog-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .auth-dialog-title {
+      margin: 0;
+      font-size: 22px;
+      color: var(--accent-deep);
+    }
+    .auth-dialog-subtitle {
+      margin-top: 6px;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .auth-sections {
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      gap: 16px;
+    }
+    .auth-sections.local-only {
+      grid-template-columns: 1fr;
+    }
+    .auth-section {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(244,249,255,0.48));
+      box-shadow: var(--card-shadow);
+    }
+    .auth-section[hidden] {
+      display: none;
+    }
+    .auth-section-title {
+      margin: 0;
+      font-size: 18px;
+      color: var(--accent-deep);
+    }
+    .auth-field {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-soft);
+    }
+    .auth-field input {
+      width: 100%;
+    }
+    .auth-qr-wrap {
+      min-height: 320px;
+      display: grid;
+      place-items: center;
+      border-radius: 20px;
+      border: 1px dashed rgba(46, 119, 208, 0.22);
+      background:
+        radial-gradient(circle at top, rgba(223, 238, 255, 0.6), rgba(255,255,255,0.86) 54%),
+        rgba(255,255,255,0.92);
+      padding: 18px;
+      text-align: center;
+    }
+    .auth-qr-image {
+      width: min(320px, 100%);
+      aspect-ratio: 1;
+      object-fit: contain;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 18px 32px rgba(26, 70, 126, 0.14);
+      padding: 10px;
+    }
+    .auth-login-link {
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--primary);
+      overflow-wrap: anywhere;
+      text-decoration: none;
+    }
+    .auth-login-link:hover {
+      text-decoration: underline;
+    }
     .password-overlay[hidden] { display: none; }
     .password-overlay {
       position: fixed;
@@ -1088,6 +1203,24 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-color: rgba(159, 191, 236, 0.18);
       color: var(--muted);
     }
+    body[data-theme="dark"] .auth-overlay {
+      background: rgba(12, 19, 31, 0.28);
+      backdrop-filter: blur(14px);
+    }
+    body[data-theme="dark"] .auth-dialog,
+    body[data-theme="dark"] .auth-section {
+      background:
+        linear-gradient(180deg, rgba(46, 67, 101, 0.94), rgba(28, 43, 66, 0.9)),
+        linear-gradient(135deg, rgba(125, 183, 255, 0.08), transparent 72%);
+      border-color: rgba(255,255,255,0.1);
+      box-shadow: 0 26px 70px rgba(4, 10, 22, 0.3);
+    }
+    body[data-theme="dark"] .auth-qr-wrap {
+      background:
+        radial-gradient(circle at top, rgba(70, 102, 148, 0.45), rgba(27, 42, 64, 0.88) 58%),
+        rgba(27, 42, 64, 0.92);
+      border-color: rgba(255,255,255,0.12);
+    }
     body[data-theme="dark"] .password-dialog {
       background:
         linear-gradient(180deg, rgba(46, 67, 101, 0.94), rgba(28, 43, 66, 0.9)),
@@ -1116,6 +1249,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       .plan-week-meta { justify-items: start; }
       .plan-week-meta-chips { justify-content: flex-start; }
       .plan-week-meta-updated { text-align: left; }
+      .auth-overlay { padding: 12px; }
+      .auth-dialog { padding: 16px; }
+      .auth-sections { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) {
       .top-actions button,
@@ -1127,6 +1263,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 <body>
   <script>
     window.__bootUiSettings = __INITIAL_UI_SETTINGS_PAYLOAD__;
+    window.__publicQrServiceTemplate = __PUBLIC_QR_SERVICE_TEMPLATE_JSON__;
     window.__applyShellVisualSettings = (() => {
       const firstDefinedValue = function () {
         for (let index = 0; index < arguments.length; index += 1) {
@@ -1283,8 +1420,14 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
   </script>
   <div class="page-background" aria-hidden="true"></div>
   <div class="wrap">
+    <div class="page-user-badge">
+      <div class="page-user-badge-label">当前登录</div>
+      <div class="page-user-badge-name" id="page-user-display-name">未登录</div>
+      <div class="page-user-badge-meta" id="viewer-meta">请先登录后查看部门日程与编辑安排。</div>
+    </div>
     <div class="page-theme-toggle">
-      <button type="button" class="theme-toggle tiny-btn" id="logout-page">退出</button>
+      <button type="button" class="theme-toggle tiny-btn" id="auth-login-button">登录</button>
+      <button type="button" class="theme-toggle tiny-btn" id="logout-page" hidden>退出</button>
       <button type="button" class="theme-toggle tiny-btn" id="password-button" hidden>修改密码</button>
       <button type="button" class="theme-toggle tiny-btn" id="back-user-page">用户页面</button>
       <button type="button" class="theme-toggle tiny-btn" id="back-admin-page" hidden>管理后台</button>
@@ -1416,10 +1559,53 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       <div class="state-title" id="state-title">暂时无法查看</div>
       <div class="muted" id="state-message"></div>
       <div class="state-actions">
+        <button type="button" id="state-login-button" hidden>登录</button>
         <button type="button" class="secondary" id="state-go-user">用户页面</button>
         <button type="button" class="secondary" id="state-go-admin">管理后台</button>
       </div>
     </section>
+    <div class="auth-overlay" id="auth-overlay" hidden>
+      <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-dialog-title">
+        <div class="auth-dialog-head">
+          <div>
+            <h2 class="auth-dialog-title" id="auth-dialog-title">登录当前日程页</h2>
+            <div class="auth-dialog-subtitle" id="auth-dialog-subtitle">请输入本地账号密码登录当前部门日程页。</div>
+          </div>
+          <button type="button" class="secondary" id="auth-overlay-close">关闭</button>
+        </div>
+        <div class="auth-sections local-only" id="auth-sections">
+          <section class="auth-section">
+            <h3 class="auth-section-title">本地账号登录</h3>
+            <div class="muted">默认账号为姓名全拼，密码为姓名全拼@123。</div>
+            <label class="auth-field">
+              <span>账号</span>
+              <input id="auth-local-username" type="text" autocomplete="username" placeholder="例如 zhangsan">
+            </label>
+            <label class="auth-field">
+              <span>密码</span>
+              <input id="auth-local-password" type="password" autocomplete="current-password" placeholder="例如 zhangsan@123" data-password-toggle>
+            </label>
+            <div class="actions">
+              <button type="button" id="auth-local-submit">登录</button>
+            </div>
+            <div class="auth-status-text" id="auth-local-status"></div>
+          </section>
+          <section class="auth-section" id="dingtalk-auth-section" hidden>
+            <h3 class="auth-section-title">钉钉扫码登录</h3>
+            <div class="muted" id="dingtalk-scan-hint">管理员完成钉钉组织配置后，这里会生成扫码二维码。</div>
+            <div class="auth-qr-wrap" id="dingtalk-scan-qr-wrap">
+              <div class="muted">点击下方按钮生成二维码</div>
+            </div>
+            <div class="actions">
+              <button type="button" id="start-dingtalk-scan-login">生成二维码</button>
+              <button type="button" class="secondary" id="refresh-dingtalk-scan-login">刷新二维码</button>
+            </div>
+            <div class="auth-status-text" id="dingtalk-scan-status">二维码默认 5 分钟有效。</div>
+            <a class="auth-login-link" id="dingtalk-scan-link" href="#" target="_blank" rel="noopener" hidden></a>
+          </section>
+        </div>
+      </section>
+    </div>
     <div class="password-overlay" id="password-overlay" hidden>
       <section class="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title">
         <div class="password-dialog-head">
@@ -1447,6 +1633,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const departmentSelect = document.getElementById("schedule-department");
     const memberUserSelect = document.getElementById("member-user-select");
     const viewerMetaEl = document.getElementById("viewer-meta");
+    const pageUserDisplayNameEl = document.getElementById("page-user-display-name");
     const pageStatusEl = document.getElementById("page-status");
     const toolbarSummaryEl = document.getElementById("toolbar-summary");
     const planWeekMetaEl = document.getElementById("plan-week-meta");
@@ -1462,6 +1649,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const planSectionEl = document.getElementById("plan-section");
     const dailySectionEl = document.getElementById("daily-section");
     const backAdminPageButton = document.getElementById("back-admin-page");
+    const authLoginButton = document.getElementById("auth-login-button");
     const logoutPageButton = document.getElementById("logout-page");
     const passwordButton = document.getElementById("password-button");
     const themeToggleButton = document.getElementById("theme-toggle");
@@ -1475,6 +1663,22 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const backgroundModeSelect = document.getElementById("background-mode-select");
     const regionOpacityInput = document.getElementById("region-opacity-input");
     const regionOpacityValue = document.getElementById("region-opacity-value");
+    const stateLoginButton = document.getElementById("state-login-button");
+    const authOverlay = document.getElementById("auth-overlay");
+    const authOverlayCloseButton = document.getElementById("auth-overlay-close");
+    const authDialogSubtitle = document.getElementById("auth-dialog-subtitle");
+    const authSections = document.getElementById("auth-sections");
+    const authLocalUsernameInput = document.getElementById("auth-local-username");
+    const authLocalPasswordInput = document.getElementById("auth-local-password");
+    const authLocalSubmitButton = document.getElementById("auth-local-submit");
+    const authLocalStatus = document.getElementById("auth-local-status");
+    const dingtalkAuthSection = document.getElementById("dingtalk-auth-section");
+    const dingtalkScanHint = document.getElementById("dingtalk-scan-hint");
+    const dingtalkScanQrWrap = document.getElementById("dingtalk-scan-qr-wrap");
+    const dingtalkScanStatus = document.getElementById("dingtalk-scan-status");
+    const dingtalkScanLink = document.getElementById("dingtalk-scan-link");
+    const startDingtalkScanLoginButton = document.getElementById("start-dingtalk-scan-login");
+    const refreshDingtalkScanLoginButton = document.getElementById("refresh-dingtalk-scan-login");
     const passwordOverlay = document.getElementById("password-overlay");
     const passwordOverlayCloseButton = document.getElementById("password-overlay-close");
     const passwordDialogAccount = document.getElementById("password-dialog-account");
@@ -1487,6 +1691,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
     const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
+    const LOCAL_LOGIN_USERNAME_STORAGE_KEY = "daily_planner_last_local_login_username";
     const MEMBER_ORDER_STORAGE_KEY = "daily_planner_department_schedule_member_order_v1";
     const MEMBER_ORDER_DRAG_THRESHOLD_PX = 6;
     const BING_DAILY_BACKGROUND_PATH = "/api/backgrounds/bing-daily";
@@ -1496,8 +1701,18 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     let currentUiSettings = window.__bootUiSettings || {};
     let selectedMemberUserId = "";
     let visualSettingsAutosaveTimer = null;
+    let authState = {
+      authenticated: false,
+      user: null,
+    };
     let isBackgroundSettingsOpen = false;
+    let isAuthOverlayOpen = false;
     let isPasswordOverlayOpen = false;
+    let dingtalkAuthConfig = normalizeDingtalkAuthConfig({});
+    let currentDingtalkScanSessionId = "";
+    let dingtalkScanPollTimer = null;
+    let planLayoutResizeObserver = null;
+    let planLayoutSyncFrameId = 0;
     const planAutoSaveTimers = new Map();
     const planSaveInFlightUsers = new Set();
     const memberOrderDragState = {
@@ -1581,6 +1796,323 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     function setViewerMetaText(text) {
       if (viewerMetaEl) {
         viewerMetaEl.textContent = text || "";
+      }
+    }
+    function readStoredLocalLoginUsername() {
+      try {
+        return String(window.localStorage.getItem(LOCAL_LOGIN_USERNAME_STORAGE_KEY) || "").trim();
+      } catch (error) {
+        return "";
+      }
+    }
+    function writeStoredLocalLoginUsername(username) {
+      const normalizedUsername = String(username || "").trim();
+      try {
+        if (normalizedUsername) {
+          window.localStorage.setItem(LOCAL_LOGIN_USERNAME_STORAGE_KEY, normalizedUsername);
+        } else {
+          window.localStorage.removeItem(LOCAL_LOGIN_USERNAME_STORAGE_KEY);
+        }
+      } catch (error) {
+        // Ignore storage failures.
+      }
+      return normalizedUsername;
+    }
+    function applyStoredLocalLoginUsername() {
+      const rememberedUsername = readStoredLocalLoginUsername();
+      authLocalUsernameInput.value = rememberedUsername;
+      return rememberedUsername;
+    }
+    function normalizeAuthUser(user) {
+      if (!user || typeof user !== "object") {
+        return null;
+      }
+      const normalizedUserId = String(user.user_id || "").trim();
+      return normalizedUserId ? user : null;
+    }
+    function syncAuthControls() {
+      const currentUser = authState.authenticated ? normalizeAuthUser(authState.user) : null;
+      const isAuthenticated = Boolean(currentUser);
+      authLoginButton.hidden = isAuthenticated;
+      logoutPageButton.hidden = !isAuthenticated;
+      passwordButton.hidden = !canCurrentUserChangePassword(currentUser);
+      stateLoginButton.hidden = isAuthenticated;
+      if (pageUserDisplayNameEl) {
+        pageUserDisplayNameEl.textContent = isAuthenticated
+          ? (currentUser.display_name || currentUser.user_id || "当前用户")
+          : "未登录";
+      }
+      setViewerMetaText(
+        isAuthenticated
+          ? (formatRole(currentUser) || "已登录")
+          : "请先登录后查看部门日程与编辑安排。"
+      );
+    }
+    function setAuthState(user) {
+      const normalizedUser = normalizeAuthUser(user);
+      authState = {
+        authenticated: Boolean(normalizedUser),
+        user: normalizedUser,
+      };
+      syncAuthControls();
+      return authState;
+    }
+    async function refreshAuthState() {
+      try {
+        const response = await fetch("/api/auth/me");
+        const payload = await response.json();
+        if (!response.ok || !payload || !payload.authenticated) {
+          return setAuthState(null);
+        }
+        return setAuthState(payload.user);
+      } catch (error) {
+        syncAuthControls();
+        return authState;
+      }
+    }
+    function normalizeDingtalkAuthConfig(payload) {
+      return {
+        enabled: Boolean(payload && payload.enabled),
+        configured: Boolean(payload && payload.configured),
+        allow_org_auto_login: Boolean(payload && payload.allow_org_auto_login),
+        corp_id: String(payload && payload.corp_id || "").trim(),
+        redirect_base_url: String(payload && payload.redirect_base_url || "").trim(),
+        effective_redirect_base_url: String(payload && payload.effective_redirect_base_url || "").trim(),
+        callback_url: String(payload && payload.callback_url || "").trim(),
+        callback_path: String(payload && payload.callback_path || "").trim(),
+        scan_qr_supported: Boolean(payload && payload.scan_qr_supported),
+      };
+    }
+    function buildPublicQrFallbackUrl(content) {
+      const encoded = encodeURIComponent(String(content || "").trim());
+      if (!encoded) {
+        return "";
+      }
+      const template = String(window.__publicQrServiceTemplate || "").trim();
+      if (!template || !template.includes("{data}")) {
+        return "";
+      }
+      return template.replace("{data}", encoded);
+    }
+    function stopDingtalkScanPolling() {
+      if (dingtalkScanPollTimer) {
+        window.clearTimeout(dingtalkScanPollTimer);
+        dingtalkScanPollTimer = null;
+      }
+    }
+    function renderDingtalkScanPlaceholder(message) {
+      dingtalkScanQrWrap.innerHTML = `<div class="muted">${escapeHtml(message || "点击下方按钮生成二维码")}</div>`;
+    }
+    function getDingtalkScanWarning(baseUrl) {
+      const targetBaseUrl = String(baseUrl || "").trim().toLowerCase();
+      if (!targetBaseUrl) {
+        return "请先在管理员页面配置回调基地址，再生成二维码。";
+      }
+      if (targetBaseUrl.includes("127.0.0.1") || targetBaseUrl.includes("localhost")) {
+        return "当前回调地址仍是本机回环地址；若要让手机扫码回调成功，请改成电脑可被手机访问的局域网或公网地址。";
+      }
+      return "";
+    }
+    function renderDingtalkAuthSection() {
+      const enabled = dingtalkAuthConfig.enabled && dingtalkAuthConfig.configured;
+      dingtalkAuthSection.hidden = !enabled;
+      authSections.classList.toggle("local-only", !enabled);
+      authDialogSubtitle.textContent = enabled
+        ? "支持本地账号密码登录，也支持钉钉扫码登录。"
+        : "请输入本地账号密码登录当前部门日程页。";
+      if (!enabled) {
+        currentDingtalkScanSessionId = "";
+        stopDingtalkScanPolling();
+        startDingtalkScanLoginButton.disabled = true;
+        refreshDingtalkScanLoginButton.disabled = true;
+        dingtalkScanHint.textContent = "管理员尚未完成钉钉 ClientId / ClientSecret 配置。";
+        dingtalkScanLink.hidden = true;
+        dingtalkScanLink.href = "#";
+        renderDingtalkScanPlaceholder("管理员尚未启用钉钉扫码登录");
+        setInlineStatus(dingtalkScanStatus, "完成管理员配置后，这里会生成二维码。", false);
+        return;
+      }
+      startDingtalkScanLoginButton.disabled = false;
+      refreshDingtalkScanLoginButton.disabled = false;
+      dingtalkScanHint.textContent = dingtalkAuthConfig.allow_org_auto_login
+        ? "扫码成功后，会自动以当前钉钉组织成员身份创建/更新本地账号并登录。"
+        : "管理员关闭了“组织成员直接登录”，扫码识别到的用户仍需加入登录白名单后才能进入系统。";
+      if (!currentDingtalkScanSessionId) {
+        renderDingtalkScanPlaceholder("点击“生成二维码”后，用手机钉钉扫一扫完成登录");
+      }
+      const warning = getDingtalkScanWarning(dingtalkAuthConfig.effective_redirect_base_url || dingtalkAuthConfig.redirect_base_url);
+      if (warning) {
+        setInlineStatus(dingtalkScanStatus, warning, true);
+      } else if (!dingtalkAuthConfig.scan_qr_supported) {
+        setInlineStatus(
+          dingtalkScanStatus,
+          "当前二维码图片会通过公共二维码服务生成；如果你不希望外部服务接触短期登录链接，可直接用手机打开下方授权链接。",
+          false
+        );
+      } else if (!dingtalkScanStatus.textContent.trim()) {
+        setInlineStatus(dingtalkScanStatus, "二维码默认 5 分钟有效。", false);
+      }
+    }
+    async function loadDingtalkAuthConfig() {
+      try {
+        const response = await fetch(`/api/auth/dingtalk-config?origin=${encodeURIComponent(window.location.origin)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "读取钉钉登录配置失败");
+        }
+        dingtalkAuthConfig = normalizeDingtalkAuthConfig(payload);
+      } catch (error) {
+        dingtalkAuthConfig = normalizeDingtalkAuthConfig({});
+        setInlineStatus(dingtalkScanStatus, error.message || "读取钉钉配置失败。", true);
+      }
+      renderDingtalkAuthSection();
+      return dingtalkAuthConfig;
+    }
+    function openAuthOverlay() {
+      isAuthOverlayOpen = true;
+      authOverlay.hidden = false;
+      currentDingtalkScanSessionId = "";
+      stopDingtalkScanPolling();
+      const rememberedUsername = applyStoredLocalLoginUsername();
+      authLocalPasswordInput.value = "";
+      setInlineStatus(authLocalStatus, "", false);
+      dingtalkScanLink.hidden = true;
+      dingtalkScanLink.href = "#";
+      setInlineStatus(dingtalkScanStatus, "", false);
+      loadDingtalkAuthConfig().catch(() => {});
+      window.setTimeout(() => {
+        if (rememberedUsername) {
+          authLocalPasswordInput.focus();
+        } else {
+          authLocalUsernameInput.focus();
+        }
+      }, 0);
+    }
+    function closeAuthOverlay() {
+      isAuthOverlayOpen = false;
+      authOverlay.hidden = true;
+      currentDingtalkScanSessionId = "";
+      stopDingtalkScanPolling();
+      dingtalkScanLink.hidden = true;
+      dingtalkScanLink.href = "#";
+      applyStoredLocalLoginUsername();
+      authLocalPasswordInput.value = "";
+      setInlineStatus(authLocalStatus, "", false);
+      setInlineStatus(dingtalkScanStatus, "", false);
+      renderDingtalkAuthSection();
+    }
+    async function submitLocalPasswordLogin() {
+      const username = String(authLocalUsernameInput.value || "").trim();
+      const password = String(authLocalPasswordInput.value || "");
+      if (!username || !password) {
+        setInlineStatus(authLocalStatus, "请输入账号和密码。", true);
+        return;
+      }
+      try {
+        setInlineStatus(authLocalStatus, "正在登录...", false);
+        const response = await fetch("/api/auth/password-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "登录失败");
+        }
+        writeStoredLocalLoginUsername(username);
+        setAuthState(data.user);
+        await loadDepartmentSchedule({ flushPending: false });
+        closeAuthOverlay();
+      } catch (error) {
+        setInlineStatus(authLocalStatus, error.message || "登录失败。", true);
+      }
+    }
+    async function pollDingtalkScanSession() {
+      if (!currentDingtalkScanSessionId) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/auth/dingtalk/scan-session?login_id=${encodeURIComponent(currentDingtalkScanSessionId)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "读取扫码状态失败");
+        }
+        if (payload.status === "completed" && payload.user) {
+          stopDingtalkScanPolling();
+          setAuthState(payload.user);
+          await loadDepartmentSchedule({ flushPending: false });
+          closeAuthOverlay();
+          return;
+        }
+        if (payload.status === "error" || payload.status === "denied") {
+          stopDingtalkScanPolling();
+          setInlineStatus(dingtalkScanStatus, payload.error_message || "扫码登录失败，请重新生成二维码。", true);
+          return;
+        }
+        if (payload.status === "expired") {
+          stopDingtalkScanPolling();
+          setInlineStatus(dingtalkScanStatus, "二维码已过期，请点击“刷新二维码”重新生成。", true);
+          renderDingtalkScanPlaceholder("二维码已过期，请刷新后重新扫码");
+          return;
+        }
+      } catch (error) {
+        stopDingtalkScanPolling();
+        setInlineStatus(dingtalkScanStatus, error.message || "读取扫码状态失败。", true);
+        return;
+      }
+      dingtalkScanPollTimer = window.setTimeout(pollDingtalkScanSession, 1800);
+    }
+    async function startDingtalkScanLogin() {
+      await loadDingtalkAuthConfig();
+      if (!(dingtalkAuthConfig.enabled && dingtalkAuthConfig.configured)) {
+        return;
+      }
+      stopDingtalkScanPolling();
+      currentDingtalkScanSessionId = "";
+      renderDingtalkScanPlaceholder("正在生成二维码，请稍候...");
+      setInlineStatus(dingtalkScanStatus, "正在生成钉钉扫码二维码...", false);
+      dingtalkScanLink.hidden = true;
+      try {
+        const response = await fetch("/api/auth/dingtalk/scan-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ current_origin: window.location.origin }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "生成扫码二维码失败");
+        }
+        currentDingtalkScanSessionId = String(payload.login_id || "").trim();
+        const qrImageUrl = String(payload.qr_image_url || "").trim() || buildPublicQrFallbackUrl(payload.scan_entry_url || payload.auth_url || "");
+        if (qrImageUrl) {
+          dingtalkScanQrWrap.innerHTML = `<img class="auth-qr-image" src="${escapeHtml(qrImageUrl)}" alt="钉钉扫码登录二维码">`;
+        } else {
+          renderDingtalkScanPlaceholder("当前服务端暂未开启本地二维码图片生成，请直接在手机中打开下方登录链接。");
+        }
+        const scanLink = String(payload.scan_entry_url || payload.auth_url || "").trim();
+        if (scanLink) {
+          dingtalkScanLink.hidden = false;
+          dingtalkScanLink.href = scanLink;
+          dingtalkScanLink.textContent = `如果二维码无法识别，可直接在手机打开：${scanLink}`;
+        }
+        const statusLines = [];
+        if (payload.expires_at) {
+          statusLines.push(`二维码有效期至：${payload.expires_at}`);
+        }
+        if (!payload.qr_image_url) {
+          statusLines.push("当前二维码图片由公共二维码服务生成，登录链接本身仍由当前服务签发且 5 分钟后失效。");
+        }
+        const warning = getDingtalkScanWarning(payload.redirect_base_url || dingtalkAuthConfig.effective_redirect_base_url);
+        if (warning) {
+          statusLines.push(warning);
+        } else {
+          statusLines.push("请使用手机钉钉扫一扫，授权成功后网页会自动完成登录。");
+        }
+        setInlineStatus(dingtalkScanStatus, statusLines.join("\\n"), Boolean(warning));
+        dingtalkScanPollTimer = window.setTimeout(pollDingtalkScanSession, 1500);
+      } catch (error) {
+        renderDingtalkScanPlaceholder("二维码生成失败，请检查管理员配置后重试");
+        setInlineStatus(dingtalkScanStatus, error.message || "二维码生成失败。", true);
       }
     }
     function readStoredThemePreference() {
@@ -1812,18 +2344,20 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return `<span class="chip">${escapeHtml(text)}</span>`;
     }
 
-    function showStateCard(title, message, showAdminButton = true) {
+    function showStateCard(title, message, showAdminButton = true, showLoginButton = false) {
       stateTitleEl.textContent = title || "暂时无法查看";
       stateMessageEl.textContent = message || "";
       stateCardEl.hidden = false;
       toolbarCardEl.hidden = false;
       planSectionEl.hidden = true;
       dailySectionEl.hidden = true;
+      stateLoginButton.hidden = !showLoginButton;
       document.getElementById("state-go-admin").hidden = !showAdminButton;
     }
 
     function hideStateCard() {
       stateCardEl.hidden = true;
+      stateLoginButton.hidden = true;
       planSectionEl.hidden = false;
     }
 
@@ -1928,7 +2462,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       dailySectionEl.hidden = !canShowDailySection;
       backAdminPageButton.hidden = !canShowAdminButton;
       document.getElementById("state-go-admin").hidden = !canShowAdminButton;
-      setViewerMetaText(`当前登录：${viewer.display_name || viewer.user_id || '当前用户'} · ${formatRole(viewer)}`);
+      setAuthState(viewer);
     }
 
     function findDepartmentPlanRow(userId) {
@@ -1979,6 +2513,47 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     function clearAllPlanAutoSaveTimers() {
       planAutoSaveTimers.forEach((timerId) => window.clearTimeout(timerId));
       planAutoSaveTimers.clear();
+    }
+
+    function scheduleDepartmentPlanHeightSync() {
+      if (planLayoutSyncFrameId) {
+        return;
+      }
+      planLayoutSyncFrameId = window.requestAnimationFrame(() => {
+        planLayoutSyncFrameId = 0;
+        syncDepartmentPlanMemberHeights();
+      });
+    }
+
+    function disconnectDepartmentPlanResizeObserver() {
+      if (planLayoutResizeObserver) {
+        planLayoutResizeObserver.disconnect();
+        planLayoutResizeObserver = null;
+      }
+    }
+
+    function observeDepartmentPlanResizeTargets() {
+      disconnectDepartmentPlanResizeObserver();
+      if (typeof ResizeObserver !== 'function') {
+        return;
+      }
+      const targets = [];
+      const headerRow = departmentPlanBody.closest('table') && departmentPlanBody.closest('table').querySelector('thead tr');
+      if (headerRow) {
+        targets.push(headerRow);
+      }
+      departmentPlanBody.querySelectorAll('tr[data-user-id]').forEach((row) => {
+        targets.push(row);
+      });
+      if (!targets.length) {
+        return;
+      }
+      planLayoutResizeObserver = new ResizeObserver(() => {
+        scheduleDepartmentPlanHeightSync();
+      });
+      targets.forEach((target) => {
+        planLayoutResizeObserver.observe(target);
+      });
     }
 
     function syncDepartmentPlanMemberHeights() {
@@ -2292,7 +2867,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       departmentPlanBody.querySelectorAll('.plan-day-input').forEach((element) => {
         element.disabled = !canEdit;
       });
-      window.requestAnimationFrame(syncDepartmentPlanMemberHeights);
+      observeDepartmentPlanResizeTargets();
+      scheduleDepartmentPlanHeightSync();
     }
 
     function renderMemberSelect(payload) {
@@ -2449,7 +3025,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       if (pendingEl) {
         pendingEl.value = String(member.weekly_other_pending || '');
       }
-      window.requestAnimationFrame(syncDepartmentPlanMemberHeights);
+      scheduleDepartmentPlanHeightSync();
       setStatus(`已恢复 ${member.user && member.user.display_name || userId} 的当前周安排。`);
       setPlanRowStatus(userId, '已恢复为最近一次保存内容。');
     }
@@ -2538,7 +3114,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         member.weekly_other_pending = String(payload.weekly_other_pending || '');
         member.weekly_plan_updated_at = String(payload.updated_at || '');
         renderToolbarSummary(latestPayload);
-        window.requestAnimationFrame(syncDepartmentPlanMemberHeights);
+        scheduleDepartmentPlanHeightSync();
         setStatus(`${member.user && member.user.display_name || normalizedUserId} 的本周安排已保存。`);
         setPlanRowStatus(normalizedUserId, `最近保存：${member.weekly_plan_updated_at || '刚刚'}`);
       } catch (error) {
@@ -2561,8 +3137,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       renderDepartmentPlanTable(payload);
       renderMemberSelect(payload);
       renderSelectedMemberDailyItems();
-      const viewer = payload.viewer || {};
-      passwordButton.hidden = !canCurrentUserChangePassword(viewer);
       setStatus(`已加载 ${payload.selected_department_label || '全部部门'} 在 ${payload.week_start || '-'} 当周的安排。`);
     }
 
@@ -2594,21 +3168,37 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         const statusCode = Number(error && error.status || 0);
         const message = String(error && error.message || '加载失败，请稍后重试。');
         if (statusCode === 401) {
-          setViewerMetaText('当前登录：未登录');
-          passwordButton.hidden = true;
-          showStateCard('请先登录', message, false);
+          setAuthState(null);
+          showStateCard('请先登录', message, false, true);
         } else if (statusCode === 403) {
-          setViewerMetaText('当前登录：无权访问当前页面');
-          passwordButton.hidden = true;
-          showStateCard('没有访问权限', message, !backAdminPageButton.hidden);
+          refreshAuthState().catch(() => {});
+          showStateCard('没有访问权限', message, !backAdminPageButton.hidden, false);
         } else {
-          passwordButton.hidden = true;
-          showStateCard('读取失败', message, !backAdminPageButton.hidden);
+          showStateCard('读取失败', message, !backAdminPageButton.hidden, !authState.authenticated);
         }
         setStatus(message, true);
       }
     }
 
+    authLoginButton.addEventListener('click', openAuthOverlay);
+    stateLoginButton.addEventListener('click', openAuthOverlay);
+    authOverlayCloseButton.addEventListener('click', closeAuthOverlay);
+    authOverlay.addEventListener('click', (event) => {
+      if (event.target === authOverlay) {
+        closeAuthOverlay();
+      }
+    });
+    [authLocalUsernameInput, authLocalPasswordInput].forEach((input) => {
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitLocalPasswordLogin();
+        }
+      });
+    });
+    authLocalSubmitButton.addEventListener('click', submitLocalPasswordLogin);
+    startDingtalkScanLoginButton.addEventListener('click', startDingtalkScanLogin);
+    refreshDingtalkScanLoginButton.addEventListener('click', startDingtalkScanLogin);
     document.getElementById('back-user-page').addEventListener('click', () => {
       window.location.href = '/';
     });
@@ -2617,9 +3207,10 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     });
     logoutPageButton.addEventListener('click', async () => {
       try {
+        await flushPendingPlanAutoSaves();
         await fetch('/api/auth/logout', { method: 'POST' });
       } finally {
-        window.location.href = '/';
+        window.location.reload();
       }
     });
     document.getElementById('state-go-user').addEventListener('click', () => {
@@ -2698,13 +3289,16 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         setBackgroundSettingsOpen(false);
+        if (isAuthOverlayOpen) {
+          closeAuthOverlay();
+        }
         if (isPasswordOverlayOpen) {
           closePasswordOverlay();
         }
       }
     });
     window.addEventListener('resize', () => {
-      window.requestAnimationFrame(syncDepartmentPlanMemberHeights);
+      scheduleDepartmentPlanHeightSync();
     });
     document.getElementById('reload-schedule-button').addEventListener('click', () => {
       loadDepartmentSchedule();
@@ -2732,7 +3326,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       if (!input || !canEditDepartmentWeeklyPlan()) {
         return;
       }
-      window.requestAnimationFrame(syncDepartmentPlanMemberHeights);
+      scheduleDepartmentPlanHeightSync();
       scheduleMemberWeeklyPlanAutosave(input.getAttribute('data-user-id') || '');
     });
     departmentPlanMembersEl.addEventListener('pointerdown', handleDepartmentPlanMemberPointerDown);
@@ -2749,6 +3343,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     initializePasswordToggleFields();
     applyVisualSettings(currentUiSettings);
     scheduleAutoThemeRefresh();
+    syncAuthControls();
+    refreshAuthState().catch(() => {});
     loadDepartmentSchedule();
   </script>
 </body>
@@ -2756,8 +3352,15 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 """
 
 
-def render_department_schedule_html(*, app_version: str, initial_date: str, initial_ui_settings_json: str) -> str:
+def render_department_schedule_html(
+    *,
+    app_version: str,
+    initial_date: str,
+    initial_ui_settings_json: str,
+    public_qr_service_template_json: str,
+) -> str:
     html = DEPARTMENT_SCHEDULE_HTML.replace("__INITIAL_DATE__", initial_date)
     html = html.replace("__APP_VERSION__", app_version)
     html = html.replace("__INITIAL_UI_SETTINGS_PAYLOAD__", initial_ui_settings_json)
+    html = html.replace("__PUBLIC_QR_SERVICE_TEMPLATE_JSON__", public_qr_service_template_json)
     return html

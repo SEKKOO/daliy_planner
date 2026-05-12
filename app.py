@@ -13429,6 +13429,7 @@ def render_department_schedule_html(current_user: dict | None = None) -> str:
         app_version=APP_VERSION,
         initial_date=date.today().isoformat(),
         initial_ui_settings_json=json.dumps(ui_settings, ensure_ascii=False),
+        public_qr_service_template_json=json.dumps(DINGTALK_PUBLIC_QR_SERVICE_TEMPLATE, ensure_ascii=False),
     )
 
 
