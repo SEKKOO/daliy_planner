@@ -3858,6 +3858,7 @@ INDEX_HTML = """<!DOCTYPE html>
     const LAST_SELECTED_DATE_STORAGE_PREFIX = "daily_planner_last_selected_date::";
     const DAILY_ENTRY_DRAFT_PREFIX = "daily_entry_draft::";
     const WEEKLY_PLAN_DRAFT_PREFIX = "weekly_plan_draft::";
+    const WEEKLY_PLAN_SYNC_SIGNAL_STORAGE_KEY = "daily_planner_weekly_plan_sync_signal_v1";
     const WEEKLY_PLAN_AUTOSAVE_DELAY_MS = 800;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -3920,6 +3921,7 @@ INDEX_HTML = """<!DOCTYPE html>
     let dingtalkScanPollTimer = null;
     const savedEntrySnapshots = new Map();
     const weeklyPlanSavedSnapshots = new Map();
+    const weeklyPlanSavedUpdatedAts = new Map();
     const weeklyPlanLatestRequestIds = new Map();
     let scopedAsyncRequestSequence = 0;
     let scopeAsyncGeneration = 0;
@@ -4078,6 +4080,7 @@ INDEX_HTML = """<!DOCTYPE html>
     function resetScopedInMemoryCaches() {
       savedEntrySnapshots.clear();
       weeklyPlanSavedSnapshots.clear();
+      weeklyPlanSavedUpdatedAts.clear();
       weeklyPlanLatestRequestIds.clear();
     }
 
@@ -5968,7 +5971,9 @@ INDEX_HTML = """<!DOCTYPE html>
       return {
         week_start: payload.week_start,
         settings: normalizeWeeklyPlanPayload(payload.settings),
-        updated_at: String(payload.updated_at || "")
+        updated_at: String(payload.updated_at || ""),
+        base_updated_at: String(payload.base_updated_at || payload.server_updated_at || ""),
+        base_snapshot: String(payload.base_snapshot || "")
       };
     }
 
@@ -5984,7 +5989,9 @@ INDEX_HTML = """<!DOCTYPE html>
       setStorageJson(buildWeeklyPlanDraftKey(weekStart), {
         week_start: weekStart,
         settings: normalizedSettings,
-        updated_at: formatDateTime(new Date())
+        updated_at: formatDateTime(new Date()),
+        base_updated_at: String(weeklyPlanSavedUpdatedAts.get(weekStart) || ""),
+        base_snapshot: String(weeklyPlanSavedSnapshots.get(weekStart) || "")
       });
     }
 
@@ -5999,6 +6006,67 @@ INDEX_HTML = """<!DOCTYPE html>
       const normalized = String(value || "").trim().replace(" ", "T");
       const timestamp = normalized ? Date.parse(normalized) : NaN;
       return Number.isFinite(timestamp) ? timestamp : 0;
+    }
+
+    function announceWeeklyPlanSync(userId, weekStart, updatedAt) {
+      const scopeUser = getCurrentScopeUser();
+      const normalizedUserId = String(
+        userId
+        || scopeUser && scopeUser.user_id
+        || authState.user && authState.user.user_id
+        || ""
+      ).trim();
+      const normalizedWeekStart = String(weekStart || "").trim();
+      if (!normalizedUserId || !isValidDateString(normalizedWeekStart)) {
+        return;
+      }
+      try {
+        window.localStorage.setItem(
+          WEEKLY_PLAN_SYNC_SIGNAL_STORAGE_KEY,
+          JSON.stringify({
+            user_id: normalizedUserId,
+            week_start: normalizedWeekStart,
+            updated_at: String(updatedAt || "").trim(),
+            emitted_at: formatDateTime(new Date()),
+            nonce: `${Date.now()}-${Math.random().toString(16).slice(2)}`
+          })
+        );
+      } catch (error) {
+        // Ignore cross-tab sync storage failures.
+      }
+    }
+
+    function handleWeeklyPlanSyncSignal(event) {
+      if (!event || event.key !== WEEKLY_PLAN_SYNC_SIGNAL_STORAGE_KEY || !event.newValue) {
+        return;
+      }
+      let payload = null;
+      try {
+        payload = JSON.parse(event.newValue);
+      } catch (error) {
+        return;
+      }
+      const scopeUser = getCurrentScopeUser();
+      const currentScopeUserId = String(
+        scopeUser && scopeUser.user_id
+        || authState.user && authState.user.user_id
+        || ""
+      ).trim();
+      const targetUserId = String(payload && payload.user_id || "").trim();
+      const targetWeekStart = String(payload && payload.week_start || "").trim();
+      const currentWeekStart = String(currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value) || "").trim();
+      const incomingUpdatedAt = String(payload && payload.updated_at || "").trim();
+      const knownUpdatedAt = String(weeklyPlanSavedUpdatedAts.get(targetWeekStart) || "").trim();
+      if (!currentScopeUserId || !targetUserId || currentScopeUserId !== targetUserId) {
+        return;
+      }
+      if (!targetWeekStart || !currentWeekStart || targetWeekStart !== currentWeekStart) {
+        return;
+      }
+      if (incomingUpdatedAt && knownUpdatedAt && incomingUpdatedAt === knownUpdatedAt) {
+        return;
+      }
+      loadWeeklyPlan(dateInput.value || targetWeekStart, false);
     }
 
     function setDeliveryProgressOpen(isOpen) {
@@ -7121,12 +7189,21 @@ INDEX_HTML = """<!DOCTYPE html>
       });
     }
 
-    function rememberWeeklyPlanState(weekStart, settings, updatedAt) {
+    function rememberWeeklyPlanServerBaseline(weekStart, settings, updatedAt) {
       if (!weekStart) {
         return;
       }
       const snapshot = getWeeklyPlanSnapshot(weekStart, settings);
       weeklyPlanSavedSnapshots.set(weekStart, snapshot);
+      weeklyPlanSavedUpdatedAts.set(weekStart, String(updatedAt || ""));
+    }
+
+    function rememberWeeklyPlanState(weekStart, settings, updatedAt) {
+      if (!weekStart) {
+        return;
+      }
+      const snapshot = getWeeklyPlanSnapshot(weekStart, settings);
+      rememberWeeklyPlanServerBaseline(weekStart, settings, updatedAt);
       const localDraft = loadWeeklyPlanDraft(weekStart);
       if (snapshot === getWeeklyPlanSnapshot(weekStart, localDraft && localDraft.settings || {})) {
         clearWeeklyPlanDraft(weekStart);
@@ -7190,6 +7267,7 @@ INDEX_HTML = """<!DOCTYPE html>
           return true;
         }
         rememberWeeklyPlanState(savedWeekStart, savedSettings, data.updated_at || "");
+        announceWeeklyPlanSync(getActiveScopeUserId(), savedWeekStart, data.updated_at || "");
         if (currentWeeklyPlanWeekStart === savedWeekStart) {
           applyPageSettings(savedSettings);
           if (!silent) {
@@ -7262,6 +7340,7 @@ INDEX_HTML = """<!DOCTYPE html>
         const clearedSettings = data.settings || {};
         rememberWeeklyPlanState(clearedWeekStart, clearedSettings, data.updated_at || "");
         clearWeeklyPlanDraft(clearedWeekStart);
+        announceWeeklyPlanSync(getActiveScopeUserId(), clearedWeekStart, data.updated_at || "");
         if (currentWeeklyPlanWeekStart === clearedWeekStart) {
           currentWeeklyPlanWeekStart = clearedWeekStart;
           applyPageSettings(clearedSettings);
@@ -7300,19 +7379,30 @@ INDEX_HTML = """<!DOCTYPE html>
         const serverSnapshot = getWeeklyPlanSnapshot(currentWeeklyPlanWeekStart, serverSettings);
         const localDraftHasContent = Boolean(localDraft && hasMeaningfulWeeklyPlanContent(localDraft.settings || {}));
         const serverHasContent = hasMeaningfulWeeklyPlanContent(serverSettings);
+        const draftBaseSnapshot = String(localDraft && localDraft.base_snapshot || "");
+        const draftBaseUpdatedAt = String(localDraft && localDraft.base_updated_at || "");
+        rememberWeeklyPlanServerBaseline(currentWeeklyPlanWeekStart, serverSettings, serverUpdatedAt);
+        const draftStillMatchesServerBaseline = Boolean(
+          localDraft
+            && (
+              (draftBaseSnapshot && draftBaseSnapshot === serverSnapshot)
+              || (!draftBaseSnapshot && draftBaseUpdatedAt && draftBaseUpdatedAt === serverUpdatedAt)
+              || (!draftBaseSnapshot && !draftBaseUpdatedAt && !serverHasContent)
+            )
+        );
         const shouldRestoreLocalDraft = Boolean(
           localDraft
             && localDraft.week_start === currentWeeklyPlanWeekStart
             && localDraftHasContent
             && localDraftSnapshot !== serverSnapshot
-            && (!serverHasContent || parseComparableTime(localDraft.updated_at) >= parseComparableTime(serverUpdatedAt))
+            && draftStillMatchesServerBaseline
         );
 
         if (shouldRestoreLocalDraft) {
           applyPageSettings(localDraft.settings || {});
           updateWeeklyPlanSavedAt(localDraft.updated_at || "");
         } else {
-          if (localDraft && !localDraftHasContent && serverHasContent) {
+          if (localDraft && (!localDraftHasContent || !draftStillMatchesServerBaseline) && serverHasContent) {
             clearWeeklyPlanDraft(currentWeeklyPlanWeekStart);
           }
           applyPageSettings(serverSettings);
@@ -7340,6 +7430,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
         applyPageSettings({});
         weeklyPlanSavedSnapshots.delete(weekStart);
+        weeklyPlanSavedUpdatedAts.delete(weekStart);
         updateWeeklyPlanSavedAt("");
         if (showMessage) {
           setStatus(error.message || "读取每周工作安排失败。", "error");
@@ -8780,6 +8871,7 @@ INDEX_HTML = """<!DOCTYPE html>
     window.addEventListener("resize", scheduleBackgroundStretch, { passive: true });
     window.addEventListener("touchmove", scheduleBackgroundStretch, { passive: true });
     window.addEventListener("touchend", scheduleBackgroundStretch, { passive: true });
+    window.addEventListener("storage", handleWeeklyPlanSyncSignal);
     window.addEventListener("beforeunload", () => {
       persistCurrentEntryDraft();
       saveWeeklyPlanDraft(currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value), getCurrentSettings());

@@ -1811,6 +1811,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
     const LOCAL_LOGIN_USERNAME_STORAGE_KEY = "daily_planner_last_local_login_username";
     const MEMBER_ORDER_STORAGE_KEY = "daily_planner_department_schedule_member_order_v1";
+    const WEEKLY_PLAN_SYNC_SIGNAL_STORAGE_KEY = "daily_planner_weekly_plan_sync_signal_v1";
     const MEMBER_ORDER_DRAG_THRESHOLD_PX = 6;
     const BING_DAILY_BACKGROUND_PATH = "/api/backgrounds/bing-daily";
     const AUTO_THEME_DAY_START_HOUR = 6;
@@ -1903,6 +1904,28 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+    }
+
+    function announceWeeklyPlanSync(userId, weekStart, updatedAt) {
+      const normalizedUserId = String(userId || '').trim();
+      const normalizedWeekStart = String(weekStart || '').trim();
+      if (!normalizedUserId || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedWeekStart)) {
+        return;
+      }
+      try {
+        window.localStorage.setItem(
+          WEEKLY_PLAN_SYNC_SIGNAL_STORAGE_KEY,
+          JSON.stringify({
+            user_id: normalizedUserId,
+            week_start: normalizedWeekStart,
+            updated_at: String(updatedAt || '').trim(),
+            emitted_at: new Date().toISOString(),
+            nonce: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          })
+        );
+      } catch (error) {
+        // Ignore cross-tab sync storage failures.
+      }
     }
 
     function setStatus(text, isError = false) {
@@ -3428,6 +3451,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
           ? payload.weekly_plan_last_editor
           : null;
         member.weekly_plan_edit_logs = Array.isArray(payload.weekly_plan_edit_logs) ? payload.weekly_plan_edit_logs : [];
+        announceWeeklyPlanSync(normalizedUserId, payload.week_start || latestPayload.week_start, payload.updated_at || '');
         renderToolbarSummary(latestPayload);
         scheduleDepartmentPlanHeightSync();
         refreshEditLogsIfVisible();
