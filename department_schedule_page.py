@@ -1950,13 +1950,24 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const normalizedUserId = String(user.user_id || "").trim();
       return normalizedUserId ? user : null;
     }
+    function canCurrentViewerOpenEditLogs(user) {
+      const currentUser = normalizeAuthUser(user);
+      if (!currentUser) {
+        return false;
+      }
+      if (String(currentUser.role || '') === 'admin' || Boolean(currentUser.is_department_admin)) {
+        return true;
+      }
+      return Boolean(currentUser.show_in_department_schedule);
+    }
     function syncAuthControls() {
       const currentUser = authState.authenticated ? normalizeAuthUser(authState.user) : null;
       const isAuthenticated = Boolean(currentUser);
       authLoginButton.hidden = isAuthenticated;
       logoutPageButton.hidden = !isAuthenticated;
       passwordButton.hidden = !canCurrentUserChangePassword(currentUser);
-      if (!isAuthenticated) {
+      editLogButton.hidden = !canCurrentViewerOpenEditLogs(currentUser);
+      if (!isAuthenticated || !canCurrentViewerOpenEditLogs(currentUser)) {
         editLogButton.hidden = true;
         if (isEditLogOverlayOpen) {
           closeEditLogOverlay();
@@ -2641,6 +2652,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         openAuthOverlay();
         return;
       }
+      if (!canCurrentViewerOpenEditLogs(latestPayload.viewer)) {
+        return;
+      }
       isEditLogOverlayOpen = true;
       editLogOverlay.hidden = false;
       setEditLogLoading('正在读取日志...');
@@ -2743,7 +2757,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const canShowAdminButton = Boolean(payload && payload.show_admin_button);
       dailySectionEl.hidden = !canShowDailySection;
       backAdminPageButton.hidden = !canShowAdminButton;
-      editLogButton.hidden = !(payload && payload.viewer && payload.viewer.user_id);
+      editLogButton.hidden = !canCurrentViewerOpenEditLogs(viewer);
       document.getElementById("state-go-admin").hidden = !canShowAdminButton;
       setAuthState(viewer);
     }
