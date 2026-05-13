@@ -111,6 +111,23 @@ DEFAULT_PAGE_SETTINGS = {
     "weekly_other_pending": "",
 }
 WEEKLY_PLAN_KEYS = tuple(DEFAULT_PAGE_SETTINGS.keys())
+WEEKLY_PLAN_FIELD_LABELS = {
+    "weekly_monday_am": "周一上午",
+    "weekly_monday_pm": "周一下午",
+    "weekly_tuesday_am": "周二上午",
+    "weekly_tuesday_pm": "周二下午",
+    "weekly_wednesday_am": "周三上午",
+    "weekly_wednesday_pm": "周三下午",
+    "weekly_thursday_am": "周四上午",
+    "weekly_thursday_pm": "周四下午",
+    "weekly_friday_am": "周五上午",
+    "weekly_friday_pm": "周五下午",
+    "weekly_saturday_am": "周六上午",
+    "weekly_saturday_pm": "周六下午",
+    "weekly_sunday_am": "周日上午",
+    "weekly_sunday_pm": "周日下午",
+    "weekly_other_pending": "其他待办",
+}
 DEFAULT_UI_SETTINGS = {
     "background_image": "",
     "background_mode": "cover",
@@ -9065,18 +9082,15 @@ def resolve_department_schedule_target_user(
     return target_user
 
 
-def build_department_schedule_payload(
+def resolve_department_schedule_scope(
     current_user: dict | None,
-    anchor_date: str,
     requested_department: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     if not current_user:
         raise PermissionError("请先登录后再访问部门日程页面。")
     if not _can_access_department_schedule(current_user):
         raise PermissionError("当前账号没有访问部门日程页面的权限。")
 
-    target_date = validate_date(anchor_date)
-    week_start, week_end, week_dates = build_week_window(target_date)
     viewer_is_admin = str(current_user.get("role") or "") == "admin"
     viewer_can_view_daily_details = _can_view_department_schedule_daily_details(current_user)
     viewer_department = _normalize_department_label(current_user.get("department"))
@@ -9122,6 +9136,30 @@ def build_department_schedule_payload(
             _normalize_department_label(item.get("display_name")) or _normalize_department_label(item.get("user_id")),
         )
     )
+
+    return {
+        "viewer_is_admin": viewer_is_admin,
+        "viewer_can_view_daily_details": viewer_can_view_daily_details,
+        "available_departments": available_departments,
+        "selected_department": selected_department,
+        "selected_department_label": selected_department or "全部部门",
+        "department_users": department_users,
+    }
+
+
+def build_department_schedule_payload(
+    current_user: dict | None,
+    anchor_date: str,
+    requested_department: str | None = None,
+) -> dict:
+    target_date = validate_date(anchor_date)
+    week_start, week_end, week_dates = build_week_window(target_date)
+    scope = resolve_department_schedule_scope(current_user, requested_department)
+    viewer_is_admin = bool(scope["viewer_is_admin"])
+    viewer_can_view_daily_details = bool(scope["viewer_can_view_daily_details"])
+    available_departments = list(scope["available_departments"])
+    selected_department = str(scope["selected_department"])
+    department_users = list(scope["department_users"])
     department_user_ids = [str(item.get("user_id") or "").strip() for item in department_users if str(item.get("user_id") or "").strip()]
     weekly_plan_edit_logs_map = list_weekly_plan_edit_logs_for_targets(
         week_start,
@@ -9209,7 +9247,6 @@ def build_department_schedule_payload(
     for summary in daily_totals:
         summary["total_hours"] = format_hours(summary["total_hours"])
 
-    selected_department_label = selected_department or "全部部门"
     return {
         "anchor_date": target_date,
         "week_start": week_start,
@@ -9222,7 +9259,7 @@ def build_department_schedule_payload(
         "allow_all_departments": viewer_is_admin,
         "departments": available_departments,
         "selected_department": selected_department,
-        "selected_department_label": selected_department_label,
+        "selected_department_label": str(scope["selected_department_label"]),
         "member_count": len(members),
         "summary": {
             "member_count": len(members),
@@ -9232,6 +9269,65 @@ def build_department_schedule_payload(
         },
         "daily_totals": daily_totals,
         "members": members,
+    }
+
+
+def list_department_schedule_edit_logs(
+    target_user_ids: list[str] | tuple[str, ...],
+) -> list[dict]:
+    normalized_user_ids: list[str] = []
+    for item in target_user_ids:
+        normalized_user_id = normalize_user_id(item)
+        if normalized_user_id and normalized_user_id not in normalized_user_ids:
+            normalized_user_ids.append(normalized_user_id)
+    if not normalized_user_ids:
+        return []
+    placeholders = ", ".join("?" for _ in normalized_user_ids)
+    query = f"""
+        SELECT week_start, target_user_id, target_display_name, editor_user_id, editor_display_name, change_details_json, edited_at
+        FROM weekly_plan_edit_logs
+        WHERE target_user_id IN ({placeholders}) AND editor_user_id != target_user_id
+        ORDER BY edited_at DESC, id DESC
+    """
+    with get_connection() as connection:
+        rows = connection.execute(query, normalized_user_ids).fetchall()
+    return [build_weekly_plan_edit_log_payload(row) for row in rows]
+
+
+def build_department_schedule_edit_logs_payload(
+    current_user: dict | None,
+    requested_department: str | None = None,
+) -> dict[str, Any]:
+    if not current_user:
+        raise PermissionError("请先登录后再查看日程编辑日志。")
+
+    scope = resolve_department_schedule_scope(current_user, requested_department)
+    can_view_all_logs = bool(scope["viewer_is_admin"]) or bool(current_user.get("is_department_admin"))
+    viewer_user_id = normalize_user_id(current_user.get("user_id"))
+    viewer_display_name = str(current_user.get("display_name") or viewer_user_id).strip() or viewer_user_id
+    if can_view_all_logs:
+        target_user_ids = [
+            str(item.get("user_id") or "").strip()
+            for item in scope["department_users"]
+            if str(item.get("user_id") or "").strip()
+        ]
+        logs = list_department_schedule_edit_logs(target_user_ids)
+        scope_mode = "department"
+        scope_label = str(scope["selected_department_label"])
+    else:
+        logs = list_department_schedule_edit_logs([viewer_user_id])
+        scope_mode = "self"
+        scope_label = viewer_display_name
+
+    return {
+        "viewer": current_user,
+        "can_view_all": can_view_all_logs,
+        "scope_mode": scope_mode,
+        "scope_label": scope_label,
+        "selected_department": str(scope["selected_department"]),
+        "selected_department_label": str(scope["selected_department_label"]),
+        "log_count": len(logs),
+        "logs": logs,
     }
 
 
@@ -9360,14 +9456,28 @@ def init_db() -> None:
                 target_display_name TEXT NOT NULL DEFAULT '',
                 editor_user_id TEXT NOT NULL,
                 editor_display_name TEXT NOT NULL DEFAULT '',
+                change_details_json TEXT NOT NULL DEFAULT '[]',
                 edited_at TEXT NOT NULL
             )
             """
         )
+        weekly_edit_log_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(weekly_plan_edit_logs)").fetchall()
+        }
+        if "change_details_json" not in weekly_edit_log_columns:
+            connection.execute(
+                "ALTER TABLE weekly_plan_edit_logs ADD COLUMN change_details_json TEXT NOT NULL DEFAULT '[]'"
+            )
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_weekly_plan_edit_logs_target_week
             ON weekly_plan_edit_logs(target_user_id, week_start, edited_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_weekly_plan_edit_logs_target_time
+            ON weekly_plan_edit_logs(target_user_id, edited_at DESC, id DESC)
             """
         )
         existing_weekly_rows = connection.execute(
@@ -9478,17 +9588,54 @@ def save_weekly_plan_settings(
     return normalized_week_start, settings, timestamp
 
 
+def build_weekly_plan_change_details(previous_settings: dict | None, next_settings: dict | None) -> list[str]:
+    previous = normalize_weekly_plan_settings(previous_settings)
+    current = normalize_weekly_plan_settings(next_settings)
+    details: list[str] = []
+    for key in WEEKLY_PLAN_KEYS:
+        before_value = str(previous.get(key, "") or "").strip()
+        after_value = str(current.get(key, "") or "").strip()
+        if before_value == after_value:
+            continue
+        field_label = WEEKLY_PLAN_FIELD_LABELS.get(key, key)
+        if not before_value and after_value:
+            details.append(f"新增{field_label}：{after_value}")
+        elif before_value and not after_value:
+            details.append(f"删除{field_label}：{before_value}")
+        else:
+            details.append(f"修改{field_label}：原“{before_value}”改为“{after_value}”")
+    return details
+
+
 def build_weekly_plan_edit_log_payload(row: sqlite3.Row | dict | None) -> dict:
-    source = row if isinstance(row, (sqlite3.Row, dict)) else {}
+    if isinstance(row, sqlite3.Row):
+        source = {key: row[key] for key in row.keys()}
+    elif isinstance(row, dict):
+        source = row
+    else:
+        source = {}
     editor_user_id = str(source.get("editor_user_id") or "").strip()
     target_user_id = str(source.get("target_user_id") or "").strip()
+    raw_change_details = source.get("change_details_json")
+    if isinstance(raw_change_details, str):
+        try:
+            parsed_change_details = json.loads(raw_change_details or "[]")
+        except json.JSONDecodeError:
+            parsed_change_details = []
+    elif isinstance(raw_change_details, list):
+        parsed_change_details = raw_change_details
+    else:
+        parsed_change_details = []
+    change_details = [str(item or "").strip() for item in parsed_change_details if str(item or "").strip()]
     return {
+        "week_start": str(source.get("week_start") or "").strip(),
         "editor_user_id": editor_user_id,
         "editor_display_name": str(source.get("editor_display_name") or editor_user_id).strip() or editor_user_id,
         "target_user_id": target_user_id,
         "target_display_name": str(source.get("target_display_name") or target_user_id).strip() or target_user_id,
         "edited_at": str(source.get("edited_at") or "").strip(),
         "is_self_edit": bool(editor_user_id and target_user_id and editor_user_id == target_user_id),
+        "change_details": change_details,
     }
 
 
@@ -9497,11 +9644,17 @@ def record_weekly_plan_edit_log(
     *,
     target_user: dict | None,
     editor_user: dict | None,
+    change_details: list[str] | tuple[str, ...] | None = None,
     edited_at: str | None = None,
-) -> dict:
+) -> dict | None:
     normalized_week_start = get_week_start(week_start)
     target_user_id = normalize_user_id(str(target_user.get("user_id") or "") if isinstance(target_user, dict) else "")
     editor_user_id = normalize_user_id(str(editor_user.get("user_id") or "") if isinstance(editor_user, dict) else "")
+    if not target_user_id or not editor_user_id or target_user_id == editor_user_id:
+        return None
+    normalized_change_details = [str(item or "").strip() for item in (change_details or []) if str(item or "").strip()]
+    if not normalized_change_details:
+        return None
     timestamp = str(edited_at or "").strip() or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     payload = {
         "week_start": normalized_week_start,
@@ -9515,6 +9668,7 @@ def record_weekly_plan_edit_log(
             (editor_user.get("display_name") or editor_user_id) if isinstance(editor_user, dict) else editor_user_id
         ).strip()
         or editor_user_id,
+        "change_details_json": json.dumps(normalized_change_details, ensure_ascii=False),
         "edited_at": timestamp,
     }
     with get_connection() as connection:
@@ -9526,9 +9680,10 @@ def record_weekly_plan_edit_log(
                 target_display_name,
                 editor_user_id,
                 editor_display_name,
+                change_details_json,
                 edited_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["week_start"],
@@ -9536,6 +9691,7 @@ def record_weekly_plan_edit_log(
                 payload["target_display_name"],
                 payload["editor_user_id"],
                 payload["editor_display_name"],
+                payload["change_details_json"],
                 payload["edited_at"],
             ),
         )
@@ -9554,9 +9710,9 @@ def list_weekly_plan_edit_logs(
     with get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT target_user_id, target_display_name, editor_user_id, editor_display_name, edited_at
+            SELECT week_start, target_user_id, target_display_name, editor_user_id, editor_display_name, change_details_json, edited_at
             FROM weekly_plan_edit_logs
-            WHERE week_start = ? AND target_user_id = ?
+            WHERE week_start = ? AND target_user_id = ? AND editor_user_id != target_user_id
             ORDER BY edited_at DESC, id DESC
             LIMIT ?
             """,
@@ -9582,9 +9738,9 @@ def list_weekly_plan_edit_logs_for_targets(
     placeholders = ", ".join("?" for _ in normalized_user_ids)
     params = [normalized_week_start, *normalized_user_ids]
     query = f"""
-        SELECT target_user_id, target_display_name, editor_user_id, editor_display_name, edited_at
+        SELECT week_start, target_user_id, target_display_name, editor_user_id, editor_display_name, change_details_json, edited_at
         FROM weekly_plan_edit_logs
-        WHERE week_start = ? AND target_user_id IN ({placeholders})
+        WHERE week_start = ? AND target_user_id IN ({placeholders}) AND editor_user_id != target_user_id
         ORDER BY target_user_id ASC, edited_at DESC, id DESC
     """
     grouped: dict[str, list[dict]] = {user_id: [] for user_id in normalized_user_ids}
@@ -13662,6 +13818,20 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             return
 
+        if parsed.path == "/api/department-schedule/edit-logs":
+            if not current_user:
+                self._send_json({"error": "请先登录后再查看日程编辑日志。"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            requested_department = query.get("department", [""])[0]
+            try:
+                payload = build_department_schedule_edit_logs_payload(current_user, requested_department)
+                self._send_json(payload)
+            except PermissionError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
         if parsed.path == "/api/field-options":
             has_explicit_scope = bool(
                 str(self.headers.get("X-User-Id", "")).strip()
@@ -14206,6 +14376,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                     weekly_other_pending=payload.get("weekly_other_pending", ""),
                 )
                 if settings != current_settings:
+                    change_details = build_weekly_plan_change_details(current_settings, settings)
                     saved_week_start, saved_settings, updated_at = save_weekly_plan_settings(
                         week_start,
                         settings,
@@ -14215,6 +14386,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                         saved_week_start,
                         target_user=target_user,
                         editor_user=current_user,
+                        change_details=change_details,
                         edited_at=updated_at,
                     )
                 else:

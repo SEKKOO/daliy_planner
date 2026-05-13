@@ -527,26 +527,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       word-break: break-word;
       overflow-wrap: anywhere;
     }
-    .member-audit-note {
-      margin-top: 6px;
-      font-size: 11px;
-      line-height: 1.45;
-      color: var(--text-soft);
-      text-align: center;
-      white-space: normal;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-    }
-    .member-audit-note strong {
-      display: block;
-      color: var(--text);
-      font-size: 11px;
-      font-weight: 700;
-    }
-    .member-audit-note span {
-      display: block;
-      margin-top: 2px;
-    }
     .member-drag-grip {
       flex: 0 0 auto;
       color: var(--text-soft);
@@ -586,39 +566,124 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     .pending-cell { min-width: 220px; }
     .pending-cell-content { display: grid; gap: 10px; }
     .pending-input { min-height: 132px; font-size: 12px; line-height: 1.6; }
-    .plan-edit-history {
+    .schedule-log-overlay[hidden] { display: none; }
+    .schedule-log-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 43;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(9, 17, 31, 0.4);
+      backdrop-filter: blur(12px);
+    }
+    .schedule-log-dialog {
+      width: min(980px, 100%);
+      max-height: min(84vh, 920px);
       display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 16px;
+      padding: 24px;
+      border-radius: 28px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background:
+        linear-gradient(180deg, rgba(252, 253, 255, 0.96), rgba(241, 247, 255, 0.88)),
+        linear-gradient(135deg, rgba(46,119,208,0.08), transparent 72%);
+      box-shadow: 0 28px 70px rgba(15, 36, 66, 0.2);
+    }
+    .schedule-log-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .schedule-log-title {
+      margin: 0;
+      font-size: 22px;
+      color: var(--accent-deep);
+    }
+    .schedule-log-subtitle {
+      margin-top: 6px;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .schedule-log-summary {
+      display: flex;
       gap: 8px;
-      padding: 10px;
-      border-radius: 12px;
-      border: 1px dashed rgba(42,111,214,0.16);
-      background: rgba(var(--surface-soft-rgb), var(--shell-surface-soft-alpha));
+      flex-wrap: wrap;
+      align-items: center;
     }
-    .plan-edit-history-title {
-      font-size: 11px;
+    .schedule-log-body {
+      overflow: auto;
+      display: grid;
+      gap: 12px;
+      padding-right: 4px;
+    }
+    .schedule-log-empty {
+      display: grid;
+      place-items: center;
+      min-height: 220px;
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px dashed var(--line);
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.7;
+      background: rgba(var(--surface-rgb), var(--shell-surface-alpha));
+      text-align: center;
+    }
+    .schedule-log-item {
+      display: grid;
+      gap: 10px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(42,111,214,0.1);
+      background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
+      box-shadow: var(--inner-shadow);
+    }
+    .schedule-log-item-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .schedule-log-item-title {
+      font-size: 14px;
       font-weight: 700;
-      color: var(--primary-deep);
-      letter-spacing: 0.03em;
+      line-height: 1.55;
+      color: var(--text);
     }
-    .plan-edit-history-list {
+    .schedule-log-item-time {
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-soft);
+    }
+    .schedule-log-details {
       display: grid;
       gap: 6px;
     }
-    .plan-edit-history-item {
-      font-size: 11px;
-      line-height: 1.55;
-      color: var(--text-soft);
+    .schedule-log-detail {
+      position: relative;
+      padding-left: 14px;
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text);
+      white-space: pre-wrap;
       word-break: break-word;
       overflow-wrap: anywhere;
     }
-    .plan-edit-history-item strong {
-      color: var(--text);
+    .schedule-log-detail::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: var(--primary-deep);
       font-weight: 700;
-    }
-    .plan-edit-history-empty {
-      font-size: 11px;
-      line-height: 1.5;
-      color: var(--text-soft);
     }
     .action-cell {
       min-width: 170px;
@@ -1110,12 +1175,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .member-subtext {
       color: var(--muted);
     }
-    body[data-theme="dark"] .member-audit-note {
-      color: var(--muted);
-    }
-    body[data-theme="dark"] .member-audit-note strong {
-      color: #f8fbff;
-    }
     body[data-theme="dark"] .plan-member-list {
       border-color: rgba(255,255,255,0.08);
       background:
@@ -1191,18 +1250,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-color: rgba(255, 154, 164, 0.34);
       background: linear-gradient(180deg, rgba(99, 42, 51, 0.82) 0%, rgba(69, 29, 36, 0.72) 100%);
     }
-    body[data-theme="dark"] .plan-edit-history {
-      border-color: rgba(255,255,255,0.12);
-      background: rgba(32, 46, 70, 0.72);
-    }
-    body[data-theme="dark"] .plan-edit-history-title,
-    body[data-theme="dark"] .plan-edit-history-item strong {
-      color: #f8fbff;
-    }
-    body[data-theme="dark"] .plan-edit-history-item,
-    body[data-theme="dark"] .plan-edit-history-empty {
-      color: var(--muted);
-    }
     body[data-theme="dark"] .background-settings-menu,
     body[data-theme="dark"] .background-settings-group {
       background:
@@ -1255,6 +1302,33 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-color: rgba(255,255,255,0.1);
       box-shadow: 0 26px 70px rgba(4, 10, 22, 0.3);
     }
+    body[data-theme="dark"] .schedule-log-overlay {
+      background: rgba(12, 19, 31, 0.28);
+      backdrop-filter: blur(14px);
+    }
+    body[data-theme="dark"] .schedule-log-dialog {
+      background:
+        linear-gradient(180deg, rgba(46, 67, 101, 0.94), rgba(28, 43, 66, 0.9)),
+        linear-gradient(135deg, rgba(125, 183, 255, 0.08), transparent 72%);
+      border-color: rgba(255,255,255,0.1);
+      box-shadow: 0 26px 70px rgba(4, 10, 22, 0.3);
+    }
+    body[data-theme="dark"] .schedule-log-title,
+    body[data-theme="dark"] .schedule-log-item-title {
+      color: #f8fbff;
+    }
+    body[data-theme="dark"] .schedule-log-subtitle,
+    body[data-theme="dark"] .schedule-log-item-time,
+    body[data-theme="dark"] .schedule-log-empty {
+      color: var(--muted);
+    }
+    body[data-theme="dark"] .schedule-log-item {
+      border-color: rgba(255,255,255,0.1);
+      background: rgba(32, 46, 70, 0.72);
+    }
+    body[data-theme="dark"] .schedule-log-detail {
+      color: var(--ink);
+    }
     @media (max-width: 980px) {
       .wrap { padding-top: 18px; }
       .page-theme-toggle {
@@ -1274,6 +1348,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       .auth-overlay { padding: 12px; }
       .auth-dialog { padding: 16px; }
       .auth-sections { grid-template-columns: 1fr; }
+      .schedule-log-overlay { padding: 12px; }
+      .schedule-log-dialog { padding: 16px; }
     }
     @media (max-width: 720px) {
       .top-actions button,
@@ -1450,6 +1526,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       <button type="button" class="theme-toggle tiny-btn" id="back-admin-page" hidden>管理后台</button>
       <button type="button" class="theme-toggle tiny-btn" id="theme-toggle">黑夜模式</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="background-settings-button" aria-expanded="false" aria-controls="background-settings-menu">背景设置</button>
+      <button type="button" class="theme-toggle tiny-btn background-settings-button" id="edit-log-button" hidden>编辑日志</button>
       <div class="background-settings-menu" id="background-settings-menu" hidden>
         <div class="background-settings-head">
           <h2 class="background-settings-title">背景与透明度</h2>
@@ -1511,7 +1588,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       <div class="section-head">
         <div class="section-head-main">
           <h2>部门本周安排</h2>
-          <div class="muted">按用户横向查看周一到周日安排，编辑后会自动保存；拖动左侧人员姓名可调整上下顺序。</div>
+          <div class="muted">按用户横向查看周一到周日安排，编辑后会自动保存；拖动左侧人员姓名可调整上下顺序，页面右上角可查看编辑日志。</div>
         </div>
         <div class="plan-week-meta" id="plan-week-meta"></div>
       </div>
@@ -1643,6 +1720,24 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         </div>
       </section>
     </div>
+    <div class="schedule-log-overlay" id="edit-log-overlay" hidden>
+      <section class="schedule-log-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-log-dialog-title">
+        <div class="schedule-log-head">
+          <div>
+            <h2 class="schedule-log-title" id="edit-log-dialog-title">日程编辑日志</h2>
+            <div class="schedule-log-subtitle" id="edit-log-dialog-subtitle">正在读取日志...</div>
+          </div>
+          <div class="actions">
+            <button type="button" class="secondary" id="edit-log-refresh-button">刷新</button>
+            <button type="button" class="secondary" id="edit-log-overlay-close">关闭</button>
+          </div>
+        </div>
+        <div class="schedule-log-summary" id="edit-log-summary"></div>
+        <div class="schedule-log-body" id="edit-log-body">
+          <div class="schedule-log-empty">正在加载日志...</div>
+        </div>
+      </section>
+    </div>
   </div>
 
   <script>
@@ -1653,6 +1748,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const pageStatusEl = document.getElementById("page-status");
     const toolbarSummaryEl = document.getElementById("toolbar-summary");
     const planWeekMetaEl = document.getElementById("plan-week-meta");
+    const editLogButton = document.getElementById("edit-log-button");
     const departmentPlanMembersEl = document.getElementById("department-plan-members");
     const departmentPlanBody = document.getElementById("department-plan-body");
     const selectedMemberMetaEl = document.getElementById("selected-member-meta");
@@ -1703,6 +1799,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const passwordConfirmInput = document.getElementById("password-confirm-input");
     const passwordSubmitButton = document.getElementById("password-submit-button");
     const passwordStatus = document.getElementById("password-status");
+    const editLogOverlay = document.getElementById("edit-log-overlay");
+    const editLogOverlayCloseButton = document.getElementById("edit-log-overlay-close");
+    const editLogRefreshButton = document.getElementById("edit-log-refresh-button");
+    const editLogDialogSubtitle = document.getElementById("edit-log-dialog-subtitle");
+    const editLogSummaryEl = document.getElementById("edit-log-summary");
+    const editLogBodyEl = document.getElementById("edit-log-body");
     const PLAN_AUTO_SAVE_DELAY_MS = 1000;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -1724,6 +1826,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     let isBackgroundSettingsOpen = false;
     let isAuthOverlayOpen = false;
     let isPasswordOverlayOpen = false;
+    let isEditLogOverlayOpen = false;
+    let latestEditLogPayload = null;
     let dingtalkAuthConfig = normalizeDingtalkAuthConfig({});
     let currentDingtalkScanSessionId = "";
     let dingtalkScanPollTimer = null;
@@ -1852,6 +1956,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       authLoginButton.hidden = isAuthenticated;
       logoutPageButton.hidden = !isAuthenticated;
       passwordButton.hidden = !canCurrentUserChangePassword(currentUser);
+      if (!isAuthenticated) {
+        editLogButton.hidden = true;
+        if (isEditLogOverlayOpen) {
+          closeEditLogOverlay();
+        }
+      }
       stateLoginButton.hidden = isAuthenticated;
       setViewerMetaText(
         isAuthenticated
@@ -2356,12 +2466,16 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     function showStateCard(title, message, showAdminButton = true, showLoginButton = false) {
+      if (isEditLogOverlayOpen) {
+        closeEditLogOverlay();
+      }
       stateTitleEl.textContent = title || "暂时无法查看";
       stateMessageEl.textContent = message || "";
       stateCardEl.hidden = false;
       toolbarCardEl.hidden = false;
       planSectionEl.hidden = true;
       dailySectionEl.hidden = true;
+      editLogButton.hidden = true;
       stateLoginButton.hidden = !showLoginButton;
       document.getElementById("state-go-admin").hidden = !showAdminButton;
     }
@@ -2385,20 +2499,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return String(member && member.user && (member.user.display_name || userId) || userId || "未命名用户").trim() || "未命名用户";
     }
 
-    function getMemberWeeklyPlanEditLogs(member) {
-      return Array.isArray(member && member.weekly_plan_edit_logs) ? member.weekly_plan_edit_logs : [];
-    }
-
-    function getMemberLatestWeeklyPlanEdit(member) {
-      const logs = getMemberWeeklyPlanEditLogs(member);
-      if (logs.length) {
-        return logs[0];
-      }
-      return member && member.weekly_plan_last_editor && typeof member.weekly_plan_last_editor === 'object'
-        ? member.weekly_plan_last_editor
-        : null;
-    }
-
     function formatDateTimeLabel(value) {
       const text = String(value || '').trim();
       if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text)) {
@@ -2420,45 +2520,140 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return `${editorName} 编辑了 ${targetName}`;
     }
 
-    function getMemberLatestWeeklyPlanEditTitle(member) {
-      const latestEdit = getMemberLatestWeeklyPlanEdit(member);
-      if (!latestEdit) {
-        return '暂无编辑记录';
-      }
-      return `${buildWeeklyPlanEditSummary(latestEdit)} · ${String(latestEdit.edited_at || '').trim() || '时间未知'}`;
+    function getWeeklyPlanEditChangeDetails(log) {
+      return Array.isArray(log && log.change_details) ? log.change_details.filter(Boolean) : [];
     }
 
-    function renderMemberLatestWeeklyPlanEditNote(member) {
-      const latestEdit = getMemberLatestWeeklyPlanEdit(member);
-      if (!latestEdit) {
-        return '<strong>暂无编辑记录</strong><span>本周还没有人修改该安排</span>';
+    function buildEditLogScopeSubtitle(payload) {
+      const data = payload && typeof payload === 'object' ? payload : {};
+      if (data.can_view_all) {
+        return `${String(data.scope_label || data.selected_department_label || '当前部门').trim() || '当前部门'}的全部代编辑日志，自己编辑自己不会展示。`;
       }
-      const editorName = String(latestEdit.editor_display_name || latestEdit.editor_user_id || '未知用户').trim() || '未知用户';
-      return `
-        <strong>最近编辑：${escapeHtml(editorName)}</strong>
-        <span>${escapeHtml(formatDateTimeLabel(latestEdit.edited_at))}</span>
-      `;
+      return `当前登录用户 ${String(data.scope_label || '本人').trim() || '本人'} 的全部代编辑日志，自己编辑自己不会展示。`;
     }
 
-    function renderMemberWeeklyPlanEditHistory(member) {
-      const logs = getMemberWeeklyPlanEditLogs(member).slice(0, 3);
+    function getEditLogEmptyMessage(payload) {
+      const data = payload && typeof payload === 'object' ? payload : {};
+      if (data.can_view_all) {
+        return '当前范围内还没有他人代编辑日志，自己编辑自己不会展示。';
+      }
+      return '当前登录用户还没有被他人代编辑过日程，自己编辑自己不会展示。';
+    }
+
+    function renderEditLogSummary(payload) {
+      const data = payload && typeof payload === 'object' ? payload : {};
+      const chips = [
+        data.can_view_all
+          ? `查看范围 ${String(data.scope_label || data.selected_department_label || '当前部门').trim() || '当前部门'}`
+          : `当前用户 ${String(data.scope_label || '本人').trim() || '本人'}`,
+        `日志 ${Number(data.log_count || 0)} 条`,
+      ];
+      return chips.map(renderChip).join('');
+    }
+
+    function renderEditLogList(payload) {
+      const logs = Array.isArray(payload && payload.logs) ? payload.logs : [];
       if (!logs.length) {
-        return `
-          <div class="plan-edit-history-title">本周编辑记录</div>
-          <div class="plan-edit-history-empty">当前周还没有人修改该用户的日程安排。</div>
-        `;
+        return `<div class="schedule-log-empty">${escapeHtml(getEditLogEmptyMessage(payload))}</div>`;
       }
-      return `
-        <div class="plan-edit-history-title">本周编辑记录</div>
-        <div class="plan-edit-history-list">
-          ${logs.map((log) => `
-            <div class="plan-edit-history-item" title="${escapeHtml(`${buildWeeklyPlanEditSummary(log)} · ${String(log && log.edited_at || '').trim() || '时间未知'}`)}">
-              <strong>${escapeHtml(formatDateTimeLabel(log && log.edited_at))}</strong>
-              ${escapeHtml(buildWeeklyPlanEditSummary(log))}
+      return logs.map((log) => {
+        const changeDetails = getWeeklyPlanEditChangeDetails(log);
+        const editedAt = String(log && log.edited_at || '').trim() || '时间未知';
+        const weekStart = String(log && log.week_start || '').trim();
+        return `
+          <div class="schedule-log-item" title="${escapeHtml(`${buildWeeklyPlanEditSummary(log)} · ${editedAt}`)}">
+            <div class="schedule-log-item-head">
+              <div>
+                <div class="schedule-log-item-title">${escapeHtml(buildWeeklyPlanEditSummary(log))}</div>
+                <div class="schedule-log-item-time">${escapeHtml(editedAt)}</div>
+              </div>
+              ${weekStart ? renderChip(`周起始 ${weekStart}`) : ''}
             </div>
-          `).join('')}
-        </div>
-      `;
+            <div class="schedule-log-details">
+              ${changeDetails.length
+                ? changeDetails.map((detail) => `<div class="schedule-log-detail">${escapeHtml(detail)}</div>`).join('')
+                : '<div class="schedule-log-detail">本次编辑未记录到具体差异内容。</div>'}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function applyEditLogPayload(payload) {
+      latestEditLogPayload = payload && typeof payload === 'object' ? payload : {};
+      editLogDialogSubtitle.textContent = buildEditLogScopeSubtitle(latestEditLogPayload);
+      editLogSummaryEl.innerHTML = renderEditLogSummary(latestEditLogPayload);
+      editLogBodyEl.innerHTML = renderEditLogList(latestEditLogPayload);
+    }
+
+    function setEditLogLoading(message) {
+      const text = String(message || '正在读取日志...').trim() || '正在读取日志...';
+      editLogDialogSubtitle.textContent = text;
+      editLogSummaryEl.innerHTML = '';
+      editLogBodyEl.innerHTML = `<div class="schedule-log-empty">${escapeHtml(text)}</div>`;
+    }
+
+    function getCurrentEditLogDepartmentValue() {
+      const selectedValue = String(departmentSelect.value || '').trim();
+      if (selectedValue) {
+        return selectedValue;
+      }
+      if (latestPayload && latestPayload.allow_all_departments) {
+        return '__all__';
+      }
+      return String(latestPayload && latestPayload.selected_department || '').trim();
+    }
+
+    async function loadEditLogs(options = {}) {
+      const silent = Boolean(options && options.silent);
+      if (!silent) {
+        setEditLogLoading('正在读取日志...');
+      }
+      editLogButton.disabled = true;
+      editLogRefreshButton.disabled = true;
+      try {
+        const params = new URLSearchParams();
+        const departmentValue = getCurrentEditLogDepartmentValue();
+        if (departmentValue) {
+          params.set('department', departmentValue);
+        }
+        const response = await fetch(`/api/department-schedule/edit-logs?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw { status: response.status, message: payload.error || '读取编辑日志失败。' };
+        }
+        applyEditLogPayload(payload);
+      } catch (error) {
+        const message = String(error && error.message || '读取编辑日志失败，请稍后重试。');
+        setEditLogLoading(message);
+        setStatus(message, true);
+        if (Number(error && error.status || 0) === 401) {
+          setAuthState(null);
+        }
+      } finally {
+        editLogButton.disabled = false;
+        editLogRefreshButton.disabled = false;
+      }
+    }
+
+    function openEditLogOverlay() {
+      if (!(latestPayload && latestPayload.viewer)) {
+        openAuthOverlay();
+        return;
+      }
+      isEditLogOverlayOpen = true;
+      editLogOverlay.hidden = false;
+      setEditLogLoading('正在读取日志...');
+      loadEditLogs({ silent: true }).catch(() => {});
+    }
+
+    function closeEditLogOverlay() {
+      isEditLogOverlayOpen = false;
+      editLogOverlay.hidden = true;
+      latestEditLogPayload = null;
+      editLogDialogSubtitle.textContent = '正在读取日志...';
+      editLogSummaryEl.innerHTML = '';
+      editLogBodyEl.innerHTML = '<div class="schedule-log-empty">正在加载日志...</div>';
     }
 
     function readStoredMemberOrders() {
@@ -2548,6 +2743,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const canShowAdminButton = Boolean(payload && payload.show_admin_button);
       dailySectionEl.hidden = !canShowDailySection;
       backAdminPageButton.hidden = !canShowAdminButton;
+      editLogButton.hidden = !(payload && payload.viewer && payload.viewer.user_id);
       document.getElementById("state-go-admin").hidden = !canShowAdminButton;
       setAuthState(viewer);
     }
@@ -2597,27 +2793,11 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       statusEl.innerHTML = renderPlanRowStatusMarkup(statusText, tone);
     }
 
-    function refreshMemberWeeklyPlanEditAudit(userId) {
-      const member = getMemberByUserId(userId);
-      if (!member) {
+    function refreshEditLogsIfVisible() {
+      if (!isEditLogOverlayOpen) {
         return;
       }
-      const memberRow = findDepartmentPlanMemberRow(userId);
-      if (memberRow) {
-        const auditEl = memberRow.querySelector('[data-role="member-edit-audit"]');
-        if (auditEl) {
-          auditEl.innerHTML = renderMemberLatestWeeklyPlanEditNote(member);
-          auditEl.title = getMemberLatestWeeklyPlanEditTitle(member);
-        }
-      }
-      const planRow = findDepartmentPlanRow(userId);
-      if (planRow) {
-        const historyEl = planRow.querySelector('[data-role="weekly-plan-edit-history"]');
-        if (historyEl) {
-          historyEl.innerHTML = renderMemberWeeklyPlanEditHistory(member);
-        }
-      }
-      scheduleDepartmentPlanHeightSync();
+      loadEditLogs({ silent: true }).catch(() => {});
     }
 
     function clearAllPlanAutoSaveTimers() {
@@ -2962,9 +3142,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
             <div class="member-text-wrap">
               <div class="member-text" title="${escapeHtml(userMetaTitle)}">${escapeHtml(userDisplayName)}</div>
               ${userPositions ? `<div class="member-subtext">${escapeHtml(userPositions)}</div>` : ''}
-              <div class="member-audit-note" data-role="member-edit-audit" title="${escapeHtml(getMemberLatestWeeklyPlanEditTitle(member))}">
-                ${renderMemberLatestWeeklyPlanEditNote(member)}
-              </div>
             </div>
           </div>
         `;
@@ -2979,9 +3156,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
             <td class="pending-cell">
               <div class="pending-cell-content">
                 <textarea class="pending-input" data-user-id="${escapeHtml(userId)}" data-field="weekly_other_pending" placeholder="补充本周其他待办或跨天事项"${canEdit ? "" : " disabled"}>${escapeHtml(member.weekly_other_pending || "")}</textarea>
-                <div class="plan-edit-history" data-role="weekly-plan-edit-history">
-                  ${renderMemberWeeklyPlanEditHistory(member)}
-                </div>
               </div>
             </td>
           </tr>
@@ -3241,8 +3415,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
           : null;
         member.weekly_plan_edit_logs = Array.isArray(payload.weekly_plan_edit_logs) ? payload.weekly_plan_edit_logs : [];
         renderToolbarSummary(latestPayload);
-        refreshMemberWeeklyPlanEditAudit(normalizedUserId);
         scheduleDepartmentPlanHeightSync();
+        refreshEditLogsIfVisible();
         setStatus(`${member.user && member.user.display_name || normalizedUserId} 的本周安排已保存。`);
         setPlanRowStatus(normalizedUserId, `最近保存：${member.weekly_plan_updated_at || '刚刚'}`);
       } catch (error) {
@@ -3265,6 +3439,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       renderDepartmentPlanTable(payload);
       renderMemberSelect(payload);
       renderSelectedMemberDailyItems();
+      if (isEditLogOverlayOpen) {
+        refreshEditLogsIfVisible();
+      }
       setStatus(`已加载 ${payload.selected_department_label || '全部部门'} 在 ${payload.week_start || '-'} 当周的安排。`);
     }
 
@@ -3347,6 +3524,16 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     document.getElementById('state-go-admin').addEventListener('click', () => {
       window.location.href = '/admin';
     });
+    editLogButton.addEventListener('click', openEditLogOverlay);
+    editLogRefreshButton.addEventListener('click', () => {
+      loadEditLogs();
+    });
+    editLogOverlayCloseButton.addEventListener('click', closeEditLogOverlay);
+    editLogOverlay.addEventListener('click', (event) => {
+      if (event.target === editLogOverlay) {
+        closeEditLogOverlay();
+      }
+    });
     passwordButton.addEventListener('click', openPasswordOverlay);
     passwordOverlayCloseButton.addEventListener('click', closePasswordOverlay);
     passwordOverlay.addEventListener('click', (event) => {
@@ -3422,6 +3609,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         }
         if (isPasswordOverlayOpen) {
           closePasswordOverlay();
+        }
+        if (isEditLogOverlayOpen) {
+          closeEditLogOverlay();
         }
       }
     });
