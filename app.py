@@ -8937,6 +8937,7 @@ get_local_account_by_username = auth_service.get_local_account_by_username
 get_local_account_by_user_id = auth_service.get_local_account_by_user_id
 list_local_accounts = auth_service.list_local_accounts
 save_local_account = auth_service.save_local_account
+get_local_account_position_options = auth_service.get_local_account_position_options
 get_department_options = auth_service.get_department_options
 save_department_options = auth_service.save_department_options
 verify_local_account_password = auth_service.verify_local_account_password
@@ -9113,6 +9114,87 @@ def _match_department_label(label: str, expected: str) -> bool:
     return _department_label_key(label) == _department_label_key(expected)
 
 
+def _split_schedule_filter_values(raw_values: object) -> list[str]:
+    if isinstance(raw_values, str):
+        values = [raw_values]
+    elif isinstance(raw_values, (list, tuple, set)):
+        values = list(raw_values)
+    else:
+        values = []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        for part in re.split(r"[\n,，]+", str(raw_value or "")):
+            label = str(part or "").strip()
+            if not label:
+                continue
+            key = label.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(label)
+    return normalized
+
+
+def _collect_user_position_labels(user: dict | None) -> list[str]:
+    if not isinstance(user, dict):
+        return []
+    values: list[str] = []
+    seen: set[str] = set()
+    raw_positions = user.get("positions")
+    if isinstance(raw_positions, (list, tuple, set)):
+        for raw_position in raw_positions:
+            label = str(raw_position or "").strip()
+            if not label:
+                continue
+            key = label.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            values.append(label)
+    fallback_position = str(user.get("position") or "").strip()
+    if fallback_position and fallback_position.casefold() not in seen:
+        values.append(fallback_position)
+    return values
+
+
+def _collect_available_position_labels(users: list[dict]) -> list[str]:
+    configured_options = list(get_local_account_position_options().get("options") or [])
+    configured_keys = {item.casefold() for item in configured_options if str(item or "").strip()}
+    discovered: dict[str, str] = {}
+    for user in users:
+        for label in _collect_user_position_labels(user):
+            discovered.setdefault(label.casefold(), label)
+    ordered = [item for item in configured_options if item.casefold() in discovered]
+    extras = sorted(
+        (label for key, label in discovered.items() if key not in configured_keys),
+        key=lambda item: item.casefold(),
+    )
+    return ordered + extras
+
+
+def _match_position_label(label: str, expected: str) -> bool:
+    return str(label or "").strip().casefold() == str(expected or "").strip().casefold()
+
+
+def _build_schedule_filter_label(
+    selected_values: list[str],
+    available_values: list[str],
+    *,
+    all_label: str,
+    unit_label: str,
+) -> str:
+    available_count = len(available_values)
+    selected_count = len(selected_values)
+    if not available_count:
+        return all_label
+    if selected_count == 1:
+        return selected_values[0]
+    if selected_count >= available_count:
+        return all_label
+    return f"已筛选 {selected_count} 个{unit_label}"
+
+
 def build_department_weekly_plan_rows(settings: dict | None) -> list[dict[str, str]]:
     source = normalize_weekly_plan_settings(settings if isinstance(settings, dict) else {})
     return [
@@ -9177,6 +9259,8 @@ def resolve_department_schedule_target_user(
 def resolve_department_schedule_scope(
     current_user: dict | None,
     requested_department: str | None = None,
+    requested_departments: object | None = None,
+    requested_positions: object | None = None,
 ) -> dict[str, Any]:
     if not current_user:
         raise PermissionError("请先登录后再访问部门日程页面。")
@@ -9186,41 +9270,98 @@ def resolve_department_schedule_scope(
     viewer_is_admin = str(current_user.get("role") or "") == "admin"
     viewer_can_view_daily_details = _can_view_department_schedule_daily_details(current_user)
     viewer_department = _normalize_department_label(current_user.get("department"))
-    requested_label = _normalize_department_label(requested_department)
 
-    all_users = [user for user in list_all_users() if _is_department_schedule_visible_user(user)]
-    available_departments = _dedupe_department_labels([item.get("department") for item in all_users])
-
+    all_visible_users = [user for user in list_all_users() if _is_department_schedule_visible_user(user)]
     if viewer_is_admin:
-        if requested_label and requested_label != "__all__":
-            matched_label = next(
-                (label for label in available_departments if _match_department_label(label, requested_label)),
-                "",
-            )
-            if not matched_label:
-                raise ValueError("所选部门不存在，请刷新后重试。")
-            selected_department = matched_label
-        elif requested_label == "__all__":
-            selected_department = ""
-        else:
-            selected_department = viewer_department or ""
+        accessible_users = list(all_visible_users)
+        available_departments = _dedupe_department_labels([item.get("department") for item in accessible_users])
     else:
         if not viewer_department:
             raise PermissionError("当前账号尚未配置所属部门，暂无法查看部门日程。")
-        selected_department = viewer_department
-        if requested_label and requested_label not in {"__all__", viewer_department} and not _match_department_label(
-            requested_label, viewer_department
-        ):
-            raise PermissionError("当前账号只能查看自己所属部门的日程。")
+        accessible_users = [
+            user
+            for user in all_visible_users
+            if _match_department_label(_normalize_department_label(user.get("department")), viewer_department)
+        ]
         available_departments = [viewer_department]
+    available_positions = _collect_available_position_labels(accessible_users)
+
+    default_selected_departments: list[str] = []
+    if viewer_department:
+        matched_default_department = next(
+            (label for label in available_departments if _match_department_label(label, viewer_department)),
+            "",
+        )
+        if matched_default_department:
+            default_selected_departments = [matched_default_department]
+    if not default_selected_departments:
+        default_selected_departments = list(available_departments)
+    default_selected_positions = list(available_positions)
+
+    requested_label = _normalize_department_label(requested_department)
+    requested_department_labels = _split_schedule_filter_values(requested_departments)
+    requested_all_departments = any(
+        str(item or "").strip() == "__all__" for item in requested_department_labels
+    )
+    if requested_label == "__all__" and not requested_department_labels:
+        requested_all_departments = True
+    if requested_label and requested_label != "__all__":
+        requested_department_labels.append(requested_label)
+        requested_department_labels = _dedupe_department_labels(requested_department_labels)
+
+    selected_departments: list[str] = []
+    if requested_department_labels and not requested_all_departments:
+        for raw_label in requested_department_labels:
+            normalized_label = _normalize_department_label(raw_label)
+            matched_label = next(
+                (label for label in available_departments if _match_department_label(label, normalized_label)),
+                "",
+            )
+            if not matched_label:
+                if not viewer_is_admin and viewer_department:
+                    raise PermissionError("当前账号只能查看自己所属部门的日程。")
+                raise ValueError("所选部门不存在，请刷新后重试。")
+            if matched_label not in selected_departments:
+                selected_departments.append(matched_label)
+    else:
+        selected_departments = list(default_selected_departments)
+
+    requested_position_labels = _split_schedule_filter_values(requested_positions)
+    requested_all_positions = any(str(item or "").strip() == "__all__" for item in requested_position_labels)
+    selected_positions: list[str] = []
+    if requested_position_labels and not requested_all_positions:
+        for raw_label in requested_position_labels:
+            normalized_label = str(raw_label or "").strip()
+            matched_label = next(
+                (label for label in available_positions if _match_position_label(label, normalized_label)),
+                "",
+            )
+            if not matched_label:
+                raise ValueError("所选岗位不存在，请刷新后重试。")
+            if matched_label not in selected_positions:
+                selected_positions.append(matched_label)
+    else:
+        selected_positions = list(default_selected_positions)
+
+    department_filter_active = bool(available_departments) and 0 < len(selected_departments) < len(available_departments)
+    position_filter_active = bool(available_positions) and 0 < len(selected_positions) < len(available_positions)
 
     department_users: list[dict] = []
-    for user in all_users:
+    for user in accessible_users:
         user_department = _normalize_department_label(user.get("department"))
         if not user_department:
             continue
-        if selected_department and not _match_department_label(user_department, selected_department):
+        if department_filter_active and not any(
+            _match_department_label(user_department, selected_department) for selected_department in selected_departments
+        ):
             continue
+        if position_filter_active:
+            user_positions = _collect_user_position_labels(user)
+            if not any(
+                any(_match_position_label(user_position, selected_position) for selected_position in selected_positions)
+                for user_position in user_positions
+            ):
+                continue
         department_users.append(user)
     department_users.sort(
         key=lambda item: (
@@ -9229,12 +9370,34 @@ def resolve_department_schedule_scope(
         )
     )
 
+    selected_department = selected_departments[0] if len(selected_departments) == 1 else ""
+    selected_department_label = _build_schedule_filter_label(
+        selected_departments,
+        available_departments,
+        all_label="全部部门",
+        unit_label="部门",
+    )
+    selected_position_label = _build_schedule_filter_label(
+        selected_positions,
+        available_positions,
+        all_label="全部岗位",
+        unit_label="岗位",
+    )
+
     return {
         "viewer_is_admin": viewer_is_admin,
         "viewer_can_view_daily_details": viewer_can_view_daily_details,
         "available_departments": available_departments,
+        "available_positions": available_positions,
+        "default_selected_departments": default_selected_departments,
+        "default_selected_positions": default_selected_positions,
         "selected_department": selected_department,
-        "selected_department_label": selected_department or "全部部门",
+        "selected_departments": selected_departments,
+        "selected_department_label": selected_department_label,
+        "selected_positions": selected_positions,
+        "selected_position_label": selected_position_label,
+        "department_filter_active": department_filter_active,
+        "position_filter_active": position_filter_active,
         "department_users": department_users,
     }
 
@@ -9243,14 +9406,24 @@ def build_department_schedule_payload(
     current_user: dict | None,
     anchor_date: str,
     requested_department: str | None = None,
+    requested_departments: object | None = None,
+    requested_positions: object | None = None,
 ) -> dict:
     target_date = validate_date(anchor_date)
     week_start, week_end, week_dates = build_week_window(target_date)
-    scope = resolve_department_schedule_scope(current_user, requested_department)
+    scope = resolve_department_schedule_scope(
+        current_user,
+        requested_department,
+        requested_departments=requested_departments,
+        requested_positions=requested_positions,
+    )
     viewer_is_admin = bool(scope["viewer_is_admin"])
     viewer_can_view_daily_details = bool(scope["viewer_can_view_daily_details"])
     available_departments = list(scope["available_departments"])
+    available_positions = list(scope["available_positions"])
     selected_department = str(scope["selected_department"])
+    selected_departments = list(scope["selected_departments"])
+    selected_positions = list(scope["selected_positions"])
     department_users = list(scope["department_users"])
     department_user_ids = [str(item.get("user_id") or "").strip() for item in department_users if str(item.get("user_id") or "").strip()]
     weekly_plan_edit_logs_map = list_weekly_plan_edit_logs_for_targets(
@@ -9350,8 +9523,14 @@ def build_department_schedule_payload(
         "can_switch_department": viewer_is_admin,
         "allow_all_departments": viewer_is_admin,
         "departments": available_departments,
+        "available_positions": available_positions,
         "selected_department": selected_department,
+        "selected_departments": selected_departments,
         "selected_department_label": str(scope["selected_department_label"]),
+        "selected_positions": selected_positions,
+        "selected_position_label": str(scope["selected_position_label"]),
+        "default_selected_departments": list(scope["default_selected_departments"]),
+        "default_selected_positions": list(scope["default_selected_positions"]),
         "member_count": len(members),
         "summary": {
             "member_count": len(members),
@@ -9389,11 +9568,18 @@ def list_department_schedule_edit_logs(
 def build_department_schedule_edit_logs_payload(
     current_user: dict | None,
     requested_department: str | None = None,
+    requested_departments: object | None = None,
+    requested_positions: object | None = None,
 ) -> dict[str, Any]:
     if not current_user:
         raise PermissionError("请先登录后再查看日程编辑日志。")
 
-    scope = resolve_department_schedule_scope(current_user, requested_department)
+    scope = resolve_department_schedule_scope(
+        current_user,
+        requested_department,
+        requested_departments=requested_departments,
+        requested_positions=requested_positions,
+    )
     can_view_all_logs = bool(scope["viewer_is_admin"]) or bool(current_user.get("is_department_admin"))
     viewer_user_id = normalize_user_id(current_user.get("user_id"))
     viewer_display_name = str(current_user.get("display_name") or viewer_user_id).strip() or viewer_user_id
@@ -9417,7 +9603,10 @@ def build_department_schedule_edit_logs_payload(
         "scope_mode": scope_mode,
         "scope_label": scope_label,
         "selected_department": str(scope["selected_department"]),
+        "selected_departments": list(scope["selected_departments"]),
         "selected_department_label": str(scope["selected_department_label"]),
+        "selected_positions": list(scope["selected_positions"]),
+        "selected_position_label": str(scope["selected_position_label"]),
         "log_count": len(logs),
         "logs": logs,
     }
@@ -13901,8 +14090,16 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 return
             requested_date = query.get("date", [""])[0] or date.today().isoformat()
             requested_department = query.get("department", [""])[0]
+            requested_departments = query.get("departments", [])
+            requested_positions = query.get("positions", [])
             try:
-                payload = build_department_schedule_payload(current_user, requested_date, requested_department)
+                payload = build_department_schedule_payload(
+                    current_user,
+                    requested_date,
+                    requested_department,
+                    requested_departments=requested_departments,
+                    requested_positions=requested_positions,
+                )
                 self._send_json(payload)
             except PermissionError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)
@@ -13915,8 +14112,15 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "请先登录后再查看日程编辑日志。"}, status=HTTPStatus.UNAUTHORIZED)
                 return
             requested_department = query.get("department", [""])[0]
+            requested_departments = query.get("departments", [])
+            requested_positions = query.get("positions", [])
             try:
-                payload = build_department_schedule_edit_logs_payload(current_user, requested_department)
+                payload = build_department_schedule_edit_logs_payload(
+                    current_user,
+                    requested_department,
+                    requested_departments=requested_departments,
+                    requested_positions=requested_positions,
+                )
                 self._send_json(payload)
             except PermissionError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)

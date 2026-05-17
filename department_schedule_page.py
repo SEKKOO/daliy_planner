@@ -370,11 +370,26 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       gap: 6px;
       justify-items: end;
     }
+    .plan-week-meta-top {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
     .plan-week-meta-chips {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
       justify-content: flex-end;
+    }
+    .plan-filter-button {
+      padding: 6px 10px;
+      min-height: 0;
+      border-radius: 999px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: nowrap;
     }
     .plan-week-meta-updated {
       font-size: 12px;
@@ -684,6 +699,85 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       top: 0;
       color: var(--primary-deep);
       font-weight: 700;
+    }
+    .schedule-filter-overlay[hidden] { display: none; }
+    .schedule-filter-overlay {
+      position: fixed;
+      z-index: 42;
+      width: min(240px, calc(100vw - 24px));
+      max-width: calc(100vw - 24px);
+    }
+    .schedule-filter-dialog {
+      width: 100%;
+      max-height: min(70vh, 720px);
+      overflow: auto;
+      display: grid;
+      gap: 0;
+      padding: 8px 0;
+      border-radius: 16px;
+      border: 1px solid rgba(42,111,214,0.14);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 255, 0.94)),
+        linear-gradient(135deg, rgba(46,119,208,0.05), transparent 72%);
+      box-shadow: 0 18px 36px rgba(15, 36, 66, 0.14);
+      backdrop-filter: blur(14px);
+    }
+    .schedule-filter-title {
+      padding: 6px 14px 8px;
+      font-size: 16px;
+      line-height: 1.5;
+      font-weight: 700;
+      color: var(--accent-deep);
+    }
+    .schedule-filter-section {
+      display: grid;
+      gap: 2px;
+      padding-bottom: 6px;
+    }
+    .schedule-filter-section + .schedule-filter-section {
+      border-top: 1px solid rgba(42,111,214,0.08);
+      padding-top: 6px;
+    }
+    .schedule-filter-section-title {
+      padding: 4px 14px;
+      font-size: 12px;
+      line-height: 1.5;
+      font-weight: 700;
+      color: var(--text-soft);
+    }
+    .schedule-filter-options {
+      display: grid;
+      gap: 0;
+    }
+    .schedule-filter-option {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 8px 14px;
+      min-height: 0;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 500;
+    }
+    .schedule-filter-option:hover {
+      transform: none;
+      box-shadow: none;
+      background: rgba(42,111,214,0.06);
+    }
+    .schedule-filter-option.is-selected {
+      color: var(--accent-deep);
+      background: rgba(42,111,214,0.1);
+    }
+    .schedule-filter-option.is-empty {
+      cursor: default;
+      pointer-events: none;
+      color: var(--text-soft);
     }
     .action-cell {
       min-width: 170px;
@@ -1313,7 +1407,30 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-color: rgba(255,255,255,0.1);
       box-shadow: 0 26px 70px rgba(4, 10, 22, 0.3);
     }
+    body[data-theme="dark"] .schedule-filter-overlay {
+      background: transparent;
+    }
+    body[data-theme="dark"] .schedule-filter-dialog {
+      background:
+        linear-gradient(180deg, rgba(46, 67, 101, 0.94), rgba(28, 43, 66, 0.9)),
+        linear-gradient(135deg, rgba(125, 183, 255, 0.08), transparent 72%);
+      border-color: rgba(255,255,255,0.1);
+      box-shadow: 0 26px 70px rgba(4, 10, 22, 0.3);
+    }
+    body[data-theme="dark"] .schedule-filter-section + .schedule-filter-section {
+      border-top-color: rgba(255,255,255,0.08);
+    }
+    body[data-theme="dark"] .schedule-filter-option {
+      color: var(--ink);
+    }
+    body[data-theme="dark"] .schedule-filter-option:hover {
+      background: rgba(125, 183, 255, 0.12);
+    }
+    body[data-theme="dark"] .schedule-filter-option.is-selected {
+      background: rgba(125, 183, 255, 0.18);
+    }
     body[data-theme="dark"] .schedule-log-title,
+    body[data-theme="dark"] .schedule-filter-title,
     body[data-theme="dark"] .schedule-log-item-title {
       color: #f8fbff;
     }
@@ -1343,6 +1460,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       .toolbar-grid,
       .daily-select-row { grid-template-columns: 1fr; }
       .plan-week-meta { justify-items: start; }
+      .plan-week-meta-top { justify-content: flex-start; }
       .plan-week-meta-chips { justify-content: flex-start; }
       .plan-week-meta-updated { text-align: left; }
       .auth-overlay { padding: 12px; }
@@ -1720,6 +1838,19 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         </div>
       </section>
     </div>
+    <div class="schedule-filter-overlay" id="schedule-filter-overlay" hidden>
+      <section class="schedule-filter-dialog" role="dialog" aria-modal="false" aria-labelledby="schedule-filter-title">
+        <div class="schedule-filter-title" id="schedule-filter-title">筛选成员</div>
+        <section class="schedule-filter-section">
+          <div class="schedule-filter-section-title">部门筛选</div>
+          <div class="schedule-filter-options" id="schedule-filter-department-options"></div>
+        </section>
+        <section class="schedule-filter-section">
+          <div class="schedule-filter-section-title">岗位筛选</div>
+          <div class="schedule-filter-options" id="schedule-filter-position-options"></div>
+        </section>
+      </section>
+    </div>
     <div class="schedule-log-overlay" id="edit-log-overlay" hidden>
       <section class="schedule-log-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-log-dialog-title">
         <div class="schedule-log-head">
@@ -1805,6 +1936,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const editLogDialogSubtitle = document.getElementById("edit-log-dialog-subtitle");
     const editLogSummaryEl = document.getElementById("edit-log-summary");
     const editLogBodyEl = document.getElementById("edit-log-body");
+    const scheduleFilterOverlay = document.getElementById("schedule-filter-overlay");
+    const scheduleFilterDepartmentOptionsEl = document.getElementById("schedule-filter-department-options");
+    const scheduleFilterPositionOptionsEl = document.getElementById("schedule-filter-position-options");
     const PLAN_AUTO_SAVE_DELAY_MS = 1000;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -1829,6 +1963,10 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     let isPasswordOverlayOpen = false;
     let isEditLogOverlayOpen = false;
     let latestEditLogPayload = null;
+    let isScheduleFilterOverlayOpen = false;
+    let requestedScheduleFilterState = null;
+    let scheduleFilterDraftState = { departments: [], positions: [] };
+    let scheduleFilterPositionFrameId = 0;
     let dingtalkAuthConfig = normalizeDingtalkAuthConfig({});
     let currentDingtalkScanSessionId = "";
     let dingtalkScanPollTimer = null;
@@ -2499,9 +2637,301 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return `<span class="chip">${escapeHtml(text)}</span>`;
     }
 
+    function normalizeSelectionValues(values, options = []) {
+      const rawValues = Array.isArray(values) ? values : [values];
+      const normalizedOptions = Array.isArray(options)
+        ? options.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+      const optionMap = new Map();
+      normalizedOptions.forEach((option) => {
+        const key = option.toLowerCase();
+        if (!optionMap.has(key)) {
+          optionMap.set(key, option);
+        }
+      });
+      const selectedKeys = new Set();
+      const fallbackValues = [];
+      rawValues.forEach((item) => {
+        const label = String(item || '').trim();
+        if (!label) {
+          return;
+        }
+        const key = label.toLowerCase();
+        if (selectedKeys.has(key)) {
+          return;
+        }
+        selectedKeys.add(key);
+        if (!normalizedOptions.length) {
+          fallbackValues.push(label);
+        }
+      });
+      if (!normalizedOptions.length) {
+        return fallbackValues;
+      }
+      return normalizedOptions.filter((option) => selectedKeys.has(option.toLowerCase()));
+    }
+
+    function getAvailableDepartmentFilters(payload = latestPayload) {
+      return normalizeSelectionValues(payload && payload.departments || []);
+    }
+
+    function getAvailablePositionFilters(payload = latestPayload) {
+      return normalizeSelectionValues(payload && payload.available_positions || []);
+    }
+
+    function getSelectedDepartmentFilters(payload = latestPayload) {
+      const availableDepartments = getAvailableDepartmentFilters(payload);
+      const selected = normalizeSelectionValues(payload && payload.selected_departments || [], availableDepartments);
+      if (selected.length) {
+        return selected;
+      }
+      const fallbackDepartment = String(payload && payload.selected_department || '').trim();
+      if (fallbackDepartment) {
+        return normalizeSelectionValues([fallbackDepartment], availableDepartments);
+      }
+      const defaultDepartments = normalizeSelectionValues(payload && payload.default_selected_departments || [], availableDepartments);
+      return defaultDepartments.length ? defaultDepartments : availableDepartments;
+    }
+
+    function getSelectedPositionFilters(payload = latestPayload) {
+      const availablePositions = getAvailablePositionFilters(payload);
+      const selected = normalizeSelectionValues(payload && payload.selected_positions || [], availablePositions);
+      if (selected.length) {
+        return selected;
+      }
+      const defaultPositions = normalizeSelectionValues(payload && payload.default_selected_positions || [], availablePositions);
+      return defaultPositions.length ? defaultPositions : availablePositions;
+    }
+
+    function buildCurrentScheduleFilterQueryState(payload = latestPayload) {
+      const availableDepartments = getAvailableDepartmentFilters(payload);
+      const availablePositions = getAvailablePositionFilters(payload);
+      const activeState = requestedScheduleFilterState && typeof requestedScheduleFilterState === 'object'
+        ? requestedScheduleFilterState
+        : null;
+      let selectedDepartments = activeState
+        ? normalizeSelectionValues(activeState.departments, availableDepartments)
+        : getSelectedDepartmentFilters(payload);
+      let selectedPositions = activeState
+        ? normalizeSelectionValues(activeState.positions, availablePositions)
+        : getSelectedPositionFilters(payload);
+      if (!selectedDepartments.length) {
+        selectedDepartments = getSelectedDepartmentFilters(payload);
+      }
+      if (!selectedPositions.length) {
+        selectedPositions = getSelectedPositionFilters(payload);
+      }
+      const departmentParam = selectedDepartments.length > 1
+        ? '__all__'
+        : (
+          selectedDepartments[0]
+          || String(departmentSelect.value || '').trim()
+          || (payload && payload.allow_all_departments ? '__all__' : String(payload && payload.selected_department || '').trim())
+        );
+      return {
+        selectedDepartments,
+        selectedPositions,
+        departmentParam,
+        availableDepartments,
+        availablePositions,
+      };
+    }
+
+    function appendCurrentScheduleFilterParams(params, payload = latestPayload) {
+      const queryState = buildCurrentScheduleFilterQueryState(payload);
+      if (queryState.departmentParam) {
+        params.set('department', queryState.departmentParam);
+      }
+      params.delete('departments');
+      queryState.selectedDepartments.forEach((department) => params.append('departments', department));
+      params.delete('positions');
+      queryState.selectedPositions.forEach((position) => params.append('positions', position));
+      return queryState;
+    }
+
+    function getScheduleFilterTriggerButton() {
+      return planWeekMetaEl.querySelector('button[data-action="open-schedule-filter"]');
+    }
+
+    function syncScheduleFilterTriggerButtonState() {
+      const triggerButton = getScheduleFilterTriggerButton();
+      if (!triggerButton) {
+        return;
+      }
+      triggerButton.setAttribute('aria-expanded', isScheduleFilterOverlayOpen ? 'true' : 'false');
+    }
+
+    function scheduleScheduleFilterOverlayPosition() {
+      if (scheduleFilterPositionFrameId) {
+        window.cancelAnimationFrame(scheduleFilterPositionFrameId);
+      }
+      scheduleFilterPositionFrameId = window.requestAnimationFrame(() => {
+        scheduleFilterPositionFrameId = 0;
+        positionScheduleFilterOverlay();
+      });
+    }
+
+    function positionScheduleFilterOverlay() {
+      if (!isScheduleFilterOverlayOpen || scheduleFilterOverlay.hidden) {
+        return;
+      }
+      const triggerButton = getScheduleFilterTriggerButton();
+      if (!triggerButton) {
+        return;
+      }
+      const viewportPadding = 12;
+      const desiredWidth = Math.min(240, Math.max(180, window.innerWidth - viewportPadding * 2));
+      scheduleFilterOverlay.style.width = `${desiredWidth}px`;
+      scheduleFilterOverlay.style.visibility = 'hidden';
+      scheduleFilterOverlay.style.left = `${viewportPadding}px`;
+      scheduleFilterOverlay.style.top = `${viewportPadding}px`;
+      const triggerRect = triggerButton.getBoundingClientRect();
+      const menuRect = scheduleFilterOverlay.getBoundingClientRect();
+      let left = triggerRect.right - menuRect.width;
+      left = Math.max(viewportPadding, Math.min(left, window.innerWidth - menuRect.width - viewportPadding));
+      let top = triggerRect.bottom + 10;
+      if (top + menuRect.height > window.innerHeight - viewportPadding) {
+        const aboveTop = triggerRect.top - menuRect.height - 10;
+        top = aboveTop >= viewportPadding
+          ? aboveTop
+          : Math.max(viewportPadding, window.innerHeight - menuRect.height - viewportPadding);
+      }
+      scheduleFilterOverlay.style.left = `${Math.round(left)}px`;
+      scheduleFilterOverlay.style.top = `${Math.round(top)}px`;
+      scheduleFilterOverlay.style.visibility = '';
+    }
+
+    function renderScheduleFilterOptionList(target, groupName, options, selectedValues, emptyMessage) {
+      const normalizedOptions = normalizeSelectionValues(options);
+      const selectedSet = new Set(normalizeSelectionValues(selectedValues, normalizedOptions).map((item) => item.toLowerCase()));
+      if (!normalizedOptions.length) {
+        target.innerHTML = `<div class="schedule-filter-option is-empty">${escapeHtml(emptyMessage)}</div>`;
+        return;
+      }
+      target.innerHTML = normalizedOptions.map((option) => {
+        return `
+          <button
+            type="button"
+            class="schedule-filter-option${selectedSet.has(option.toLowerCase()) ? ' is-selected' : ''}"
+            data-filter-group="${escapeHtml(groupName)}"
+            data-filter-value="${escapeHtml(option)}"
+          >${escapeHtml(option)}</button>
+        `;
+      }).join('');
+    }
+
+    function renderScheduleFilterOverlay(payload = latestPayload) {
+      const departmentOptions = getAvailableDepartmentFilters(payload);
+      const positionOptions = getAvailablePositionFilters(payload);
+      const selectedDepartments = normalizeSelectionValues(scheduleFilterDraftState.departments, departmentOptions);
+      const selectedPositions = normalizeSelectionValues(scheduleFilterDraftState.positions, positionOptions);
+      renderScheduleFilterOptionList(
+        scheduleFilterDepartmentOptionsEl,
+        'departments',
+        departmentOptions,
+        selectedDepartments,
+        '当前范围内暂无可筛选部门。'
+      );
+      renderScheduleFilterOptionList(
+        scheduleFilterPositionOptionsEl,
+        'positions',
+        positionOptions,
+        selectedPositions,
+        '当前范围内暂无可筛选岗位。'
+      );
+    }
+
+    function openScheduleFilterOverlay() {
+      if (!latestPayload) {
+        return;
+      }
+      isScheduleFilterOverlayOpen = true;
+      scheduleFilterDraftState = {
+        departments: buildCurrentScheduleFilterQueryState(latestPayload).selectedDepartments,
+        positions: buildCurrentScheduleFilterQueryState(latestPayload).selectedPositions,
+      };
+      renderScheduleFilterOverlay(latestPayload);
+      scheduleFilterOverlay.hidden = false;
+      syncScheduleFilterTriggerButtonState();
+      scheduleScheduleFilterOverlayPosition();
+    }
+
+    function closeScheduleFilterOverlay() {
+      isScheduleFilterOverlayOpen = false;
+      scheduleFilterOverlay.hidden = true;
+      if (scheduleFilterPositionFrameId) {
+        window.cancelAnimationFrame(scheduleFilterPositionFrameId);
+        scheduleFilterPositionFrameId = 0;
+      }
+      scheduleFilterDraftState = { departments: [], positions: [] };
+      syncScheduleFilterTriggerButtonState();
+    }
+
+    async function applyScheduleFilterDraft() {
+      if (!latestPayload) {
+        return;
+      }
+      const departmentOptions = getAvailableDepartmentFilters(latestPayload);
+      const positionOptions = getAvailablePositionFilters(latestPayload);
+      const selectedDepartments = normalizeSelectionValues(scheduleFilterDraftState.departments, departmentOptions);
+      const selectedPositions = normalizeSelectionValues(scheduleFilterDraftState.positions, positionOptions);
+      if (departmentOptions.length && !selectedDepartments.length) {
+        return;
+      }
+      if (positionOptions.length && !selectedPositions.length) {
+        return;
+      }
+      requestedScheduleFilterState = {
+        departments: selectedDepartments,
+        positions: selectedPositions,
+      };
+      if (selectedDepartments.length === 1) {
+        departmentSelect.value = selectedDepartments[0];
+      } else if (latestPayload.allow_all_departments) {
+        departmentSelect.value = '__all__';
+      }
+      await loadDepartmentSchedule({ silent: true });
+    }
+
+    function toggleScheduleFilterOption(groupName, rawValue) {
+      if (!latestPayload) {
+        return;
+      }
+      const normalizedGroupName = String(groupName || '').trim();
+      const normalizedValue = String(rawValue || '').trim();
+      if (!normalizedGroupName || !normalizedValue) {
+        return;
+      }
+      const optionList = normalizedGroupName === 'departments'
+        ? getAvailableDepartmentFilters(latestPayload)
+        : getAvailablePositionFilters(latestPayload);
+      const currentSelectedValues = normalizeSelectionValues(
+        normalizedGroupName === 'departments' ? scheduleFilterDraftState.departments : scheduleFilterDraftState.positions,
+        optionList
+      );
+      const isSelected = currentSelectedValues.some((item) => item.toLowerCase() === normalizedValue.toLowerCase());
+      const nextSelectedValues = isSelected
+        ? currentSelectedValues.filter((item) => item.toLowerCase() !== normalizedValue.toLowerCase())
+        : currentSelectedValues.concat([normalizedValue]);
+      if (!nextSelectedValues.length) {
+        return;
+      }
+      scheduleFilterDraftState = {
+        ...scheduleFilterDraftState,
+        [normalizedGroupName]: normalizeSelectionValues(nextSelectedValues, optionList),
+      };
+      renderScheduleFilterOverlay(latestPayload);
+      applyScheduleFilterDraft().catch((error) => {
+        setStatus(error.message || '筛选失败，请稍后重试。', true);
+      });
+    }
+
     function showStateCard(title, message, showAdminButton = true, showLoginButton = false) {
       if (isEditLogOverlayOpen) {
         closeEditLogOverlay();
+      }
+      if (isScheduleFilterOverlayOpen) {
+        closeScheduleFilterOverlay();
       }
       stateTitleEl.textContent = title || "暂时无法查看";
       stateMessageEl.textContent = message || "";
@@ -2558,10 +2988,20 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return Array.isArray(log && log.change_details) ? log.change_details.filter(Boolean) : [];
     }
 
+    function buildScheduleScopeLabel(payload) {
+      const data = payload && typeof payload === 'object' ? payload : {};
+      const departmentLabel = String(data.selected_department_label || data.scope_label || '当前部门').trim() || '当前部门';
+      const positionLabel = String(data.selected_position_label || '').trim();
+      if (positionLabel && positionLabel !== '全部岗位') {
+        return `${departmentLabel} · ${positionLabel}`;
+      }
+      return departmentLabel;
+    }
+
     function buildEditLogScopeSubtitle(payload) {
       const data = payload && typeof payload === 'object' ? payload : {};
       if (data.can_view_all) {
-        return `${String(data.scope_label || data.selected_department_label || '当前部门').trim() || '当前部门'}的全部代编辑日志，自己编辑自己不会展示。`;
+        return `${buildScheduleScopeLabel(data)}的全部代编辑日志，自己编辑自己不会展示。`;
       }
       return `当前登录用户 ${String(data.scope_label || '本人').trim() || '本人'} 的全部代编辑日志，自己编辑自己不会展示。`;
     }
@@ -2578,7 +3018,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const data = payload && typeof payload === 'object' ? payload : {};
       const chips = [
         data.can_view_all
-          ? `查看范围 ${String(data.scope_label || data.selected_department_label || '当前部门').trim() || '当前部门'}`
+          ? `查看范围 ${buildScheduleScopeLabel(data)}`
           : `当前用户 ${String(data.scope_label || '本人').trim() || '本人'}`,
         `日志 ${Number(data.log_count || 0)} 条`,
       ];
@@ -2628,14 +3068,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     function getCurrentEditLogDepartmentValue() {
-      const selectedValue = String(departmentSelect.value || '').trim();
-      if (selectedValue) {
-        return selectedValue;
-      }
-      if (latestPayload && latestPayload.allow_all_departments) {
-        return '__all__';
-      }
-      return String(latestPayload && latestPayload.selected_department || '').trim();
+      return buildCurrentScheduleFilterQueryState().departmentParam;
     }
 
     async function loadEditLogs(options = {}) {
@@ -2647,10 +3080,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       editLogRefreshButton.disabled = true;
       try {
         const params = new URLSearchParams();
-        const departmentValue = getCurrentEditLogDepartmentValue();
-        if (departmentValue) {
-          params.set('department', departmentValue);
-        }
+        appendCurrentScheduleFilterParams(params);
         const response = await fetch(`/api/department-schedule/edit-logs?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok) {
@@ -2713,8 +3143,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 
     function buildMemberOrderScopeKey(payload = latestPayload) {
       const viewerUserId = String(payload && payload.viewer && payload.viewer.user_id || "").trim() || "__anonymous__";
-      const departmentKey = String(payload && payload.selected_department || "").trim() || "__all__";
-      return `${viewerUserId}::${departmentKey}`;
+      const departmentKey = getSelectedDepartmentFilters(payload).join('|') || "__all__";
+      const positionKey = getSelectedPositionFilters(payload).join('|') || "__all_positions__";
+      return `${viewerUserId}::${departmentKey}::${positionKey}`;
     }
 
     function getStoredMemberOrder(payload = latestPayload) {
@@ -3094,7 +3525,10 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         options.push('<option value="">暂无可查看部门</option>');
       }
       departmentSelect.innerHTML = options.join("");
-      const selectedValue = payload && payload.selected_department ? payload.selected_department : "__all__";
+      const selectedDepartments = getSelectedDepartmentFilters(payload);
+      const selectedValue = selectedDepartments.length === 1
+        ? selectedDepartments[0]
+        : (payload && payload.allow_all_departments ? "__all__" : String(payload && payload.selected_department || "").trim());
       departmentSelect.value = selectedValue;
       if (!departmentSelect.value && payload && payload.allow_all_departments) {
         departmentSelect.value = "__all__";
@@ -3113,12 +3547,28 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         chips.push(`事项 ${summary.total_items || 0} 条`);
       }
       toolbarSummaryEl.innerHTML = chips.map(renderChip).join("");
-      const planMetaChips = [`当前部门 ${payload && payload.selected_department_label || "全部部门"}`];
+      const planMetaChips = [
+        `当前部门展示 ${payload && payload.selected_department_label || "全部部门"}`,
+        `岗位筛选 ${payload && payload.selected_position_label || "全部岗位"}`,
+      ];
       const latestUpdatedAt = getLatestDepartmentWeeklyPlanUpdatedAt(payload);
       planWeekMetaEl.innerHTML = `
-        <div class="plan-week-meta-chips">${planMetaChips.map(renderChip).join("")}</div>
+        <div class="plan-week-meta-top">
+          <div class="plan-week-meta-chips">${planMetaChips.map(renderChip).join("")}</div>
+          <button
+            type="button"
+            class="secondary plan-filter-button"
+            data-action="open-schedule-filter"
+            aria-haspopup="menu"
+            aria-controls="schedule-filter-overlay"
+            aria-expanded="${isScheduleFilterOverlayOpen ? "true" : "false"}"
+          >筛选成员</button>
+        </div>
         <div class="plan-week-meta-updated">最近保存：${escapeHtml(latestUpdatedAt || "未记录")}</div>
       `;
+      if (isScheduleFilterOverlayOpen) {
+        scheduleScheduleFilterOverlayPosition();
+      }
     }
 
     function getLatestDepartmentWeeklyPlanUpdatedAt(payload) {
@@ -3159,7 +3609,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         </div>
       `;
       if (!members.length) {
-        departmentPlanBody.innerHTML = '<tr><td colspan="8"><div class="empty-card">当前部门暂无可展示成员，请先在本地账号管理中为对应用户开启“在日程管理页展示”。</div></td></tr>';
+        departmentPlanBody.innerHTML = '<tr><td colspan="8"><div class="empty-card">当前筛选条件下暂无可展示成员，请调整部门/岗位筛选，或先在本地账号管理中为对应用户开启“在日程管理页展示”。</div></td></tr>';
         return;
       }
       departmentPlanMembersEl.innerHTML += members.map((member) => {
@@ -3214,7 +3664,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       }
       const members = Array.isArray(payload && payload.members) ? payload.members : [];
       if (!members.length) {
-        memberUserSelect.innerHTML = '<option value="">当前部门暂无可展示成员</option>';
+        memberUserSelect.innerHTML = '<option value="">当前筛选条件下暂无可展示成员</option>';
         memberUserSelect.disabled = true;
         selectedMemberUserId = "";
         return;
@@ -3468,12 +3918,23 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     function applyPayload(payload) {
       applyStoredMemberOrder(payload);
       latestPayload = payload;
+      requestedScheduleFilterState = {
+        departments: getSelectedDepartmentFilters(payload),
+        positions: getSelectedPositionFilters(payload),
+      };
       clearAllPlanAutoSaveTimers();
       resetDepartmentPlanMemberDragState();
       hideStateCard();
       applyPayloadViewVisibility(payload);
       renderDepartmentSelect(payload);
       renderToolbarSummary(payload);
+      if (isScheduleFilterOverlayOpen) {
+        scheduleFilterDraftState = {
+          departments: getSelectedDepartmentFilters(payload),
+          positions: getSelectedPositionFilters(payload),
+        };
+        renderScheduleFilterOverlay(payload);
+      }
       renderDepartmentPlanTable(payload);
       renderMemberSelect(payload);
       renderSelectedMemberDailyItems();
@@ -3496,10 +3957,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       }
       const params = new URLSearchParams();
       params.set('date', String(dateInput.value || '__INITIAL_DATE__').trim() || '__INITIAL_DATE__');
-      const selectedDepartment = String(departmentSelect.value || '').trim();
-      if (selectedDepartment) {
-        params.set('department', selectedDepartment);
-      }
+      appendCurrentScheduleFilterParams(params);
       try {
         const response = await fetch(`/api/department-schedule?${params.toString()}`);
         const payload = await response.json();
@@ -3572,6 +4030,16 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         closeEditLogOverlay();
       }
     });
+    scheduleFilterOverlay.addEventListener('click', (event) => {
+      const optionButton = event.target.closest('button[data-filter-group][data-filter-value]');
+      if (!optionButton || !latestPayload) {
+        return;
+      }
+      toggleScheduleFilterOption(
+        optionButton.getAttribute('data-filter-group') || '',
+        optionButton.getAttribute('data-filter-value') || '',
+      );
+    });
     passwordButton.addEventListener('click', openPasswordOverlay);
     passwordOverlayCloseButton.addEventListener('click', closePasswordOverlay);
     passwordOverlay.addEventListener('click', (event) => {
@@ -3638,6 +4106,14 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       ) {
         setBackgroundSettingsOpen(false);
       }
+      const filterTriggerButton = getScheduleFilterTriggerButton();
+      if (
+        isScheduleFilterOverlayOpen
+        && !scheduleFilterOverlay.contains(event.target)
+        && !(filterTriggerButton && filterTriggerButton.contains(event.target))
+      ) {
+        closeScheduleFilterOverlay();
+      }
     });
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -3651,11 +4127,22 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         if (isEditLogOverlayOpen) {
           closeEditLogOverlay();
         }
+        if (isScheduleFilterOverlayOpen) {
+          closeScheduleFilterOverlay();
+        }
       }
     });
     window.addEventListener('resize', () => {
       scheduleDepartmentPlanHeightSync();
+      if (isScheduleFilterOverlayOpen) {
+        scheduleScheduleFilterOverlayPosition();
+      }
     });
+    window.addEventListener('scroll', () => {
+      if (isScheduleFilterOverlayOpen) {
+        scheduleScheduleFilterOverlayPosition();
+      }
+    }, true);
     document.getElementById('reload-schedule-button').addEventListener('click', () => {
       loadDepartmentSchedule();
     });
@@ -3671,7 +4158,27 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       loadDepartmentSchedule();
     });
     departmentSelect.addEventListener('change', () => {
+      if (latestPayload) {
+        const selectedValue = String(departmentSelect.value || '').trim();
+        requestedScheduleFilterState = {
+          departments: selectedValue && selectedValue !== '__all__'
+            ? [selectedValue]
+            : getAvailableDepartmentFilters(latestPayload),
+          positions: getSelectedPositionFilters(latestPayload),
+        };
+      }
       loadDepartmentSchedule();
+    });
+    planWeekMetaEl.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action="open-schedule-filter"]');
+      if (!button) {
+        return;
+      }
+      if (isScheduleFilterOverlayOpen) {
+        closeScheduleFilterOverlay();
+      } else {
+        openScheduleFilterOverlay();
+      }
     });
     memberUserSelect.addEventListener('change', () => {
       selectedMemberUserId = String(memberUserSelect.value || '').trim();
