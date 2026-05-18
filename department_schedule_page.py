@@ -1479,6 +1479,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 <body>
   <script>
     window.__bootUiSettings = __INITIAL_UI_SETTINGS_PAYLOAD__;
+    window.__bootAuthState = __INITIAL_AUTH_STATE_PAYLOAD__;
     window.__publicQrServiceTemplate = __PUBLIC_QR_SERVICE_TEMPLATE_JSON__;
     window.__applyShellVisualSettings = (() => {
       const firstDefinedValue = function () {
@@ -1942,21 +1943,26 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const PLAN_AUTO_SAVE_DELAY_MS = 1000;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+    const DEFAULT_STORAGE_SCOPE_TOKEN = "default";
     const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
     const LOCAL_LOGIN_USERNAME_STORAGE_KEY = "daily_planner_last_local_login_username";
+    const SCHEDULE_FILTER_STORAGE_KEY_PREFIX = "daily_planner_department_schedule_filter::";
     const MEMBER_ORDER_STORAGE_KEY = "daily_planner_department_schedule_member_order_v1";
     const WEEKLY_PLAN_SYNC_SIGNAL_STORAGE_KEY = "daily_planner_weekly_plan_sync_signal_v1";
     const MEMBER_ORDER_DRAG_THRESHOLD_PX = 6;
     const BING_DAILY_BACKGROUND_PATH = "/api/backgrounds/bing-daily";
     const AUTO_THEME_DAY_START_HOUR = 6;
     const AUTO_THEME_NIGHT_START_HOUR = 19;
+    const bootAuthState = window.__bootAuthState && typeof window.__bootAuthState === "object"
+      ? window.__bootAuthState
+      : {};
     let latestPayload = null;
     let currentUiSettings = window.__bootUiSettings || {};
     let selectedMemberUserId = "";
     let visualSettingsAutosaveTimer = null;
     let authState = {
-      authenticated: false,
-      user: null,
+      authenticated: Boolean(bootAuthState.authenticated && bootAuthState.user),
+      user: bootAuthState.user && typeof bootAuthState.user === "object" ? bootAuthState.user : null,
     };
     let isBackgroundSettingsOpen = false;
     let isAuthOverlayOpen = false;
@@ -2111,6 +2117,53 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const normalizedUserId = String(user.user_id || "").trim();
       return normalizedUserId ? user : null;
     }
+    function getScheduleFilterStorageScopeToken() {
+      const currentUser = normalizeAuthUser(authState && authState.user);
+      const currentUserId = String(currentUser && currentUser.user_id || "").trim();
+      return currentUserId || DEFAULT_STORAGE_SCOPE_TOKEN;
+    }
+    function getScheduleFilterStorageKey() {
+      return `${SCHEDULE_FILTER_STORAGE_KEY_PREFIX}${getScheduleFilterStorageScopeToken()}`;
+    }
+    function normalizeScheduleFilterStorageState(payload) {
+      const source = payload && typeof payload === "object" ? payload : {};
+      const departments = normalizeSelectionValues(source.departments || []);
+      const positions = normalizeSelectionValues(source.positions || []);
+      if (!departments.length && !positions.length) {
+        return null;
+      }
+      return { departments, positions };
+    }
+    function readStoredScheduleFilterState() {
+      try {
+        const rawValue = window.localStorage.getItem(getScheduleFilterStorageKey());
+        if (!rawValue) {
+          return null;
+        }
+        return normalizeScheduleFilterStorageState(JSON.parse(rawValue));
+      } catch (error) {
+        return null;
+      }
+    }
+    function writeStoredScheduleFilterState(payload) {
+      const normalizedState = normalizeScheduleFilterStorageState(payload);
+      try {
+        if (!normalizedState) {
+          window.localStorage.removeItem(getScheduleFilterStorageKey());
+          return;
+        }
+        window.localStorage.setItem(getScheduleFilterStorageKey(), JSON.stringify(normalizedState));
+      } catch (error) {
+        // Ignore storage failures.
+      }
+    }
+    function clearStoredScheduleFilterState() {
+      try {
+        window.localStorage.removeItem(getScheduleFilterStorageKey());
+      } catch (error) {
+        // Ignore storage failures.
+      }
+    }
     function canCurrentViewerOpenEditLogs(user) {
       const currentUser = normalizeAuthUser(user);
       if (!currentUser) {
@@ -2142,11 +2195,15 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       );
     }
     function setAuthState(user) {
+      const previousScopeToken = getScheduleFilterStorageScopeToken();
       const normalizedUser = normalizeAuthUser(user);
       authState = {
         authenticated: Boolean(normalizedUser),
         user: normalizedUser,
       };
+      if (getScheduleFilterStorageScopeToken() !== previousScopeToken) {
+        requestedScheduleFilterState = readStoredScheduleFilterState();
+      }
       syncAuthControls();
       return authState;
     }
@@ -3922,6 +3979,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         departments: getSelectedDepartmentFilters(payload),
         positions: getSelectedPositionFilters(payload),
       };
+      writeStoredScheduleFilterState(requestedScheduleFilterState);
       clearAllPlanAutoSaveTimers();
       resetDepartmentPlanMemberDragState();
       hideStateCard();
@@ -3968,6 +4026,21 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       } catch (error) {
         const statusCode = Number(error && error.status || 0);
         const message = String(error && error.message || '加载失败，请稍后重试。');
+        if (
+          options.allowFilterReset !== false
+          && requestedScheduleFilterState
+          && statusCode === 400
+          && /所选(?:部门|岗位)不存在/.test(message)
+        ) {
+          requestedScheduleFilterState = null;
+          clearStoredScheduleFilterState();
+          return loadDepartmentSchedule({
+            ...options,
+            flushPending: false,
+            silent: true,
+            allowFilterReset: false,
+          });
+        }
         if (statusCode === 401) {
           setAuthState(null);
           showStateCard('请先登录', message, false, true);
@@ -4206,6 +4279,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     initializePasswordToggleFields();
     applyVisualSettings(currentUiSettings);
     scheduleAutoThemeRefresh();
+    requestedScheduleFilterState = readStoredScheduleFilterState();
     syncAuthControls();
     refreshAuthState().catch(() => {});
     loadDepartmentSchedule();
@@ -4219,11 +4293,13 @@ def render_department_schedule_html(
     *,
     app_version: str,
     initial_date: str,
+    initial_auth_payload_json: str,
     initial_ui_settings_json: str,
     public_qr_service_template_json: str,
 ) -> str:
     html = DEPARTMENT_SCHEDULE_HTML.replace("__INITIAL_DATE__", initial_date)
     html = html.replace("__APP_VERSION__", app_version)
+    html = html.replace("__INITIAL_AUTH_STATE_PAYLOAD__", initial_auth_payload_json)
     html = html.replace("__INITIAL_UI_SETTINGS_PAYLOAD__", initial_ui_settings_json)
     html = html.replace("__PUBLIC_QR_SERVICE_TEMPLATE_JSON__", public_qr_service_template_json)
     return html

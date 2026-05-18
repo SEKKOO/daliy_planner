@@ -13958,9 +13958,20 @@ def render_department_schedule_html(current_user: dict | None = None) -> str:
         current_user_id = str(current_user.get("user_id") or "").strip()
     target_user_id = current_user_id or None
     ui_settings, _ = get_ui_settings(user_id=target_user_id)
+    initial_auth_payload = {
+        "authenticated": bool(current_user),
+        "user": current_user if isinstance(current_user, dict) else None,
+    }
+    initial_auth_payload_json = json.dumps(initial_auth_payload, ensure_ascii=False)
+    initial_auth_payload_json = (
+        initial_auth_payload_json.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
     return render_department_schedule_page_html(
         app_version=APP_VERSION,
         initial_date=date.today().isoformat(),
+        initial_auth_payload_json=initial_auth_payload_json,
         initial_ui_settings_json=json.dumps(ui_settings, ensure_ascii=False),
         public_qr_service_template_json=json.dumps(DINGTALK_PUBLIC_QR_SERVICE_TEMPLATE, ensure_ascii=False),
     )
