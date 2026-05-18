@@ -577,10 +577,18 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-radius: 10px;
       font-size: 12px;
       line-height: 1.5;
+      resize: none;
+      overflow: hidden;
     }
     .pending-cell { min-width: 220px; }
     .pending-cell-content { display: grid; gap: 10px; }
-    .pending-input { min-height: 132px; font-size: 12px; line-height: 1.6; }
+    .pending-input {
+      min-height: 132px;
+      font-size: 12px;
+      line-height: 1.6;
+      resize: none;
+      overflow: hidden;
+    }
     .schedule-log-overlay[hidden] { display: none; }
     .schedule-log-overlay {
       position: fixed;
@@ -3410,7 +3418,24 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       });
     }
 
+    function syncDepartmentPlanTextareaHeight(textarea) {
+      if (!(textarea instanceof HTMLTextAreaElement)) {
+        return;
+      }
+      textarea.style.height = 'auto';
+      const computedStyle = window.getComputedStyle(textarea);
+      const minHeight = Number.parseFloat(computedStyle.minHeight) || 0;
+      textarea.style.height = `${Math.max(minHeight, textarea.scrollHeight)}px`;
+    }
+
+    function syncDepartmentPlanTextareaHeights() {
+      departmentPlanBody.querySelectorAll('.plan-day-input, .pending-input').forEach((textarea) => {
+        syncDepartmentPlanTextareaHeight(textarea);
+      });
+    }
+
     function syncDepartmentPlanMemberHeights() {
+      syncDepartmentPlanTextareaHeights();
       const spacerEl = departmentPlanMembersEl.querySelector('.plan-member-spacer');
       const headerRow = departmentPlanBody.closest('table') && departmentPlanBody.closest('table').querySelector('thead tr');
       if (spacerEl && headerRow) {
