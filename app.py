@@ -9183,11 +9183,14 @@ def _build_schedule_filter_label(
     *,
     all_label: str,
     unit_label: str,
+    empty_label: str | None = None,
 ) -> str:
     available_count = len(available_values)
     selected_count = len(selected_values)
     if not available_count:
         return all_label
+    if selected_count == 0 and empty_label is not None:
+        return empty_label
     if selected_count == 1:
         return selected_values[0]
     if selected_count >= available_count:
@@ -9300,17 +9303,24 @@ def resolve_department_schedule_scope(
 
     requested_label = _normalize_department_label(requested_department)
     requested_department_labels = _split_schedule_filter_values(requested_departments)
+    requested_no_departments = any(
+        str(item or "").strip() == "__none__" for item in requested_department_labels
+    )
     requested_all_departments = any(
         str(item or "").strip() == "__all__" for item in requested_department_labels
     )
     if requested_label == "__all__" and not requested_department_labels:
         requested_all_departments = True
+    if requested_label == "__none__" and not requested_department_labels:
+        requested_no_departments = True
     if requested_label and requested_label != "__all__":
         requested_department_labels.append(requested_label)
         requested_department_labels = _dedupe_department_labels(requested_department_labels)
 
     selected_departments: list[str] = []
-    if requested_department_labels and not requested_all_departments:
+    if requested_no_departments:
+        selected_departments = []
+    elif requested_department_labels and not requested_all_departments:
         for raw_label in requested_department_labels:
             normalized_label = _normalize_department_label(raw_label)
             matched_label = next(
@@ -9327,9 +9337,12 @@ def resolve_department_schedule_scope(
         selected_departments = list(default_selected_departments)
 
     requested_position_labels = _split_schedule_filter_values(requested_positions)
+    requested_no_positions = any(str(item or "").strip() == "__none__" for item in requested_position_labels)
     requested_all_positions = any(str(item or "").strip() == "__all__" for item in requested_position_labels)
     selected_positions: list[str] = []
-    if requested_position_labels and not requested_all_positions:
+    if requested_no_positions:
+        selected_positions = []
+    elif requested_position_labels and not requested_all_positions:
         for raw_label in requested_position_labels:
             normalized_label = str(raw_label or "").strip()
             matched_label = next(
@@ -9343,8 +9356,12 @@ def resolve_department_schedule_scope(
     else:
         selected_positions = list(default_selected_positions)
 
-    department_filter_active = bool(available_departments) and 0 < len(selected_departments) < len(available_departments)
-    position_filter_active = bool(available_positions) and 0 < len(selected_positions) < len(available_positions)
+    department_filter_active = requested_no_departments or (
+        bool(available_departments) and 0 < len(selected_departments) < len(available_departments)
+    )
+    position_filter_active = requested_no_positions or (
+        bool(available_positions) and 0 < len(selected_positions) < len(available_positions)
+    )
 
     department_users: list[dict] = []
     for user in accessible_users:
@@ -9376,12 +9393,14 @@ def resolve_department_schedule_scope(
         available_departments,
         all_label="全部部门",
         unit_label="部门",
+        empty_label="未选择部门",
     )
     selected_position_label = _build_schedule_filter_label(
         selected_positions,
         available_positions,
         all_label="全部岗位",
         unit_label="岗位",
+        empty_label="未选择岗位",
     )
 
     return {
@@ -9393,8 +9412,10 @@ def resolve_department_schedule_scope(
         "default_selected_positions": default_selected_positions,
         "selected_department": selected_department,
         "selected_departments": selected_departments,
+        "selected_departments_explicit_empty": requested_no_departments,
         "selected_department_label": selected_department_label,
         "selected_positions": selected_positions,
+        "selected_positions_explicit_empty": requested_no_positions,
         "selected_position_label": selected_position_label,
         "department_filter_active": department_filter_active,
         "position_filter_active": position_filter_active,
@@ -9526,8 +9547,10 @@ def build_department_schedule_payload(
         "available_positions": available_positions,
         "selected_department": selected_department,
         "selected_departments": selected_departments,
+        "selected_departments_explicit_empty": bool(scope["selected_departments_explicit_empty"]),
         "selected_department_label": str(scope["selected_department_label"]),
         "selected_positions": selected_positions,
+        "selected_positions_explicit_empty": bool(scope["selected_positions_explicit_empty"]),
         "selected_position_label": str(scope["selected_position_label"]),
         "default_selected_departments": list(scope["default_selected_departments"]),
         "default_selected_positions": list(scope["default_selected_positions"]),
@@ -9604,8 +9627,10 @@ def build_department_schedule_edit_logs_payload(
         "scope_label": scope_label,
         "selected_department": str(scope["selected_department"]),
         "selected_departments": list(scope["selected_departments"]),
+        "selected_departments_explicit_empty": bool(scope["selected_departments_explicit_empty"]),
         "selected_department_label": str(scope["selected_department_label"]),
         "selected_positions": list(scope["selected_positions"]),
+        "selected_positions_explicit_empty": bool(scope["selected_positions_explicit_empty"]),
         "selected_position_label": str(scope["selected_position_label"]),
         "log_count": len(logs),
         "logs": logs,

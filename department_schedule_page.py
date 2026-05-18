@@ -754,6 +754,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: flex-start;
+      gap: 8px;
       padding: 8px 14px;
       min-height: 0;
       border: none;
@@ -764,15 +765,24 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       font-size: 13px;
       line-height: 1.5;
       font-weight: 500;
+      cursor: pointer;
     }
     .schedule-filter-option:hover {
       transform: none;
       box-shadow: none;
-      background: rgba(42,111,214,0.06);
+      background: rgba(42,111,214,0.04);
     }
-    .schedule-filter-option.is-selected {
-      color: var(--accent-deep);
-      background: rgba(42,111,214,0.1);
+    .schedule-filter-checkbox {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: var(--accent);
+      pointer-events: none;
+    }
+    .schedule-filter-option-label {
+      flex: 1 1 auto;
+      min-width: 0;
     }
     .schedule-filter-option.is-empty {
       cursor: default;
@@ -2126,12 +2136,17 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       return `${SCHEDULE_FILTER_STORAGE_KEY_PREFIX}${getScheduleFilterStorageScopeToken()}`;
     }
     function normalizeScheduleFilterStorageState(payload) {
-      const source = payload && typeof payload === "object" ? payload : {};
-      const departments = normalizeSelectionValues(source.departments || []);
-      const positions = normalizeSelectionValues(source.positions || []);
-      if (!departments.length && !positions.length) {
+      if (!payload || typeof payload !== "object") {
         return null;
       }
+      const source = payload;
+      const hasDepartments = Array.isArray(source.departments);
+      const hasPositions = Array.isArray(source.positions);
+      if (!hasDepartments && !hasPositions) {
+        return null;
+      }
+      const departments = normalizeSelectionValues(hasDepartments ? source.departments : []);
+      const positions = normalizeSelectionValues(hasPositions ? source.positions : []);
       return { departments, positions };
     }
     function readStoredScheduleFilterState() {
@@ -2738,8 +2753,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 
     function getSelectedDepartmentFilters(payload = latestPayload) {
       const availableDepartments = getAvailableDepartmentFilters(payload);
+      const selectedExplicitEmpty = Boolean(payload && payload.selected_departments_explicit_empty);
       const selected = normalizeSelectionValues(payload && payload.selected_departments || [], availableDepartments);
-      if (selected.length) {
+      if (selected.length || selectedExplicitEmpty) {
         return selected;
       }
       const fallbackDepartment = String(payload && payload.selected_department || '').trim();
@@ -2752,8 +2768,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 
     function getSelectedPositionFilters(payload = latestPayload) {
       const availablePositions = getAvailablePositionFilters(payload);
+      const selectedExplicitEmpty = Boolean(payload && payload.selected_positions_explicit_empty);
       const selected = normalizeSelectionValues(payload && payload.selected_positions || [], availablePositions);
-      if (selected.length) {
+      if (selected.length || selectedExplicitEmpty) {
         return selected;
       }
       const defaultPositions = normalizeSelectionValues(payload && payload.default_selected_positions || [], availablePositions);
@@ -2766,28 +2783,43 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const activeState = requestedScheduleFilterState && typeof requestedScheduleFilterState === 'object'
         ? requestedScheduleFilterState
         : null;
-      let selectedDepartments = activeState
+      const hasActiveDepartments = Boolean(activeState && Array.isArray(activeState.departments));
+      const hasActivePositions = Boolean(activeState && Array.isArray(activeState.positions));
+      const selectedDepartmentsExplicitEmpty = hasActiveDepartments
+        ? activeState.departments.length === 0
+        : Boolean(payload && payload.selected_departments_explicit_empty);
+      const selectedPositionsExplicitEmpty = hasActivePositions
+        ? activeState.positions.length === 0
+        : Boolean(payload && payload.selected_positions_explicit_empty);
+      let selectedDepartments = hasActiveDepartments
         ? normalizeSelectionValues(activeState.departments, availableDepartments)
         : getSelectedDepartmentFilters(payload);
-      let selectedPositions = activeState
+      let selectedPositions = hasActivePositions
         ? normalizeSelectionValues(activeState.positions, availablePositions)
         : getSelectedPositionFilters(payload);
-      if (!selectedDepartments.length) {
+      if (!selectedDepartments.length && !selectedDepartmentsExplicitEmpty) {
         selectedDepartments = getSelectedDepartmentFilters(payload);
       }
-      if (!selectedPositions.length) {
+      if (!selectedPositions.length && !selectedPositionsExplicitEmpty) {
         selectedPositions = getSelectedPositionFilters(payload);
       }
-      const departmentParam = selectedDepartments.length > 1
-        ? '__all__'
-        : (
+      let departmentParam = '';
+      if (selectedDepartmentsExplicitEmpty) {
+        departmentParam = '__none__';
+      } else if (selectedDepartments.length > 1) {
+        departmentParam = '__all__';
+      } else {
+        departmentParam = (
           selectedDepartments[0]
           || String(departmentSelect.value || '').trim()
           || (payload && payload.allow_all_departments ? '__all__' : String(payload && payload.selected_department || '').trim())
         );
+      }
       return {
         selectedDepartments,
         selectedPositions,
+        selectedDepartmentsExplicitEmpty,
+        selectedPositionsExplicitEmpty,
         departmentParam,
         availableDepartments,
         availablePositions,
@@ -2796,13 +2828,22 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 
     function appendCurrentScheduleFilterParams(params, payload = latestPayload) {
       const queryState = buildCurrentScheduleFilterQueryState(payload);
+      params.delete('department');
       if (queryState.departmentParam) {
         params.set('department', queryState.departmentParam);
       }
       params.delete('departments');
-      queryState.selectedDepartments.forEach((department) => params.append('departments', department));
+      if (queryState.selectedDepartmentsExplicitEmpty) {
+        params.append('departments', '__none__');
+      } else {
+        queryState.selectedDepartments.forEach((department) => params.append('departments', department));
+      }
       params.delete('positions');
-      queryState.selectedPositions.forEach((position) => params.append('positions', position));
+      if (queryState.selectedPositionsExplicitEmpty) {
+        params.append('positions', '__none__');
+      } else {
+        queryState.selectedPositions.forEach((position) => params.append('positions', position));
+      }
       return queryState;
     }
 
@@ -2866,13 +2907,18 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         return;
       }
       target.innerHTML = normalizedOptions.map((option) => {
+        const isSelected = selectedSet.has(option.toLowerCase());
         return `
-          <button
-            type="button"
-            class="schedule-filter-option${selectedSet.has(option.toLowerCase()) ? ' is-selected' : ''}"
-            data-filter-group="${escapeHtml(groupName)}"
-            data-filter-value="${escapeHtml(option)}"
-          >${escapeHtml(option)}</button>
+          <label class="schedule-filter-option${isSelected ? ' is-selected' : ''}">
+            <input
+              type="checkbox"
+              class="schedule-filter-checkbox"
+              data-filter-group="${escapeHtml(groupName)}"
+              data-filter-value="${escapeHtml(option)}"
+              ${isSelected ? 'checked' : ''}
+            >
+            <span class="schedule-filter-option-label">${escapeHtml(option)}</span>
+          </label>
         `;
       }).join('');
     }
@@ -2932,17 +2978,13 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const positionOptions = getAvailablePositionFilters(latestPayload);
       const selectedDepartments = normalizeSelectionValues(scheduleFilterDraftState.departments, departmentOptions);
       const selectedPositions = normalizeSelectionValues(scheduleFilterDraftState.positions, positionOptions);
-      if (departmentOptions.length && !selectedDepartments.length) {
-        return;
-      }
-      if (positionOptions.length && !selectedPositions.length) {
-        return;
-      }
       requestedScheduleFilterState = {
         departments: selectedDepartments,
         positions: selectedPositions,
       };
-      if (selectedDepartments.length === 1) {
+      if (!selectedDepartments.length) {
+        departmentSelect.value = '__none__';
+      } else if (selectedDepartments.length === 1) {
         departmentSelect.value = selectedDepartments[0];
       } else if (latestPayload.allow_all_departments) {
         departmentSelect.value = '__all__';
@@ -2970,9 +3012,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       const nextSelectedValues = isSelected
         ? currentSelectedValues.filter((item) => item.toLowerCase() !== normalizedValue.toLowerCase())
         : currentSelectedValues.concat([normalizedValue]);
-      if (!nextSelectedValues.length) {
-        return;
-      }
       scheduleFilterDraftState = {
         ...scheduleFilterDraftState,
         [normalizedGroupName]: normalizeSelectionValues(nextSelectedValues, optionList),
@@ -3572,6 +3611,10 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     function renderDepartmentSelect(payload) {
       const departments = Array.isArray(payload && payload.departments) ? payload.departments : [];
       const options = [];
+      const hasExplicitEmptySelection = Boolean(payload && payload.selected_departments_explicit_empty);
+      if (hasExplicitEmptySelection) {
+        options.push('<option value="__none__">未选择部门</option>');
+      }
       if (payload && payload.allow_all_departments) {
         options.push('<option value="__all__">全部部门</option>');
       }
@@ -3583,11 +3626,15 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       }
       departmentSelect.innerHTML = options.join("");
       const selectedDepartments = getSelectedDepartmentFilters(payload);
-      const selectedValue = selectedDepartments.length === 1
-        ? selectedDepartments[0]
-        : (payload && payload.allow_all_departments ? "__all__" : String(payload && payload.selected_department || "").trim());
+      const selectedValue = hasExplicitEmptySelection
+        ? '__none__'
+        : (
+          selectedDepartments.length === 1
+            ? selectedDepartments[0]
+            : (payload && payload.allow_all_departments ? "__all__" : String(payload && payload.selected_department || "").trim())
+        );
       departmentSelect.value = selectedValue;
-      if (!departmentSelect.value && payload && payload.allow_all_departments) {
+      if (!departmentSelect.value && payload && payload.allow_all_departments && !hasExplicitEmptySelection) {
         departmentSelect.value = "__all__";
       }
       departmentSelect.disabled = !(payload && payload.can_switch_department);
@@ -4103,14 +4150,14 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         closeEditLogOverlay();
       }
     });
-    scheduleFilterOverlay.addEventListener('click', (event) => {
-      const optionButton = event.target.closest('button[data-filter-group][data-filter-value]');
-      if (!optionButton || !latestPayload) {
+    scheduleFilterOverlay.addEventListener('change', (event) => {
+      const optionInput = event.target.closest('input[data-filter-group][data-filter-value]');
+      if (!optionInput || !latestPayload) {
         return;
       }
       toggleScheduleFilterOption(
-        optionButton.getAttribute('data-filter-group') || '',
-        optionButton.getAttribute('data-filter-value') || '',
+        optionInput.getAttribute('data-filter-group') || '',
+        optionInput.getAttribute('data-filter-value') || '',
       );
     });
     passwordButton.addEventListener('click', openPasswordOverlay);
@@ -4234,9 +4281,13 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       if (latestPayload) {
         const selectedValue = String(departmentSelect.value || '').trim();
         requestedScheduleFilterState = {
-          departments: selectedValue && selectedValue !== '__all__'
-            ? [selectedValue]
-            : getAvailableDepartmentFilters(latestPayload),
+          departments: selectedValue === '__none__'
+            ? []
+            : (
+              selectedValue && selectedValue !== '__all__'
+                ? [selectedValue]
+                : getAvailableDepartmentFilters(latestPayload)
+            ),
           positions: getSelectedPositionFilters(latestPayload),
         };
       }
