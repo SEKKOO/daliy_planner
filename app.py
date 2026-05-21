@@ -27,6 +27,7 @@ from department_schedule_page import (
     render_department_schedule_html as render_department_schedule_page_html,
 )
 from help_docs import HELP_DOCS_CSS, HELP_DOCS_OVERLAY_HTML
+from mobile_schedule_page import render_mobile_schedule_html
 from project_config import load_app_config
 
 
@@ -46,6 +47,7 @@ VERSION_SNAPSHOT_ROOTS = (
     "admin_page.py",
     "auth_service.py",
     "department_schedule_page.py",
+    "mobile_schedule_page.py",
     "project_config.py",
     "config.example.json",
     "ensure_app_running.sh",
@@ -148,6 +150,10 @@ ADMIN_ACCOUNT_DEFAULT_USERNAME = str(APP_CONFIG["auth"]["admin_account_default_u
 ADMIN_ACCOUNT_DEFAULT_PASSWORD = str(APP_CONFIG["auth"]["admin_account_default_password"])
 ADMIN_PASSWORD_PBKDF2_ITERATIONS = int(APP_CONFIG["auth"]["admin_password_pbkdf2_iterations"])
 PROMPT_PLACEHOLDER_PATTERN = re.compile(r"\{\{([a-zA-Z0-9_]+)\}\}")
+MOBILE_USER_AGENT_PATTERN = re.compile(
+    r"(android|iphone|ipod|ipad|mobile|windows phone|blackberry|iemobile|opera mini)",
+    re.IGNORECASE,
+)
 USER_PROMPT_TEMPLATE_DEFINITIONS = (
     {
         "id": "daily_log_generation",
@@ -14187,7 +14193,7 @@ def render_index_html(current_user: dict | None = None) -> str:
     return html
 
 
-def render_department_schedule_html(current_user: dict | None = None) -> str:
+def render_department_schedule_html(current_user: dict | None = None, *, mobile_view: bool = False) -> str:
     current_user_id = ""
     if isinstance(current_user, dict):
         current_user_id = str(current_user.get("user_id") or "").strip()
@@ -14203,6 +14209,11 @@ def render_department_schedule_html(current_user: dict | None = None) -> str:
         .replace(">", "\\u003e")
         .replace("&", "\\u0026")
     )
+    if mobile_view:
+        return render_mobile_schedule_html(
+            initial_date=date.today().isoformat(),
+            initial_auth_payload_json=initial_auth_payload_json,
+        )
     return render_department_schedule_page_html(
         app_version=APP_VERSION,
         initial_date=date.today().isoformat(),
@@ -14210,6 +14221,24 @@ def render_department_schedule_html(current_user: dict | None = None) -> str:
         initial_ui_settings_json=json.dumps(ui_settings, ensure_ascii=False),
         public_qr_service_template_json=json.dumps(DINGTALK_PUBLIC_QR_SERVICE_TEMPLATE, ensure_ascii=False),
     )
+
+
+def request_prefers_mobile_schedule(headers: object, query: dict | None = None) -> bool:
+    query_map = query if isinstance(query, dict) else {}
+    if "desktop" in query_map:
+        desktop_value = str(query_map.get("desktop", [""])[0] or "").strip().lower()
+        if desktop_value in {"1", "true", "yes", "on"}:
+            return False
+    if "mobile" in query_map:
+        mobile_value = str(query_map.get("mobile", [""])[0] or "").strip().lower()
+        if mobile_value in {"1", "true", "yes", "on"}:
+            return True
+        if mobile_value in {"0", "false", "no", "off"}:
+            return False
+    user_agent = ""
+    if headers is not None and hasattr(headers, "get"):
+        user_agent = str(headers.get("User-Agent", "") or "").strip()
+    return bool(MOBILE_USER_AGENT_PATTERN.search(user_agent))
 
 
 def render_admin_html(current_user: dict | None = None) -> str:
@@ -14310,8 +14339,12 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         current_user = self._get_current_user()
+        mobile_schedule_view = request_prefers_mobile_schedule(self.headers, query)
 
         if parsed.path == "/":
+            if mobile_schedule_view:
+                self._send_redirect("/department-schedule?mobile=1")
+                return
             self._send_html(render_index_html(current_user))
             return
 
@@ -14320,7 +14353,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/department-schedule":
-            self._send_html(render_department_schedule_html(current_user))
+            self._send_html(render_department_schedule_html(current_user, mobile_view=mobile_schedule_view))
             return
 
         if parsed.path == "/api/auth/me":
