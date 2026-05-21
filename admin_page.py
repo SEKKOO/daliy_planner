@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from help_docs import HELP_DOCS_CSS, HELP_DOCS_OVERLAY_HTML
+
 
 def render_admin_html(
     *,
@@ -931,6 +933,7 @@ def render_admin_html(
       .position-scope-grid { grid-template-columns: 1fr; }
       .table-shell table { min-width: 640px; }
     }
+__HELP_DOCS_CSS__
   </style>
 </head>
 <body__INITIAL_BODY_ATTRS__>
@@ -1099,6 +1102,7 @@ def render_admin_html(
       <button class="theme-toggle tiny-btn" id="admin-department-page"__INITIAL_DEPARTMENT_BUTTON_ATTRS__>日程管理</button>
       <button type="button" class="theme-toggle tiny-btn" id="theme-toggle">黑夜模式</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="background-settings-button" aria-expanded="false" aria-controls="background-settings-menu">背景设置</button>
+      <button type="button" class="theme-toggle tiny-btn" id="help-docs-button">帮助文档</button>
       <div class="background-settings-menu" id="background-settings-menu" hidden>
         <div class="background-settings-head">
           <h2 class="background-settings-title">背景与透明度</h2>
@@ -1380,6 +1384,7 @@ def render_admin_html(
         </div>
       </section>
     </div>
+__HELP_DOCS_OVERLAY__
   </div>
   <script>
     let initialAdminAuthState = __INITIAL_ADMIN_AUTH_PAYLOAD__;
@@ -1390,6 +1395,7 @@ def render_admin_html(
     const adminLogoutButton = document.getElementById("admin-logout");
     const adminDepartmentPageButton = document.getElementById("admin-department-page");
     const adminUserPageButton = document.getElementById("admin-user-page");
+    const helpDocsButton = document.getElementById("help-docs-button");
     const themeToggleButton = document.getElementById("theme-toggle");
     const backgroundSettingsButton = document.getElementById("background-settings-button");
     const backgroundSettingsMenu = document.getElementById("background-settings-menu");
@@ -1412,6 +1418,12 @@ def render_admin_html(
     const adminNewPasswordEl = document.getElementById("admin-new-password");
     const adminConfirmPasswordEl = document.getElementById("admin-confirm-password");
     const adminAccountStatus = document.getElementById("admin-account-status");
+    const helpOverlay = document.getElementById("help-overlay");
+    const helpOverlayCloseButton = document.getElementById("help-overlay-close");
+    const helpTabList = document.getElementById("help-tab-list");
+    const helpRolePill = document.getElementById("help-role-pill");
+    const helpPagePill = document.getElementById("help-page-pill");
+    const helpSectionArticles = Array.from(document.querySelectorAll("#help-sections [data-help-section]"));
     const positionFieldScopeCountEl = document.getElementById("position-field-scope-count");
     const positionFieldScopeTitleEl = document.getElementById("position-field-scope-title");
     const positionFieldScopeSubtitleEl = document.getElementById("position-field-scope-subtitle");
@@ -1466,12 +1478,20 @@ def render_admin_html(
     let currentUiSettings = window.__bootUiSettings || {};
     let visualSettingsAutosaveTimer = null;
     let isBackgroundSettingsOpen = false;
+    let isHelpOverlayOpen = false;
+    let activeHelpSectionKey = "";
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
     const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
     const BING_DAILY_BACKGROUND_PATH = "/api/backgrounds/bing-daily";
     const AUTO_THEME_DAY_START_HOUR = 6;
     const AUTO_THEME_NIGHT_START_HOUR = 19;
+    const CURRENT_HELP_PAGE_KEY = "admin";
+    const HELP_SECTION_META = {
+      user: { label: "用户页面" },
+      department: { label: "日程管理" },
+      admin: { label: "管理员后台" },
+    };
 
     function initializePasswordToggleFields() {
       document.querySelectorAll('input[type="password"][data-password-toggle]').forEach((input) => {
@@ -1705,6 +1725,93 @@ def render_admin_html(
     }
     function setAdminPageVerified(verified) {
       adminPageVerified = Boolean(verified);
+      renderHelpDocs(activeHelpSectionKey);
+    }
+    function getHelpRoleLabel() {
+      const user = getInitialAuthenticatedUser();
+      if (!user) {
+        return "未登录";
+      }
+      if (String(user.role || "") === "admin") {
+        return "系统管理员";
+      }
+      if (Boolean(user.is_department_admin)) {
+        return "部门管理员";
+      }
+      return "普通用户";
+    }
+    function getAllowedHelpSectionKeys() {
+      const user = getInitialAuthenticatedUser();
+      const sections = ["user"];
+      if (user) {
+        sections.push("department");
+      }
+      if (isAdminPageVerified()) {
+        sections.push("admin");
+      }
+      return sections.filter((sectionKey, index, list) => list.indexOf(sectionKey) === index);
+    }
+    function getDefaultHelpSectionKey(allowedKeys) {
+      if (allowedKeys.includes(CURRENT_HELP_PAGE_KEY)) {
+        return CURRENT_HELP_PAGE_KEY;
+      }
+      return allowedKeys[0] || "user";
+    }
+    function renderHelpDocs(preferredKey = "") {
+      const allowedKeys = getAllowedHelpSectionKeys();
+      const nextSectionKey = allowedKeys.includes(preferredKey)
+        ? preferredKey
+        : (allowedKeys.includes(activeHelpSectionKey) ? activeHelpSectionKey : getDefaultHelpSectionKey(allowedKeys));
+      activeHelpSectionKey = nextSectionKey;
+      if (helpRolePill) {
+        helpRolePill.textContent = `当前身份：${getHelpRoleLabel()}`;
+      }
+      if (helpPagePill) {
+        const currentPageMeta = HELP_SECTION_META[CURRENT_HELP_PAGE_KEY] || HELP_SECTION_META.admin;
+        helpPagePill.textContent = `当前页面：${currentPageMeta.label}`;
+      }
+      if (helpTabList) {
+        helpTabList.textContent = "";
+        allowedKeys.forEach((sectionKey) => {
+          const sectionEl = helpSectionArticles.find((item) => item.dataset.helpSection === sectionKey);
+          const label = String(
+            sectionEl && sectionEl.dataset.helpTabLabel
+            || HELP_SECTION_META[sectionKey] && HELP_SECTION_META[sectionKey].label
+            || sectionKey
+          ).trim();
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `help-tab${sectionKey === activeHelpSectionKey ? " is-active" : ""}`;
+          button.textContent = label;
+          button.setAttribute("role", "tab");
+          button.setAttribute("aria-selected", sectionKey === activeHelpSectionKey ? "true" : "false");
+          button.addEventListener("click", () => {
+            renderHelpDocs(sectionKey);
+          });
+          helpTabList.appendChild(button);
+        });
+      }
+      helpSectionArticles.forEach((sectionEl) => {
+        const sectionKey = String(sectionEl.dataset.helpSection || "").trim();
+        const visible = allowedKeys.includes(sectionKey) && sectionKey === activeHelpSectionKey;
+        sectionEl.hidden = !visible;
+        sectionEl.setAttribute("aria-hidden", visible ? "false" : "true");
+      });
+    }
+    function openHelpOverlay(preferredKey = "") {
+      isHelpOverlayOpen = true;
+      helpOverlay.hidden = false;
+      renderHelpDocs(preferredKey);
+      window.setTimeout(() => {
+        const activeButton = helpTabList.querySelector(".help-tab.is-active") || helpOverlayCloseButton;
+        if (activeButton && typeof activeButton.focus === "function") {
+          activeButton.focus();
+        }
+      }, 0);
+    }
+    function closeHelpOverlay() {
+      isHelpOverlayOpen = false;
+      helpOverlay.hidden = true;
     }
     function showAdminCheckingView() {
       document.body.classList.add("admin-auth-state");
@@ -2653,6 +2760,15 @@ def render_admin_html(
     adminUserPageButton.addEventListener("click", () => {
       window.location.href = "/";
     });
+    helpDocsButton.addEventListener("click", () => {
+      openHelpOverlay(CURRENT_HELP_PAGE_KEY);
+    });
+    helpOverlayCloseButton.addEventListener("click", closeHelpOverlay);
+    helpOverlay.addEventListener("click", (event) => {
+      if (event.target === helpOverlay) {
+        closeHelpOverlay();
+      }
+    });
     adminAccountOverlayCloseButton.addEventListener("click", closeAdminAccountOverlay);
     adminAccountOverlay.addEventListener("click", (event) => {
       if (event.target === adminAccountOverlay) {
@@ -2692,6 +2808,9 @@ def render_admin_html(
       if (event.key === "Escape") {
         setLocalAccountPositionMenuOpen(false);
         setBackgroundSettingsOpen(false);
+        if (isHelpOverlayOpen) {
+          closeHelpOverlay();
+        }
       }
     });
     savePositionFieldScopeButton.addEventListener("click", savePositionFieldScopes);
@@ -2817,6 +2936,10 @@ def render_admin_html(
 </html>
 """.replace("__INITIAL_ADMIN_AUTH_PAYLOAD__", initial_auth_payload_json).replace(
         "__INITIAL_UI_SETTINGS_PAYLOAD__", initial_ui_settings_json
+    ).replace(
+        "__HELP_DOCS_CSS__", HELP_DOCS_CSS
+    ).replace(
+        "__HELP_DOCS_OVERLAY__", HELP_DOCS_OVERLAY_HTML
     ).replace(
         "__INITIAL_BODY_ATTRS__", initial_body_attrs
     ).replace(

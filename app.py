@@ -26,6 +26,7 @@ from admin_page import render_admin_html as render_admin_page_html
 from department_schedule_page import (
     render_department_schedule_html as render_department_schedule_page_html,
 )
+from help_docs import HELP_DOCS_CSS, HELP_DOCS_OVERLAY_HTML
 from project_config import load_app_config
 
 
@@ -3118,6 +3119,7 @@ INDEX_HTML = """<!DOCTYPE html>
       }
 
     }
+__HELP_DOCS_CSS__
 </style>
 </head>
 <body>
@@ -3273,6 +3275,7 @@ INDEX_HTML = """<!DOCTYPE html>
       <button type="button" class="theme-toggle tiny-btn" id="auth-admin-page-button" hidden>管理后台</button>
       <button type="button" class="theme-toggle tiny-btn" id="theme-toggle">黑夜模式</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="background-settings-button" aria-expanded="false" aria-controls="background-settings-menu">背景设置</button>
+      <button type="button" class="theme-toggle tiny-btn" id="help-docs-button">帮助文档</button>
       <div class="background-settings-menu" id="background-settings-menu" hidden>
         <div class="background-settings-head">
           <h2 class="background-settings-title">背景与透明度</h2>
@@ -3637,6 +3640,7 @@ INDEX_HTML = """<!DOCTYPE html>
       </div>
     </section>
   </div>
+__HELP_DOCS_OVERLAY__
   <div class="preview-overlay" id="preview-overlay" hidden>
     <section class="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title">
       <div class="preview-head">
@@ -3765,6 +3769,7 @@ INDEX_HTML = """<!DOCTYPE html>
     const authPasswordButton = document.getElementById("auth-password-button");
     const authDepartmentScheduleButton = document.getElementById("auth-department-schedule-button");
     const authAdminPageButton = document.getElementById("auth-admin-page-button");
+    const helpDocsButton = document.getElementById("help-docs-button");
     const authOverlay = document.getElementById("auth-overlay");
     const authSections = document.getElementById("auth-sections");
     const authOverlayCloseButton = document.getElementById("auth-overlay-close");
@@ -3817,6 +3822,12 @@ INDEX_HTML = """<!DOCTYPE html>
     const userDingtalkMcpResetButton = document.getElementById("user-dingtalk-mcp-reset-button");
     const userDingtalkMcpSaveButton = document.getElementById("user-dingtalk-mcp-save-button");
     const userDingtalkMcpStatus = document.getElementById("user-dingtalk-mcp-status");
+    const helpOverlay = document.getElementById("help-overlay");
+    const helpOverlayCloseButton = document.getElementById("help-overlay-close");
+    const helpTabList = document.getElementById("help-tab-list");
+    const helpRolePill = document.getElementById("help-role-pill");
+    const helpPagePill = document.getElementById("help-page-pill");
+    const helpSectionArticles = Array.from(document.querySelectorAll("#help-sections [data-help-section]"));
 
     const addRowButton = document.getElementById("add-row");
     const reloadButton = document.getElementById("reload-date");
@@ -3876,6 +3887,8 @@ INDEX_HTML = """<!DOCTYPE html>
     let isPasswordOverlayOpen = false;
     let isPromptOverlayOpen = false;
     let isUserDingtalkMcpOverlayOpen = false;
+    let isHelpOverlayOpen = false;
+    let activeHelpSectionKey = "";
     let dailyLogEditorState = null;
     let sendResultToastTimer = null;
     let backgroundStretchFrame = 0;
@@ -3883,6 +3896,12 @@ INDEX_HTML = """<!DOCTYPE html>
     let currentUiSettings = normalizeUiSettings(initialUiSettings);
     let knownCustomerNames = [];
     let knownCustomerProfiles = {};
+    const CURRENT_HELP_PAGE_KEY = "user";
+    const HELP_SECTION_META = {
+      user: { label: "用户页面" },
+      department: { label: "日程管理" },
+      admin: { label: "管理员后台" },
+    };
     let authState = {
       authenticated: false,
       user: null,
@@ -4203,10 +4222,103 @@ INDEX_HTML = """<!DOCTYPE html>
       return Boolean(authState.authenticated && authState.user);
     }
 
+    function getHelpRoleLabel() {
+      if (!(authState.authenticated && authState.user)) {
+        return "未登录";
+      }
+      if (authState.isAdmin) {
+        return "系统管理员";
+      }
+      if (authState.isDepartmentAdmin) {
+        return "部门管理员";
+      }
+      return "普通用户";
+    }
+
+    function getAllowedHelpSectionKeys() {
+      const sections = ["user"];
+      if (CURRENT_HELP_PAGE_KEY === "department" || (authState.authenticated && authState.user)) {
+        sections.push("department");
+      }
+      if (authState.isAdmin) {
+        sections.push("admin");
+      }
+      return sections.filter((sectionKey, index, list) => list.indexOf(sectionKey) === index);
+    }
+
+    function getDefaultHelpSectionKey(allowedKeys) {
+      if (allowedKeys.includes(CURRENT_HELP_PAGE_KEY)) {
+        return CURRENT_HELP_PAGE_KEY;
+      }
+      return allowedKeys[0] || "user";
+    }
+
+    function renderHelpDocs(preferredKey = "") {
+      const allowedKeys = getAllowedHelpSectionKeys();
+      const nextSectionKey = allowedKeys.includes(preferredKey)
+        ? preferredKey
+        : (allowedKeys.includes(activeHelpSectionKey) ? activeHelpSectionKey : getDefaultHelpSectionKey(allowedKeys));
+      activeHelpSectionKey = nextSectionKey;
+
+      if (helpRolePill) {
+        helpRolePill.textContent = `当前身份：${getHelpRoleLabel()}`;
+      }
+      if (helpPagePill) {
+        const currentPageMeta = HELP_SECTION_META[CURRENT_HELP_PAGE_KEY] || HELP_SECTION_META.user;
+        helpPagePill.textContent = `当前页面：${currentPageMeta.label}`;
+      }
+      if (helpTabList) {
+        helpTabList.textContent = "";
+        allowedKeys.forEach((sectionKey) => {
+          const sectionEl = helpSectionArticles.find((item) => item.dataset.helpSection === sectionKey);
+          const label = String(
+            sectionEl && sectionEl.dataset.helpTabLabel
+            || HELP_SECTION_META[sectionKey] && HELP_SECTION_META[sectionKey].label
+            || sectionKey
+          ).trim();
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `help-tab${sectionKey === activeHelpSectionKey ? " is-active" : ""}`;
+          button.textContent = label;
+          button.setAttribute("role", "tab");
+          button.setAttribute("aria-selected", sectionKey === activeHelpSectionKey ? "true" : "false");
+          button.addEventListener("click", () => {
+            renderHelpDocs(sectionKey);
+          });
+          helpTabList.appendChild(button);
+        });
+      }
+      helpSectionArticles.forEach((sectionEl) => {
+        const sectionKey = String(sectionEl.dataset.helpSection || "").trim();
+        const visible = allowedKeys.includes(sectionKey) && sectionKey === activeHelpSectionKey;
+        sectionEl.hidden = !visible;
+        sectionEl.setAttribute("aria-hidden", visible ? "false" : "true");
+      });
+    }
+
+    function openHelpOverlay(preferredKey = "") {
+      isHelpOverlayOpen = true;
+      helpOverlay.hidden = false;
+      renderHelpDocs(preferredKey);
+      updateBodyOverlayState();
+      window.setTimeout(() => {
+        const activeButton = helpTabList.querySelector(".help-tab.is-active") || helpOverlayCloseButton;
+        if (activeButton && typeof activeButton.focus === "function") {
+          activeButton.focus();
+        }
+      }, 0);
+    }
+
+    function closeHelpOverlay() {
+      isHelpOverlayOpen = false;
+      helpOverlay.hidden = true;
+      updateBodyOverlayState();
+    }
+
     function normalizeUserPromptTemplate(prompt) {
       const source = prompt && typeof prompt === "object" ? prompt : {};
       return {
-        id: String(source.id || "").trim(),
+        id: String(source.id || source.prompt_id || source.filename || "").trim(),
         title: String(source.title || source.filename || "未命名提示词").trim(),
         description: String(source.description || "").trim(),
         filename: String(source.filename || "").trim(),
@@ -4394,6 +4506,7 @@ INDEX_HTML = """<!DOCTYPE html>
           body: JSON.stringify({
             prompts: promptEditorState.prompts.map((prompt) => ({
               id: prompt.id,
+              filename: prompt.filename,
               content: prompt.content,
             })),
           }),
@@ -4970,6 +5083,7 @@ INDEX_HTML = """<!DOCTYPE html>
         closeUserDingtalkMcpOverlay();
       }
       renderPageUserBadge();
+      renderHelpDocs(activeHelpSectionKey);
     }
 
     async function refreshAuthState() {
@@ -6084,6 +6198,7 @@ INDEX_HTML = """<!DOCTYPE html>
         || isPasswordOverlayOpen
         || isPromptOverlayOpen
         || isUserDingtalkMcpOverlayOpen
+        || isHelpOverlayOpen
       ) ? "hidden" : "";
     }
 
@@ -8501,6 +8616,13 @@ INDEX_HTML = """<!DOCTYPE html>
         closeUserDingtalkMcpOverlay();
       }
     });
+    helpDocsButton.addEventListener("click", () => openHelpOverlay(CURRENT_HELP_PAGE_KEY));
+    helpOverlayCloseButton.addEventListener("click", closeHelpOverlay);
+    helpOverlay.addEventListener("click", (event) => {
+      if (event.target === helpOverlay) {
+        closeHelpOverlay();
+      }
+    });
     authLocalSubmitButton.addEventListener("click", submitLocalPasswordLogin);
     authLocalUsernameInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -8849,6 +8971,10 @@ INDEX_HTML = """<!DOCTYPE html>
       }
       if (event.key === "Escape" && isUserDingtalkMcpOverlayOpen) {
         closeUserDingtalkMcpOverlay();
+        return;
+      }
+      if (event.key === "Escape" && isHelpOverlayOpen) {
+        closeHelpOverlay();
         return;
       }
       if (event.key === "Escape" && isPasswordOverlayOpen) {
@@ -10215,6 +10341,28 @@ def load_default_prompt_template(filename: str) -> str:
         raise RuntimeError(f"无法读取 AI 提示词文件：{prompt_path}") from error
 
 
+def resolve_user_prompt_template_definition(payload: dict | None) -> tuple[str, dict] | tuple[None, None]:
+    payload_map = payload if isinstance(payload, dict) else {}
+    prompt_identifier = str(
+        payload_map.get("id")
+        or payload_map.get("prompt_id")
+        or payload_map.get("template_id")
+        or ""
+    ).strip()
+    filename = str(payload_map.get("filename") or "").strip()
+
+    definition = None
+    if prompt_identifier:
+        definition = USER_PROMPT_TEMPLATE_BY_ID.get(prompt_identifier)
+        if definition is None:
+            definition = USER_PROMPT_TEMPLATE_BY_FILENAME.get(prompt_identifier)
+    if definition is None and filename:
+        definition = USER_PROMPT_TEMPLATE_BY_FILENAME.get(filename)
+    if definition is None:
+        return None, None
+    return str(definition["id"]), dict(definition)
+
+
 def get_user_prompt_template_override(filename: str, user_id: str | None = None) -> tuple[str | None, str]:
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
@@ -10262,12 +10410,12 @@ def save_user_prompt_templates(payload: dict | None, user_id: str | None = None)
         for item in raw_prompts:
             if not isinstance(item, dict):
                 continue
-            prompt_id = str(item.get("id") or item.get("prompt_id") or "").strip()
+            prompt_id, _definition = resolve_user_prompt_template_definition(item)
             if not prompt_id:
                 continue
             prompt_updates.append((prompt_id, item.get("content", "")))
     else:
-        prompt_id = str(payload_map.get("prompt_id", "")).strip()
+        prompt_id, _definition = resolve_user_prompt_template_definition(payload_map)
         if prompt_id:
             prompt_updates.append((prompt_id, payload_map.get("content", "")))
     if not prompt_updates:
@@ -13974,6 +14122,8 @@ def render_index_html(current_user: dict | None = None) -> str:
         "__PUBLIC_QR_SERVICE_TEMPLATE_JSON__",
         json.dumps(DINGTALK_PUBLIC_QR_SERVICE_TEMPLATE, ensure_ascii=False),
     )
+    html = html.replace("__HELP_DOCS_CSS__", HELP_DOCS_CSS)
+    html = html.replace("__HELP_DOCS_OVERLAY__", HELP_DOCS_OVERLAY_HTML)
     return html
 
 

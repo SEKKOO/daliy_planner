@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from help_docs import HELP_DOCS_CSS, HELP_DOCS_OVERLAY_HTML
+
 DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1492,6 +1494,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       .toolbar-actions button,
       .state-actions button { width: 100%; }
     }
+__HELP_DOCS_CSS__
   </style>
 </head>
 <body>
@@ -1663,6 +1666,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       <button type="button" class="theme-toggle tiny-btn" id="back-admin-page" hidden>管理后台</button>
       <button type="button" class="theme-toggle tiny-btn" id="theme-toggle">黑夜模式</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="background-settings-button" aria-expanded="false" aria-controls="background-settings-menu">背景设置</button>
+      <button type="button" class="theme-toggle tiny-btn" id="help-docs-button">帮助文档</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="edit-log-button" hidden>编辑日志</button>
       <div class="background-settings-menu" id="background-settings-menu" hidden>
         <div class="background-settings-head">
@@ -1837,8 +1841,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         </div>
       </section>
     </div>
-    <div class="password-overlay" id="password-overlay" hidden>
-      <section class="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title">
+  <div class="password-overlay" id="password-overlay" hidden>
+    <section class="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title">
         <div class="password-dialog-head">
           <div>
             <h2 class="password-dialog-title" id="password-dialog-title">修改登录密码</h2>
@@ -1854,10 +1858,11 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
             <button type="button" id="password-submit-button">保存新密码</button>
           </div>
           <div class="auth-status-text" id="password-status"></div>
-        </div>
-      </section>
-    </div>
-    <div class="schedule-filter-overlay" id="schedule-filter-overlay" hidden>
+      </div>
+    </section>
+  </div>
+__HELP_DOCS_OVERLAY__
+  <div class="schedule-filter-overlay" id="schedule-filter-overlay" hidden>
       <section class="schedule-filter-dialog" role="dialog" aria-modal="false" aria-labelledby="schedule-filter-title">
         <div class="schedule-filter-title" id="schedule-filter-title">筛选成员</div>
         <section class="schedule-filter-section">
@@ -1914,6 +1919,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const authLoginButton = document.getElementById("auth-login-button");
     const logoutPageButton = document.getElementById("logout-page");
     const passwordButton = document.getElementById("password-button");
+    const helpDocsButton = document.getElementById("help-docs-button");
     const themeToggleButton = document.getElementById("theme-toggle");
     const backgroundSettingsButton = document.getElementById("background-settings-button");
     const backgroundSettingsMenu = document.getElementById("background-settings-menu");
@@ -1949,6 +1955,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     const passwordConfirmInput = document.getElementById("password-confirm-input");
     const passwordSubmitButton = document.getElementById("password-submit-button");
     const passwordStatus = document.getElementById("password-status");
+    const helpOverlay = document.getElementById("help-overlay");
+    const helpOverlayCloseButton = document.getElementById("help-overlay-close");
+    const helpTabList = document.getElementById("help-tab-list");
+    const helpRolePill = document.getElementById("help-role-pill");
+    const helpPagePill = document.getElementById("help-page-pill");
+    const helpSectionArticles = Array.from(document.querySelectorAll("#help-sections [data-help-section]"));
     const editLogOverlay = document.getElementById("edit-log-overlay");
     const editLogOverlayCloseButton = document.getElementById("edit-log-overlay-close");
     const editLogRefreshButton = document.getElementById("edit-log-refresh-button");
@@ -1985,6 +1997,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     let isBackgroundSettingsOpen = false;
     let isAuthOverlayOpen = false;
     let isPasswordOverlayOpen = false;
+    let isHelpOverlayOpen = false;
+    let activeHelpSectionKey = "";
     let isEditLogOverlayOpen = false;
     let latestEditLogPayload = null;
     let isScheduleFilterOverlayOpen = false;
@@ -1996,6 +2010,12 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     let dingtalkScanPollTimer = null;
     let planLayoutResizeObserver = null;
     let planLayoutSyncFrameId = 0;
+    const CURRENT_HELP_PAGE_KEY = "department";
+    const HELP_SECTION_META = {
+      user: { label: "用户页面" },
+      department: { label: "日程管理" },
+      admin: { label: "管理员后台" },
+    };
     const planAutoSaveTimers = new Map();
     const planSaveInFlightUsers = new Set();
     const memberOrderDragState = {
@@ -2216,6 +2236,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
           ? (formatRole(currentUser) || "已登录")
           : "请先登录后查看部门日程与编辑安排。"
       );
+      renderHelpDocs(activeHelpSectionKey);
     }
     function setAuthState(user) {
       const previousScopeToken = getScheduleFilterStorageScopeToken();
@@ -2617,6 +2638,97 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     function canCurrentUserChangePassword(user) {
       return Boolean(user && String(user.user_id || "").trim().startsWith("local"));
     }
+
+    function getHelpRoleLabel() {
+      const currentUser = normalizeAuthUser(authState && authState.user);
+      if (!currentUser) {
+        return "未登录";
+      }
+      if (String(currentUser.role || "") === "admin") {
+        return "系统管理员";
+      }
+      if (Boolean(currentUser.is_department_admin)) {
+        return "部门管理员";
+      }
+      return "普通用户";
+    }
+
+    function getAllowedHelpSectionKeys() {
+      const currentUser = normalizeAuthUser(authState && authState.user);
+      const sections = ["user", "department"];
+      if (currentUser && String(currentUser.role || "") === "admin") {
+        sections.push("admin");
+      }
+      return sections.filter((sectionKey, index, list) => list.indexOf(sectionKey) === index);
+    }
+
+    function getDefaultHelpSectionKey(allowedKeys) {
+      if (allowedKeys.includes(CURRENT_HELP_PAGE_KEY)) {
+        return CURRENT_HELP_PAGE_KEY;
+      }
+      return allowedKeys[0] || "user";
+    }
+
+    function renderHelpDocs(preferredKey = "") {
+      const allowedKeys = getAllowedHelpSectionKeys();
+      const nextSectionKey = allowedKeys.includes(preferredKey)
+        ? preferredKey
+        : (allowedKeys.includes(activeHelpSectionKey) ? activeHelpSectionKey : getDefaultHelpSectionKey(allowedKeys));
+      activeHelpSectionKey = nextSectionKey;
+
+      if (helpRolePill) {
+        helpRolePill.textContent = `当前身份：${getHelpRoleLabel()}`;
+      }
+      if (helpPagePill) {
+        const currentPageMeta = HELP_SECTION_META[CURRENT_HELP_PAGE_KEY] || HELP_SECTION_META.department;
+        helpPagePill.textContent = `当前页面：${currentPageMeta.label}`;
+      }
+      if (helpTabList) {
+        helpTabList.textContent = "";
+        allowedKeys.forEach((sectionKey) => {
+          const sectionEl = helpSectionArticles.find((item) => item.dataset.helpSection === sectionKey);
+          const label = String(
+            sectionEl && sectionEl.dataset.helpTabLabel
+            || HELP_SECTION_META[sectionKey] && HELP_SECTION_META[sectionKey].label
+            || sectionKey
+          ).trim();
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `help-tab${sectionKey === activeHelpSectionKey ? " is-active" : ""}`;
+          button.textContent = label;
+          button.setAttribute("role", "tab");
+          button.setAttribute("aria-selected", sectionKey === activeHelpSectionKey ? "true" : "false");
+          button.addEventListener("click", () => {
+            renderHelpDocs(sectionKey);
+          });
+          helpTabList.appendChild(button);
+        });
+      }
+      helpSectionArticles.forEach((sectionEl) => {
+        const sectionKey = String(sectionEl.dataset.helpSection || "").trim();
+        const visible = allowedKeys.includes(sectionKey) && sectionKey === activeHelpSectionKey;
+        sectionEl.hidden = !visible;
+        sectionEl.setAttribute("aria-hidden", visible ? "false" : "true");
+      });
+    }
+
+    function openHelpOverlay(preferredKey = "") {
+      isHelpOverlayOpen = true;
+      helpOverlay.hidden = false;
+      renderHelpDocs(preferredKey);
+      window.setTimeout(() => {
+        const activeButton = helpTabList.querySelector(".help-tab.is-active") || helpOverlayCloseButton;
+        if (activeButton && typeof activeButton.focus === "function") {
+          activeButton.focus();
+        }
+      }, 0);
+    }
+
+    function closeHelpOverlay() {
+      isHelpOverlayOpen = false;
+      helpOverlay.hidden = true;
+    }
+
     function openPasswordOverlay() {
       const viewer = latestPayload && latestPayload.viewer ? latestPayload.viewer : null;
       if (!canCurrentUserChangePassword(viewer)) {
@@ -4192,6 +4304,15 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         closePasswordOverlay();
       }
     });
+    helpDocsButton.addEventListener('click', () => {
+      openHelpOverlay(CURRENT_HELP_PAGE_KEY);
+    });
+    helpOverlayCloseButton.addEventListener('click', closeHelpOverlay);
+    helpOverlay.addEventListener('click', (event) => {
+      if (event.target === helpOverlay) {
+        closeHelpOverlay();
+      }
+    });
     [passwordCurrentInput, passwordNewInput, passwordConfirmInput].forEach((input) => {
       input.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
@@ -4268,6 +4389,9 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         }
         if (isPasswordOverlayOpen) {
           closePasswordOverlay();
+        }
+        if (isHelpOverlayOpen) {
+          closeHelpOverlay();
         }
         if (isEditLogOverlayOpen) {
           closeEditLogOverlay();
@@ -4378,4 +4502,6 @@ def render_department_schedule_html(
     html = html.replace("__INITIAL_AUTH_STATE_PAYLOAD__", initial_auth_payload_json)
     html = html.replace("__INITIAL_UI_SETTINGS_PAYLOAD__", initial_ui_settings_json)
     html = html.replace("__PUBLIC_QR_SERVICE_TEMPLATE_JSON__", public_qr_service_template_json)
+    html = html.replace("__HELP_DOCS_CSS__", HELP_DOCS_CSS)
+    html = html.replace("__HELP_DOCS_OVERLAY__", HELP_DOCS_OVERLAY_HTML)
     return html
