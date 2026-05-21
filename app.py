@@ -194,7 +194,6 @@ USER_PROMPT_TEMPLATE_BY_FILENAME = {
     str(item["filename"]): dict(item)
     for item in USER_PROMPT_TEMPLATE_DEFINITIONS
 }
-USER_PROMPT_TEMPLATE_SETTING_KEY_PREFIX = "prompt_template_override"
 SWIFT_BIN = str(APP_CONFIG["executables"]["swift_bin"])
 
 auth_service.configure(
@@ -10328,17 +10327,83 @@ def normalize_prompt_template_text(value: object) -> str:
     return str(value if value is not None else "").replace("\r\n", "\n").replace("\r", "\n")
 
 
-def build_user_prompt_template_setting_key(user_id: str, filename: str) -> str:
-    normalized_user_id = normalize_user_id(user_id)
-    return f"user:{normalized_user_id}:{USER_PROMPT_TEMPLATE_SETTING_KEY_PREFIX}:{filename}"
-
-
 def load_default_prompt_template(filename: str) -> str:
     prompt_path = PROMPTS_DIR / filename
     try:
         return normalize_prompt_template_text(prompt_path.read_text(encoding="utf-8"))
     except OSError as error:
         raise RuntimeError(f"无法读取 AI 提示词文件：{prompt_path}") from error
+
+
+def format_prompt_template_override_timestamp(path: Path) -> str:
+    try:
+        modified_at = datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError:
+        return ""
+    return modified_at.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def sanitize_prompt_template_owner_prefix(value: object) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "").strip()).strip("._-")
+    return sanitized[:80] if sanitized else ""
+
+
+def get_prompt_template_owner_prefix(user_id: str | None) -> str:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return ""
+    local_account = get_local_account_by_user_id(normalized_user_id)
+    if local_account:
+        username = sanitize_prompt_template_owner_prefix(local_account.get("username"))
+        if username:
+            return username
+    return sanitize_prompt_template_owner_prefix(normalized_user_id)
+
+
+def build_user_prompt_template_override_path(filename: str, user_id: str | None = None) -> Path | None:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return None
+    default_path = PROMPTS_DIR / filename
+    owner_prefix = get_prompt_template_owner_prefix(normalized_user_id)
+    if not owner_prefix:
+        return None
+    return default_path.parent / f"{owner_prefix}__{default_path.name}"
+
+
+def write_user_prompt_template_override_file(
+    filename: str,
+    user_id: str | None,
+    content: str,
+    *,
+    updated_at: str = "",
+) -> str:
+    override_path = build_user_prompt_template_override_path(filename, user_id=user_id)
+    if override_path is None:
+        raise RuntimeError("未找到可写入的用户提示词路径。")
+    try:
+        override_path.parent.mkdir(parents=True, exist_ok=True)
+        override_path.write_text(normalize_prompt_template_text(content), encoding="utf-8")
+        if updated_at:
+            try:
+                timestamp = datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S").timestamp()
+            except ValueError:
+                timestamp = None
+            if timestamp is not None:
+                os.utime(override_path, (timestamp, timestamp))
+    except OSError as error:
+        raise RuntimeError(f"无法写入用户提示词文件：{override_path}") from error
+    return updated_at or format_prompt_template_override_timestamp(override_path)
+
+
+def delete_user_prompt_template_override_file(filename: str, user_id: str | None = None) -> None:
+    override_path = build_user_prompt_template_override_path(filename, user_id=user_id)
+    if override_path is None or not override_path.exists():
+        return
+    try:
+        override_path.unlink()
+    except OSError as error:
+        raise RuntimeError(f"无法删除用户提示词文件：{override_path}") from error
 
 
 def resolve_user_prompt_template_definition(payload: dict | None) -> tuple[str, dict] | tuple[None, None]:
@@ -10367,15 +10432,16 @@ def get_user_prompt_template_override(filename: str, user_id: str | None = None)
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
         return None, ""
-    setting_key = build_user_prompt_template_setting_key(normalized_user_id, filename)
-    with get_connection() as connection:
-        row = connection.execute(
-            "SELECT setting_value, updated_at FROM app_settings WHERE setting_key = ?",
-            (setting_key,),
-        ).fetchone()
-    if not row:
-        return None, ""
-    return normalize_prompt_template_text(row["setting_value"] or ""), str(row["updated_at"] or "")
+    override_path = build_user_prompt_template_override_path(filename, user_id=normalized_user_id)
+    if override_path is not None and override_path.exists():
+        try:
+            return (
+                normalize_prompt_template_text(override_path.read_text(encoding="utf-8")),
+                format_prompt_template_override_timestamp(override_path),
+            )
+        except OSError as error:
+            raise RuntimeError(f"无法读取用户提示词文件：{override_path}") from error
+    return None, ""
 
 
 def list_user_prompt_templates(user_id: str | None = None) -> list[dict]:
@@ -10432,25 +10498,19 @@ def save_user_prompt_templates(payload: dict | None, user_id: str | None = None)
         unique_prompt_updates[prompt_id] = normalized_content
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with get_connection() as connection:
-        for prompt_id, content in unique_prompt_updates.items():
-            definition = USER_PROMPT_TEMPLATE_BY_ID[prompt_id]
-            filename = str(definition["filename"])
-            setting_key = build_user_prompt_template_setting_key(normalized_user_id, filename)
-            default_content = load_default_prompt_template(filename)
-            if content == default_content:
-                connection.execute("DELETE FROM app_settings WHERE setting_key = ?", (setting_key,))
-                continue
-            connection.execute(
-                """
-                INSERT INTO app_settings (setting_key, setting_value, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(setting_key) DO UPDATE SET
-                    setting_value = excluded.setting_value,
-                    updated_at = excluded.updated_at
-                """,
-                (setting_key, content, timestamp),
-            )
+    for prompt_id, content in unique_prompt_updates.items():
+        definition = USER_PROMPT_TEMPLATE_BY_ID[prompt_id]
+        filename = str(definition["filename"])
+        default_content = load_default_prompt_template(filename)
+        if content == default_content:
+            delete_user_prompt_template_override_file(filename, user_id=normalized_user_id)
+            continue
+        write_user_prompt_template_override_file(
+            filename,
+            normalized_user_id,
+            content,
+            updated_at=timestamp,
+        )
     return {
         "prompts": list_user_prompt_templates(normalized_user_id),
         "updated_at": timestamp,

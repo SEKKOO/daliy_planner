@@ -14,6 +14,17 @@
   - `dingtalk_daily_log_send.txt`：钉钉日报发送
   - `dingtalk_weekly_report_send.txt`：钉钉周报发送
 
+## 用户自定义提示词
+
+- 页面里保存的“用户自定义提示词”会写入对应模板所在目录，不再保存到数据库。
+- 文件名格式为 `用户名__原模板名.txt`，例如：
+  - `prompts/daily/alice__log_generation.txt`
+  - `prompts/weekly/alice__report_generation.txt`
+  - `prompts/send/alice__dingtalk_user_lookup.txt`
+- 本地账号优先使用登录用户名作为前缀；没有本地账号时回退为当前用户 `user_id`。
+- 历史数据库中的提示词覆盖值不会再被读取或迁移。
+- 当自定义内容与系统默认模板完全一致时，对应的用户自定义文件会自动删除，重新回到默认模板。
+
 ## 占位符规则
 
 占位符格式为 `{{name}}`，由 `app.py` 在运行时替换。

@@ -20,3 +20,8 @@ planner.db
 *本周兵力盘点.xlsx
 *.docx
 *.xlsx
+
+# Generated per-user prompt overrides
+prompts/daily/*__*.txt
+prompts/weekly/*__*.txt
+prompts/send/*__*.txt
