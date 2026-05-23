@@ -14342,9 +14342,13 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         mobile_schedule_view = request_prefers_mobile_schedule(self.headers, query)
 
         if parsed.path == "/":
-            if mobile_schedule_view:
-                self._send_redirect("/department-schedule?mobile=1")
-                return
+            redirect_target = "/department-schedule"
+            if parsed.query:
+                redirect_target = f"{redirect_target}?{parsed.query}"
+            self._send_redirect(redirect_target)
+            return
+
+        if parsed.path == "/daily-planner":
             self._send_html(render_index_html(current_user))
             return
 

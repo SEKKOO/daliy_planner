@@ -4258,7 +4258,7 @@ __HELP_DOCS_OVERLAY__
     startDingtalkScanLoginButton.addEventListener('click', startDingtalkScanLogin);
     refreshDingtalkScanLoginButton.addEventListener('click', startDingtalkScanLogin);
     document.getElementById('back-user-page').addEventListener('click', () => {
-      window.location.href = '/';
+      window.location.href = '/daily-planner';
     });
     backAdminPageButton.addEventListener('click', () => {
       window.location.href = '/admin';
@@ -4272,7 +4272,7 @@ __HELP_DOCS_OVERLAY__
       }
     });
     document.getElementById('state-go-user').addEventListener('click', () => {
-      window.location.href = '/';
+      window.location.href = '/daily-planner';
     });
     document.getElementById('state-go-admin').addEventListener('click', () => {
       window.location.href = '/admin';

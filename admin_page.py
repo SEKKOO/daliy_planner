@@ -2758,7 +2758,7 @@ __HELP_DOCS_OVERLAY__
       window.location.href = "/department-schedule";
     });
     adminUserPageButton.addEventListener("click", () => {
-      window.location.href = "/";
+      window.location.href = "/daily-planner";
     });
     helpDocsButton.addEventListener("click", () => {
       openHelpOverlay(CURRENT_HELP_PAGE_KEY);

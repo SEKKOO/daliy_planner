@@ -6,25 +6,26 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>手机日程管理</title>
+  <title>日程管理</title>
   <style>
     :root {
       color-scheme: light;
       --bg: #f4f7fb;
-      --panel: #ffffff;
+      --panel: rgba(255, 255, 255, 0.94);
       --panel-soft: #f8fbff;
-      --line: #d8e3f0;
-      --text: #16324d;
-      --muted: #67809a;
-      --primary: #2563c9;
-      --primary-strong: #174b9d;
+      --line: #d8e2ef;
+      --line-strong: #c8d6e7;
+      --text: #17324d;
+      --muted: #6c849c;
+      --primary: #2764cb;
       --primary-soft: #e7f0ff;
-      --danger: #c0394b;
+      --primary-deep: #184b9c;
+      --danger: #c23b4c;
       --danger-soft: #fff2f4;
       --success: #1d8a59;
-      --shadow: 0 12px 28px rgba(28, 66, 120, 0.08);
+      --shadow: 0 16px 34px rgba(31, 71, 128, 0.08);
       --radius: 18px;
-      --radius-sm: 12px;
+      --radius-sm: 14px;
     }
 
     * { box-sizing: border-box; }
@@ -32,7 +33,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     html, body {
       margin: 0;
       min-height: 100%;
-      background: linear-gradient(180deg, #eef5ff 0%, #f8fbff 36%, #f4f7fb 100%);
+      background: linear-gradient(180deg, #edf4ff 0%, #f8fbff 36%, #f4f7fb 100%);
       color: var(--text);
       font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     }
@@ -43,52 +44,51 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 
     button,
     input,
-    select,
     textarea {
       font: inherit;
     }
 
     button {
       border: none;
-      border-radius: 999px;
       cursor: pointer;
+      border-radius: 999px;
     }
 
     input,
-    select,
     textarea {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 14px;
       background: #fff;
       color: var(--text);
+      border-radius: 14px;
       padding: 12px 14px;
     }
 
     textarea {
-      min-height: 92px;
+      min-height: 76px;
       resize: vertical;
+      line-height: 1.55;
     }
 
     .shell {
-      width: min(100%, 760px);
+      width: min(100%, 860px);
       margin: 0 auto;
-      padding: 14px 14px 110px;
+      padding: 14px 14px 28px;
     }
 
     .card {
-      background: rgba(255, 255, 255, 0.92);
-      border: 1px solid rgba(216, 227, 240, 0.9);
+      background: var(--panel);
+      border: 1px solid rgba(216, 226, 239, 0.9);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
     }
 
-    .head {
+    .header-card {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
-      padding: 18px 18px 14px;
+      padding: 18px;
       margin-bottom: 12px;
     }
 
@@ -101,30 +101,29 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     .title {
       margin: 6px 0 0;
       font-size: 24px;
-      line-height: 1.1;
+      line-height: 1.15;
     }
 
-    .user-line {
+    .subtitle {
       margin-top: 8px;
       font-size: 13px;
       color: var(--muted);
+      line-height: 1.6;
     }
 
-    .ghost-btn,
-    .text-btn {
+    .ghost-btn {
       background: transparent;
-      color: var(--muted);
       border: 1px solid var(--line);
+      color: var(--muted);
       padding: 10px 14px;
     }
 
-    .ghost-btn[hidden],
-    .text-btn[hidden] {
+    .ghost-btn[hidden] {
       display: none;
     }
 
     .login-card,
-    .editor-card {
+    .page-card {
       padding: 16px;
     }
 
@@ -135,8 +134,8 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 
     .section-text {
       margin: 0 0 14px;
-      color: var(--muted);
       font-size: 14px;
+      color: var(--muted);
       line-height: 1.6;
     }
 
@@ -155,24 +154,9 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       color: var(--muted);
     }
 
-    .date-row {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-
-    .today-btn {
-      background: var(--primary-soft);
-      color: var(--primary);
-      padding: 12px 16px;
-      font-weight: 700;
-    }
-
     .status {
       min-height: 22px;
-      margin: 8px 0 14px;
+      margin: 8px 0 12px;
       font-size: 13px;
       color: var(--muted);
     }
@@ -181,92 +165,204 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       color: var(--danger);
     }
 
-    .item-list {
-      display: grid;
-      gap: 12px;
-    }
-
-    .item-card {
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      background: var(--panel-soft);
-      padding: 14px;
-    }
-
-    .item-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-
-    .item-title {
-      font-size: 15px;
+    .primary-btn,
+    .soft-btn,
+    .danger-btn {
+      width: 100%;
+      padding: 12px 14px;
       font-weight: 700;
+      border-radius: 15px;
     }
 
-    .item-remove {
-      padding: 8px 12px;
-      background: var(--danger-soft);
-      color: var(--danger);
-      border: 1px solid rgba(192, 57, 75, 0.16);
-    }
-
-    .grid-two {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .actions {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 20;
-      padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0));
-      background: rgba(244, 247, 251, 0.94);
-      backdrop-filter: blur(16px);
-      border-top: 1px solid rgba(216, 227, 240, 0.92);
-    }
-
-    .actions-inner {
-      width: min(100%, 760px);
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .action-btn {
-      padding: 13px 12px;
-      font-weight: 700;
-      border-radius: 16px;
-    }
-
-    .action-btn.primary {
+    .primary-btn {
       background: var(--primary);
       color: #fff;
     }
 
-    .action-btn.soft {
+    .soft-btn {
       background: var(--primary-soft);
-      color: var(--primary);
+      color: var(--primary-deep);
     }
 
-    .action-btn.danger {
+    .danger-btn {
       background: #fff;
       color: var(--danger);
-      border: 1px solid rgba(192, 57, 75, 0.2);
+      border: 1px solid rgba(194, 59, 76, 0.2);
     }
 
-    .action-btn:disabled,
-    .ghost-btn:disabled,
-    .today-btn:disabled,
-    .item-remove:disabled {
-      opacity: 0.56;
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .summary-line {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+
+    .member-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .member-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: rgba(248, 251, 255, 0.96);
+      padding: 14px;
+    }
+
+    .member-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .member-name {
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .member-meta {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .member-stats {
+      font-size: 12px;
+      color: var(--primary-deep);
+      background: var(--primary-soft);
+      border-radius: 999px;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+
+    .week-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .week-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .week-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .week-fields {
+      display: grid;
+      gap: 8px;
+    }
+
+    .week-fields textarea {
+      min-height: 58px;
+    }
+
+    .helper-text {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .daily-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .day-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .day-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .day-meta {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 12px;
+    }
+
+    .day-empty {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .day-items {
+      display: grid;
+      gap: 6px;
+    }
+
+    .day-item {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text);
+      padding-left: 10px;
+      position: relative;
+    }
+
+    .day-item::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 7px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--primary);
+    }
+
+    .member-actions {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button:disabled,
+    input:disabled,
+    textarea:disabled {
+      opacity: 0.58;
       cursor: not-allowed;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (min-width: 740px) {
+      .week-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .member-actions {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 420px) {
@@ -275,17 +371,13 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         padding-right: 10px;
       }
 
-      .head {
-        padding: 16px 14px 12px;
-      }
-
+      .header-card,
       .login-card,
-      .editor-card {
+      .page-card {
         padding: 14px;
       }
 
-      .grid-two,
-      .actions-inner {
+      .toolbar {
         grid-template-columns: 1fr;
       }
     }
@@ -293,18 +385,18 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <main class="shell">
-    <section class="card head">
+    <section class="card header-card">
       <div>
-        <div class="eyebrow">MOBILE SCHEDULE</div>
-        <h1 class="title">我的日程</h1>
-        <div class="user-line" id="mobile-user-line">请先登录后查看并编辑自己的日程。</div>
+        <div class="eyebrow">DEPARTMENT SCHEDULE</div>
+        <h1 class="title">日程管理</h1>
+        <div class="subtitle" id="mobile-page-subtitle">手机端默认进入日程管理页面，仅保留简洁的成员日程展示与维护能力。</div>
       </div>
       <button type="button" class="ghost-btn" id="mobile-logout-button" hidden>退出</button>
     </section>
 
     <section class="card login-card" id="mobile-login-card">
       <h2 class="section-title">登录</h2>
-      <p class="section-text">使用本地账号登录后，即可在手机端直接查看、编辑和保存自己的日程。</p>
+      <p class="section-text">登录后查看并维护当前可访问范围内的日程管理内容。</p>
       <div class="stack">
         <label class="field">
           <span class="field-label">用户名</span>
@@ -316,65 +408,42 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         </label>
       </div>
       <div class="status" id="mobile-login-status" aria-live="polite"></div>
-      <button type="button" class="action-btn primary" id="mobile-login-button" style="width:100%;">登录并进入日程</button>
+      <button type="button" class="primary-btn" id="mobile-login-button">登录并进入日程管理</button>
     </section>
 
-    <section class="card editor-card" id="mobile-editor-card" hidden>
-      <div class="date-row">
-        <input id="mobile-work-date" type="date" value="__INITIAL_DATE__">
-        <button type="button" class="today-btn" id="mobile-today-button">今天</button>
+    <section class="card page-card" id="mobile-page-card" hidden>
+      <div class="toolbar">
+        <input id="mobile-anchor-date" type="date" value="__INITIAL_DATE__">
+        <button type="button" class="soft-btn" id="mobile-refresh-button">刷新</button>
       </div>
-      <div class="status" id="mobile-editor-status" aria-live="polite"></div>
-      <datalist id="mobile-customer-options"></datalist>
-      <div class="item-list" id="mobile-item-list"></div>
+      <div class="summary-line" id="mobile-summary-line"></div>
+      <div class="status" id="mobile-page-status" aria-live="polite"></div>
+      <div class="member-list" id="mobile-member-list"></div>
     </section>
   </main>
 
-  <div class="actions" id="mobile-actions" hidden>
-    <div class="actions-inner">
-      <button type="button" class="action-btn soft" id="mobile-add-button">新增事项</button>
-      <button type="button" class="action-btn danger" id="mobile-delete-button">清空当天</button>
-      <button type="button" class="action-btn primary" id="mobile-save-button">保存日程</button>
-    </div>
-  </div>
-
   <script>
     const bootAuthState = __INITIAL_AUTH_STATE_PAYLOAD__;
-    const DEFAULT_FIELD_OPTIONS = {
-      item_types: ["方案交流", "方案汇报", "POC1", "POC2", "交付", "服务", "基建"],
-      project_types: ["A", "B+", "B", "C"],
-      sales: [],
-      service_modes: ["客户现场", "远程支持"]
-    };
 
-    const userLineEl = document.getElementById("mobile-user-line");
+    const subtitleEl = document.getElementById("mobile-page-subtitle");
     const loginCardEl = document.getElementById("mobile-login-card");
     const loginUsernameEl = document.getElementById("mobile-login-username");
     const loginPasswordEl = document.getElementById("mobile-login-password");
     const loginStatusEl = document.getElementById("mobile-login-status");
     const loginButtonEl = document.getElementById("mobile-login-button");
     const logoutButtonEl = document.getElementById("mobile-logout-button");
-    const editorCardEl = document.getElementById("mobile-editor-card");
-    const actionsEl = document.getElementById("mobile-actions");
-    const dateInputEl = document.getElementById("mobile-work-date");
-    const todayButtonEl = document.getElementById("mobile-today-button");
-    const editorStatusEl = document.getElementById("mobile-editor-status");
-    const itemListEl = document.getElementById("mobile-item-list");
-    const customerOptionsEl = document.getElementById("mobile-customer-options");
-    const addButtonEl = document.getElementById("mobile-add-button");
-    const deleteButtonEl = document.getElementById("mobile-delete-button");
-    const saveButtonEl = document.getElementById("mobile-save-button");
+    const pageCardEl = document.getElementById("mobile-page-card");
+    const anchorDateEl = document.getElementById("mobile-anchor-date");
+    const refreshButtonEl = document.getElementById("mobile-refresh-button");
+    const summaryLineEl = document.getElementById("mobile-summary-line");
+    const pageStatusEl = document.getElementById("mobile-page-status");
+    const memberListEl = document.getElementById("mobile-member-list");
 
     let authState = normalizeAuthState(bootAuthState);
-    let fieldOptions = { ...DEFAULT_FIELD_OPTIONS };
-    let customerNames = [];
-    let itemState = [];
-    let hasLoadedEntry = false;
-    let hasExistingEntry = false;
-    let isSubmittingLogin = false;
-    let isLoadingEntry = false;
-    let isSavingEntry = false;
-    let isDeletingEntry = false;
+    let pagePayload = null;
+    let isLoggingIn = false;
+    let isLoading = false;
+    let savingUserIds = new Set();
 
     function normalizeAuthState(source) {
       const payload = source && typeof source === "object" ? source : {};
@@ -390,7 +459,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
+        .replace(/\"/g, "&quot;")
         .replace(/'/g, "&#39;");
     }
 
@@ -399,172 +468,171 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       target.classList.toggle("is-error", Boolean(isError && message));
     }
 
-    function normalizeFieldOptionList(values) {
-      if (!Array.isArray(values)) {
-        return [];
-      }
-      const seen = new Set();
-      return values
-        .map((value) => String(value || "").trim())
-        .filter((value) => {
-          if (!value || seen.has(value)) {
-            return false;
-          }
-          seen.add(value);
-          return true;
-        });
-    }
-
-    function createEmptyItem() {
-      return {
-        customer_name: "",
-        project_type: "",
-        sales: "",
-        item_type: "",
-        service_mode: "",
-        work_hours: "",
-        work_content: "",
-        pending_issues: "",
-        risk: "",
-      };
-    }
-
-    function normalizeItem(source) {
-      const payload = source && typeof source === "object" ? source : {};
-      return {
-        customer_name: String(payload.customer_name || "").trim(),
-        project_type: String(payload.project_type || "").trim(),
-        sales: String(payload.sales || "").trim(),
-        item_type: String(payload.item_type || "").trim(),
-        service_mode: String(payload.service_mode || "").trim(),
-        work_hours: String(payload.work_hours == null ? "" : payload.work_hours).trim(),
-        work_content: String(payload.work_content || "").trim(),
-        pending_issues: String(payload.pending_issues || payload.notes || "").trim(),
-        risk: String(payload.risk || "").trim(),
-      };
-    }
-
-    function hasMeaningfulItem(item) {
-      return Object.values(normalizeItem(item)).some((value) => String(value || "").trim());
-    }
-
-    function getCurrentUserLabel() {
+    function setSubtitle() {
       if (!(authState.authenticated && authState.user)) {
-        return "请先登录后查看并编辑自己的日程。";
+        subtitleEl.textContent = "手机端默认进入日程管理页面，仅保留简洁的成员日程展示与维护能力。";
+        return;
       }
-      const displayName = String(authState.user.display_name || authState.user.user_id || "当前用户").trim();
-      return `${displayName} · 仅展示并编辑自己的日程`;
+      const userName = String(authState.user.display_name || authState.user.user_id || "当前用户").trim();
+      const department = String(authState.user.department || "").trim();
+      subtitleEl.textContent = department ? `${userName} · ${department}` : `${userName} · 已进入日程管理`;
     }
 
-    function buildSelectOptions(options, value, placeholder) {
-      const normalizedValue = String(value || "").trim();
-      const optionList = normalizeFieldOptionList(options);
-      const markup = [`<option value="">${escapeHtml(placeholder)}</option>`];
-      optionList.forEach((option) => {
-        const selected = option === normalizedValue ? ' selected' : '';
-        markup.push(`<option value="${escapeHtml(option)}"${selected}>${escapeHtml(option)}</option>`);
-      });
-      if (normalizedValue && !optionList.includes(normalizedValue)) {
-        markup.push(`<option value="${escapeHtml(normalizedValue)}" selected>${escapeHtml(normalizedValue)}</option>`);
+    function renderSummaryLine() {
+      if (!(pagePayload && typeof pagePayload === "object")) {
+        summaryLineEl.textContent = "";
+        return;
       }
-      return markup.join("");
+      const summary = pagePayload.summary || {};
+      const weekStart = String(pagePayload.week_start || "").trim();
+      const weekEnd = String(pagePayload.week_end || "").trim();
+      const departmentLabel = String(pagePayload.selected_department_label || pagePayload.selected_department || "全部成员").trim() || "全部成员";
+      const memberCount = Number(summary.member_count || pagePayload.member_count || 0);
+      const totalHours = String(summary.total_hours || "0").trim() || "0";
+      const totalItems = Number(summary.total_items || 0);
+      const filledDays = Number(summary.filled_days || 0);
+      summaryLineEl.textContent = `${departmentLabel} · ${weekStart} 至 ${weekEnd} · ${memberCount} 人 · ${totalItems} 条事项 · ${totalHours} 小时 · ${filledDays} 人天`; 
     }
 
-    function renderCustomerOptions() {
-      customerOptionsEl.innerHTML = customerNames
-        .map((name) => `<option value="${escapeHtml(name)}"></option>`)
-        .join("");
-    }
-
-    function renderItems() {
-      if (!itemState.length) {
-        itemState = [createEmptyItem()];
-      }
-      itemListEl.innerHTML = itemState.map((item, index) => `
-        <section class="item-card" data-index="${index}">
-          <div class="item-head">
-            <div class="item-title">事项 ${index + 1}</div>
-            <button type="button" class="item-remove" data-action="remove-item" data-index="${index}">删除</button>
-          </div>
-          <div class="stack">
-            <label class="field">
-              <span class="field-label">客户名称</span>
-              <input data-field="customer_name" data-index="${index}" list="mobile-customer-options" value="${escapeHtml(item.customer_name || "")}" placeholder="请输入客户名称">
-            </label>
-            <div class="grid-two">
-              <label class="field">
-                <span class="field-label">项目类型</span>
-                <select data-field="project_type" data-index="${index}">
-                  ${buildSelectOptions(fieldOptions.project_types, item.project_type, "请选择")}
-                </select>
-              </label>
-              <label class="field">
-                <span class="field-label">销售</span>
-                <select data-field="sales" data-index="${index}">
-                  ${buildSelectOptions(fieldOptions.sales, item.sales, "请选择")}
-                </select>
-              </label>
-            </div>
-            <div class="grid-two">
-              <label class="field">
-                <span class="field-label">事项类型</span>
-                <select data-field="item_type" data-index="${index}">
-                  ${buildSelectOptions(fieldOptions.item_types, item.item_type, "请选择")}
-                </select>
-              </label>
-              <label class="field">
-                <span class="field-label">服务方式</span>
-                <select data-field="service_mode" data-index="${index}">
-                  ${buildSelectOptions(fieldOptions.service_modes, item.service_mode, "请选择")}
-                </select>
-              </label>
-            </div>
-            <label class="field">
-              <span class="field-label">工时</span>
-              <input data-field="work_hours" data-index="${index}" type="number" min="0" step="0.5" value="${escapeHtml(item.work_hours || "")}" placeholder="请输入工时">
-            </label>
-            <label class="field">
-              <span class="field-label">工作内容</span>
-              <textarea data-field="work_content" data-index="${index}" placeholder="请输入工作内容">${escapeHtml(item.work_content || "")}</textarea>
-            </label>
-            <label class="field">
-              <span class="field-label">遗留事项</span>
-              <textarea data-field="pending_issues" data-index="${index}" placeholder="请输入遗留事项">${escapeHtml(item.pending_issues || "")}</textarea>
-            </label>
-            <label class="field">
-              <span class="field-label">存在风险</span>
-              <textarea data-field="risk" data-index="${index}" placeholder="请输入存在风险">${escapeHtml(item.risk || "")}</textarea>
-            </label>
-          </div>
-        </section>
-      `).join("");
-
-      Array.from(itemListEl.querySelectorAll(".item-remove")).forEach((button) => {
-        button.disabled = itemState.length <= 1 || isSavingEntry || isDeletingEntry || isLoadingEntry;
-      });
-    }
-
-    function syncActionState() {
-      const disabled = !authState.authenticated || isSavingEntry || isDeletingEntry || isLoadingEntry;
-      saveButtonEl.disabled = disabled;
-      addButtonEl.disabled = disabled;
-      todayButtonEl.disabled = disabled;
-      deleteButtonEl.disabled = disabled || !hasExistingEntry;
-      dateInputEl.disabled = disabled;
-      loginButtonEl.disabled = isSubmittingLogin;
+    function syncControls() {
+      const loggedIn = Boolean(authState.authenticated);
+      loginCardEl.hidden = loggedIn;
+      pageCardEl.hidden = !loggedIn;
+      logoutButtonEl.hidden = !loggedIn;
+      loginButtonEl.disabled = isLoggingIn;
+      anchorDateEl.disabled = !loggedIn || isLoading;
+      refreshButtonEl.disabled = !loggedIn || isLoading;
     }
 
     function renderLayout() {
-      userLineEl.textContent = getCurrentUserLabel();
-      loginCardEl.hidden = authState.authenticated;
-      editorCardEl.hidden = !authState.authenticated;
-      actionsEl.hidden = !authState.authenticated;
-      logoutButtonEl.hidden = !authState.authenticated;
-      if (authState.authenticated) {
-        renderCustomerOptions();
-        renderItems();
+      setSubtitle();
+      renderSummaryLine();
+      syncControls();
+      if (!(authState.authenticated && pagePayload && Array.isArray(pagePayload.members))) {
+        memberListEl.innerHTML = "";
+        return;
       }
-      syncActionState();
+      const canEdit = Boolean(pagePayload.can_edit_weekly_plan);
+      const showDailySection = Boolean(pagePayload.show_daily_section);
+      memberListEl.innerHTML = pagePayload.members.map((member, memberIndex) => {
+        const user = member && typeof member === "object" ? member.user || {} : {};
+        const userId = String(user.user_id || "").trim();
+        const name = String(user.display_name || user.user_id || `成员 ${memberIndex + 1}`).trim();
+        const metaParts = [String(user.position_labels || user.position || "").trim(), String(user.department || "").trim()].filter(Boolean);
+        const weekStats = member && typeof member === "object" ? member.week_stats || {} : {};
+        const statText = `${String(weekStats.total_items || 0)} 条 · ${String(weekStats.total_hours || 0)} 小时`;
+        const rows = Array.isArray(member.weekly_plan_rows) ? member.weekly_plan_rows : [];
+        const rowMarkup = rows.map((row, rowIndex) => {
+          const weekdayLabel = String(row && row.weekday_label || `第${rowIndex + 1}天`).trim();
+          const am = String(row && row.am || "");
+          const pm = String(row && row.pm || "");
+          return `
+            <div class="week-row">
+              <div class="week-label">${escapeHtml(weekdayLabel)}</div>
+              <div class="week-fields">
+                <label class="field">
+                  <span class="field-label">上午</span>
+                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="am" ${canEdit ? "" : "disabled"} placeholder="上午安排">${escapeHtml(am)}</textarea>
+                </label>
+                <label class="field">
+                  <span class="field-label">下午</span>
+                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="pm" ${canEdit ? "" : "disabled"} placeholder="下午安排">${escapeHtml(pm)}</textarea>
+                </label>
+              </div>
+            </div>
+          `;
+        }).join("");
+        const pendingValue = String(member && member.weekly_other_pending || "");
+        const dayMarkup = showDailySection ? renderMemberDays(member) : "";
+        const updatedAt = String(member && member.weekly_plan_updated_at || "").trim();
+        const helperText = updatedAt ? `最近保存：${updatedAt}` : (canEdit ? "修改后点击保存即可更新该成员本周安排。" : "当前账号仅可查看安排。");
+        return `
+          <section class="member-card" data-user-id="${escapeHtml(userId)}">
+            <div class="member-head">
+              <div>
+                <div class="member-name">${escapeHtml(name)}</div>
+                <div class="member-meta">${escapeHtml(metaParts.join(" · ") || "未配置岗位/部门")}</div>
+              </div>
+              <div class="member-stats">${escapeHtml(statText)}</div>
+            </div>
+            <div class="week-grid">${rowMarkup}</div>
+            <div class="stack" style="margin-top: 10px;">
+              <label class="field">
+                <span class="field-label">其他待办</span>
+                <textarea data-user-id="${escapeHtml(userId)}" data-field="weekly_other_pending" ${canEdit ? "" : "disabled"} placeholder="补充跨天事项或其他待办">${escapeHtml(pendingValue)}</textarea>
+              </label>
+              <div class="helper-text">${escapeHtml(helperText)}</div>
+            </div>
+            ${dayMarkup}
+            ${canEdit ? `
+              <div class="member-actions">
+                <button type="button" class="primary-btn" data-action="save-member" data-user-id="${escapeHtml(userId)}" ${savingUserIds.has(userId) ? "disabled" : ""}>${savingUserIds.has(userId) ? "保存中..." : "保存本周安排"}</button>
+              </div>
+            ` : ""}
+          </section>
+        `;
+      }).join("");
+    }
+
+    function buildDayItemSummary(day) {
+      const items = Array.isArray(day && day.items) ? day.items : [];
+      return items.slice(0, 3).map((item) => {
+        const customerName = String(item && item.customer_name || "").trim();
+        const workContent = String(item && item.work_content || "").trim();
+        const hours = String(item && item.work_hours || "").trim();
+        const parts = [];
+        if (customerName) {
+          parts.push(customerName);
+        }
+        if (workContent) {
+          parts.push(workContent);
+        }
+        if (hours) {
+          parts.push(`${hours}h`);
+        }
+        return parts.join(" · ") || "已填写日程";
+      });
+    }
+
+    function renderMemberDays(member) {
+      const days = Array.isArray(member && member.days) ? member.days : [];
+      if (!days.length) {
+        return "";
+      }
+      const dayCards = days.map((day) => {
+        const label = `${String(day && day.weekday_label || "").trim()} ${String(day && day.work_date || "").trim()}`.trim();
+        if (!day || day.has_entry !== true) {
+          return `
+            <div class="day-card">
+              <div class="day-head"><span>${escapeHtml(label)}</span><span class="day-meta">未填写</span></div>
+              <div class="day-empty">当天暂无日程明细。</div>
+            </div>
+          `;
+        }
+        const itemCount = Number(day.item_count || 0);
+        const totalHours = String(day.total_hours || "").trim() || "0";
+        const summaries = buildDayItemSummary(day);
+        return `
+          <div class="day-card">
+            <div class="day-head"><span>${escapeHtml(label)}</span><span class="day-meta">${itemCount} 条 · ${escapeHtml(totalHours)} 小时</span></div>
+            <div class="day-items">
+              ${summaries.length ? summaries.map((summary) => `<div class="day-item">${escapeHtml(summary)}</div>`).join("") : '<div class="day-empty">已填写但无可展示摘要。</div>'}
+            </div>
+          </div>
+        `;
+      }).join("");
+      return `
+        <div class="daily-list">
+          ${dayCards}
+        </div>
+      `;
+    }
+
+    function findMember(userId) {
+      if (!(pagePayload && Array.isArray(pagePayload.members))) {
+        return null;
+      }
+      return pagePayload.members.find((member) => String(member && member.user && member.user.user_id || "").trim() === String(userId || "").trim()) || null;
     }
 
     async function requestJson(url, options) {
@@ -584,116 +652,64 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     async function refreshAuthState() {
       const payload = await requestJson("/api/auth/me");
       authState = normalizeAuthState(payload);
-      renderLayout();
     }
 
-    async function loadFieldOptions() {
-      const payload = await requestJson("/api/field-options");
-      const source = payload && typeof payload === "object" ? payload : {};
-      fieldOptions = {
-        item_types: normalizeFieldOptionList(source.item_types || DEFAULT_FIELD_OPTIONS.item_types),
-        project_types: normalizeFieldOptionList(source.project_types || DEFAULT_FIELD_OPTIONS.project_types),
-        sales: normalizeFieldOptionList(source.sales || DEFAULT_FIELD_OPTIONS.sales),
-        service_modes: normalizeFieldOptionList(source.service_modes || DEFAULT_FIELD_OPTIONS.service_modes),
-      };
-    }
-
-    async function loadCustomerNames() {
-      const payload = await requestJson("/api/customer-names");
-      customerNames = Array.isArray(payload.customer_names)
-        ? payload.customer_names.map((name) => String(name || "").trim()).filter(Boolean)
-        : [];
-    }
-
-    async function loadEntry() {
+    async function loadDepartmentSchedule(showLoadingMessage = true) {
       if (!authState.authenticated) {
         return;
       }
-      isLoadingEntry = true;
-      syncActionState();
-      setStatus(editorStatusEl, "正在加载日程...", false);
+      isLoading = true;
+      syncControls();
+      if (showLoadingMessage) {
+        setStatus(pageStatusEl, "正在加载日程管理...", false);
+      }
       try {
-        const payload = await requestJson(`/api/entry?date=${encodeURIComponent(dateInputEl.value)}`);
-        const entry = payload.entry && typeof payload.entry === "object" ? payload.entry : null;
-        hasExistingEntry = Boolean(entry);
-        hasLoadedEntry = true;
-        itemState = entry && Array.isArray(entry.items) && entry.items.length
-          ? entry.items.map((item) => normalizeItem(item))
-          : [createEmptyItem()];
-        setStatus(editorStatusEl, entry ? `已加载 ${dateInputEl.value} 的日程。` : "当天暂无日程，可直接填写后保存。", false);
+        const payload = await requestJson(`/api/department-schedule?date=${encodeURIComponent(anchorDateEl.value)}&mobile=1`);
+        pagePayload = payload && typeof payload === "object" ? payload : {};
+        setStatus(pageStatusEl, "", false);
       } catch (error) {
-        itemState = [createEmptyItem()];
-        hasExistingEntry = false;
-        setStatus(editorStatusEl, error.message || "读取日程失败。", true);
+        pagePayload = { members: [] };
+        setStatus(pageStatusEl, error.message || "读取日程管理失败。", true);
       } finally {
-        isLoadingEntry = false;
+        isLoading = false;
         renderLayout();
       }
     }
 
-    function collectSubmitItems() {
-      return itemState
-        .map((item) => normalizeItem(item))
-        .filter((item) => hasMeaningfulItem(item));
-    }
-
-    async function saveEntry() {
-      if (!authState.authenticated || isSavingEntry || isDeletingEntry) {
+    async function saveMember(userId) {
+      const member = findMember(userId);
+      if (!member || savingUserIds.has(userId)) {
         return;
       }
-      const items = collectSubmitItems();
-      if (!items.length) {
-        setStatus(editorStatusEl, "请至少填写一条有效事项。", true);
-        return;
-      }
-      isSavingEntry = true;
-      syncActionState();
-      setStatus(editorStatusEl, "正在保存日程...", false);
+      savingUserIds.add(userId);
+      renderLayout();
+      setStatus(pageStatusEl, `正在保存 ${String(member.user && member.user.display_name || member.user && member.user.user_id || "成员")} 的安排...`, false);
       try {
-        const payload = await requestJson("/api/entry", {
+        const payload = await requestJson("/api/department-schedule/weekly-plan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            work_date: dateInputEl.value,
-            items,
+            user_id: String(userId || "").trim(),
+            week_start: String(pagePayload && pagePayload.week_start || anchorDateEl.value || "").trim(),
+            weekly_plan_rows: Array.isArray(member.weekly_plan_rows) ? member.weekly_plan_rows : [],
+            weekly_other_pending: String(member.weekly_other_pending || ""),
           }),
         });
-        const entry = payload.entry && typeof payload.entry === "object" ? payload.entry : null;
-        hasExistingEntry = Boolean(entry);
-        itemState = entry && Array.isArray(entry.items) && entry.items.length
-          ? entry.items.map((item) => normalizeItem(item))
-          : [createEmptyItem()];
-        setStatus(editorStatusEl, "日程已保存。", false);
+        member.weekly_plan_rows = Array.isArray(payload.weekly_plan_rows) ? payload.weekly_plan_rows : member.weekly_plan_rows;
+        member.weekly_other_pending = String(payload.weekly_other_pending || "");
+        member.weekly_plan_updated_at = String(payload.updated_at || "");
+        member.weekly_plan_last_editor = payload.weekly_plan_last_editor || member.weekly_plan_last_editor || null;
+        setStatus(pageStatusEl, "安排已保存。", false);
       } catch (error) {
-        setStatus(editorStatusEl, error.message || "保存日程失败。", true);
+        setStatus(pageStatusEl, error.message || "保存安排失败。", true);
       } finally {
-        isSavingEntry = false;
-        renderLayout();
-      }
-    }
-
-    async function deleteEntry() {
-      if (!authState.authenticated || isDeletingEntry || !hasExistingEntry) {
-        return;
-      }
-      isDeletingEntry = true;
-      syncActionState();
-      setStatus(editorStatusEl, "正在清空当天日程...", false);
-      try {
-        await requestJson(`/api/entry?date=${encodeURIComponent(dateInputEl.value)}`, { method: "DELETE" });
-        hasExistingEntry = false;
-        itemState = [createEmptyItem()];
-        setStatus(editorStatusEl, "当天日程已清空。", false);
-      } catch (error) {
-        setStatus(editorStatusEl, error.message || "清空失败。", true);
-      } finally {
-        isDeletingEntry = false;
+        savingUserIds.delete(userId);
         renderLayout();
       }
     }
 
     async function login() {
-      if (isSubmittingLogin) {
+      if (isLoggingIn) {
         return;
       }
       const username = String(loginUsernameEl.value || "").trim();
@@ -702,8 +718,8 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         setStatus(loginStatusEl, "请输入用户名和密码。", true);
         return;
       }
-      isSubmittingLogin = true;
-      syncActionState();
+      isLoggingIn = true;
+      syncControls();
       setStatus(loginStatusEl, "正在登录...", false);
       try {
         await requestJson("/api/auth/password-login", {
@@ -714,12 +730,12 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         loginPasswordEl.value = "";
         setStatus(loginStatusEl, "", false);
         await refreshAuthState();
-        await bootstrapEditor();
+        await loadDepartmentSchedule();
       } catch (error) {
         setStatus(loginStatusEl, error.message || "登录失败。", true);
       } finally {
-        isSubmittingLogin = false;
-        syncActionState();
+        isLoggingIn = false;
+        renderLayout();
       }
     }
 
@@ -727,64 +743,50 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       try {
         await requestJson("/api/auth/logout", { method: "POST" });
       } catch (error) {
-        // Ignore logout response errors and clear local state anyway.
+        // Ignore logout errors and clear local state anyway.
       }
       authState = normalizeAuthState({ authenticated: false, user: null });
-      itemState = [createEmptyItem()];
-      hasExistingEntry = false;
-      hasLoadedEntry = false;
-      setStatus(editorStatusEl, "", false);
+      pagePayload = null;
+      savingUserIds = new Set();
+      setStatus(pageStatusEl, "", false);
       renderLayout();
     }
 
-    async function bootstrapEditor() {
-      if (!authState.authenticated) {
-        return;
-      }
-      try {
-        await Promise.all([loadFieldOptions(), loadCustomerNames()]);
-      } catch (error) {
-        setStatus(editorStatusEl, error.message || "初始化失败。", true);
-      }
-      await loadEntry();
-    }
-
-    function setToday() {
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, "0");
-      const day = String(today.getDate()).padStart(2, "0");
-      dateInputEl.value = `${year}-${month}-${day}`;
-    }
-
-    itemListEl.addEventListener("input", (event) => {
+    memberListEl.addEventListener("input", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) {
+      if (!(target instanceof HTMLTextAreaElement)) {
         return;
       }
-      const index = Number.parseInt(target.dataset.index || "", 10);
+      const userId = String(target.dataset.userId || "").trim();
       const field = String(target.dataset.field || "").trim();
-      if (!Number.isInteger(index) || !itemState[index] || !field) {
+      const member = findMember(userId);
+      if (!member || !field) {
         return;
       }
-      itemState[index][field] = String(target.value || "");
+      if (field === "weekly_other_pending") {
+        member.weekly_other_pending = String(target.value || "");
+        return;
+      }
+      const rowIndex = Number.parseInt(String(target.dataset.rowIndex || ""), 10);
+      if (!Number.isInteger(rowIndex) || !Array.isArray(member.weekly_plan_rows) || !member.weekly_plan_rows[rowIndex]) {
+        return;
+      }
+      member.weekly_plan_rows[rowIndex][field] = String(target.value || "");
     });
 
-    itemListEl.addEventListener("click", (event) => {
+    memberListEl.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) {
         return;
       }
-      const removeButton = target.closest("[data-action='remove-item']");
-      if (!removeButton) {
+      const saveButton = target.closest("[data-action='save-member']");
+      if (!saveButton) {
         return;
       }
-      const index = Number.parseInt(String(removeButton.getAttribute("data-index") || ""), 10);
-      if (!Number.isInteger(index) || itemState.length <= 1) {
-        return;
+      const userId = String(saveButton.getAttribute("data-user-id") || "").trim();
+      if (userId) {
+        saveMember(userId);
       }
-      itemState.splice(index, 1);
-      renderLayout();
     });
 
     loginButtonEl.addEventListener("click", login);
@@ -799,23 +801,12 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       }
     });
     logoutButtonEl.addEventListener("click", logout);
-    todayButtonEl.addEventListener("click", async () => {
-      setToday();
-      await loadEntry();
-    });
-    dateInputEl.addEventListener("change", () => {
-      loadEntry();
-    });
-    addButtonEl.addEventListener("click", () => {
-      itemState.push(createEmptyItem());
-      renderLayout();
-    });
-    saveButtonEl.addEventListener("click", saveEntry);
-    deleteButtonEl.addEventListener("click", deleteEntry);
+    refreshButtonEl.addEventListener("click", () => loadDepartmentSchedule());
+    anchorDateEl.addEventListener("change", () => loadDepartmentSchedule(false));
 
     renderLayout();
     if (authState.authenticated) {
-      bootstrapEditor();
+      loadDepartmentSchedule();
     }
   </script>
 </body>
