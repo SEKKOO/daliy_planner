@@ -71,7 +71,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     .shell {
       width: min(100%, 760px);
       margin: 0 auto;
-      padding: 10px 10px 20px;
+      padding: 8px 8px 16px;
     }
 
     .card {
@@ -83,7 +83,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 
     .login-card,
     .page-card {
-      padding: 12px;
+      padding: 10px;
     }
 
     .section-title {
@@ -134,32 +134,61 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     .toolbar {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
+      display: flex;
       align-items: center;
-      margin-bottom: 10px;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 8px;
     }
 
     .toolbar input[type="date"] {
-      min-width: 0;
-      padding: 8px 10px;
-      font-size: 12px;
-      min-height: 34px;
+      width: clamp(126px, 38vw, 148px);
+      min-width: 126px;
+      flex: 0 0 clamp(126px, 38vw, 148px);
+      padding: 7px 9px;
+      font-size: 11px;
+      min-height: 31px;
     }
 
     .toolbar-actions {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
+      margin-left: auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .toolbar-btn {
-      min-height: 32px;
-      padding: 0 11px;
-      font-size: 12px;
+      min-height: 30px;
+      padding: 0 9px;
+      font-size: 11px;
       font-weight: 600;
       white-space: nowrap;
+    }
+
+    .compact-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .compact-toggle input {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      accent-color: var(--primary);
+      flex: 0 0 auto;
     }
 
     .toolbar-btn.soft {
@@ -177,20 +206,8 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       border: 1px solid var(--line);
       border-radius: 13px;
       background: var(--panel-soft);
-      padding: 10px;
-      margin-bottom: 10px;
-    }
-
-    .picker-clear {
-      display: block;
-      min-height: 28px;
-      padding: 0 10px;
-      border: 1px solid var(--line);
-      background: #fff;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 600;
-      margin: 0 0 8px auto;
+      padding: 8px;
+      margin-bottom: 8px;
     }
 
     .picker-group {
@@ -206,7 +223,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     .picker-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
+      gap: 6px;
       align-items: start;
     }
 
@@ -220,13 +237,13 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 
     .picker-select-trigger {
       width: 100%;
-      min-height: 32px;
-      padding: 0 12px;
+      min-height: 30px;
+      padding: 0 10px;
       border: 1px solid var(--line);
       border-radius: 11px;
       background: #fff;
       color: var(--text);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       display: flex;
       align-items: center;
@@ -273,10 +290,10 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     .picker-option {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 8px 8px;
+      gap: 7px;
+      padding: 7px 7px;
       border-radius: 9px;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text);
     }
 
@@ -313,12 +330,14 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     .summary-line {
-      margin-bottom: 8px;
+      margin-bottom: 6px;
+      font-size: 10px;
+      line-height: 1.4;
     }
 
     .member-list {
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
 
     .member-list.two-column {
@@ -439,15 +458,15 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       border: 1px solid var(--line);
       border-radius: 13px;
       background: rgba(248, 251, 255, 0.98);
-      padding: 10px;
+      padding: 8px;
     }
 
     .member-head {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 8px;
+      gap: 6px;
+      margin-bottom: 6px;
     }
 
     .member-head > div {
@@ -455,88 +474,96 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     .member-name {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
       line-height: 1.2;
     }
 
     .member-meta {
       margin-top: 3px;
-      font-size: 11px;
+      font-size: 10px;
       color: var(--muted);
-      line-height: 1.5;
+      line-height: 1.4;
       word-break: break-word;
     }
 
     .member-stats {
       flex: 0 0 auto;
-      font-size: 11px;
+      font-size: 10px;
       color: var(--primary-deep);
       background: var(--primary-soft);
       border-radius: 999px;
-      padding: 4px 8px;
+      padding: 3px 7px;
       white-space: nowrap;
     }
 
     .week-grid {
       display: grid;
-      gap: 7px;
+      gap: 5px;
     }
 
     .week-row {
       border: 1px solid var(--line);
       border-radius: 10px;
       background: #fff;
-      padding: 8px;
+      padding: 6px;
       display: grid;
-      grid-template-columns: 38px minmax(0, 1fr);
-      gap: 8px;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 6px;
       align-items: start;
     }
 
     .week-label {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       color: var(--text);
-      padding-top: 18px;
+      padding-top: 16px;
       line-height: 1.2;
     }
 
     .week-fields {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
-    }
-
-    .week-fields .field {
       gap: 4px;
     }
 
+    .week-fields .field {
+      gap: 3px;
+    }
+
     .week-fields textarea {
-      min-height: 46px;
+      min-height: 40px;
+      padding: 6px 7px;
+      font-size: 11px;
     }
 
     .pending-block {
-      margin-top: 8px;
+      margin-top: 6px;
       display: grid;
-      gap: 6px;
+      gap: 4px;
     }
 
     .pending-block textarea {
-      min-height: 44px;
+      min-height: 38px;
+      padding: 6px 7px;
+      font-size: 11px;
+    }
+
+    .compact-helper {
+      margin-top: 4px;
     }
 
     .daily-list {
       display: grid;
-      gap: 6px;
-      margin-top: 8px;
+      gap: 5px;
+      margin-top: 6px;
     }
 
     .day-card {
       border: 1px solid var(--line);
       border-radius: 10px;
       background: #fff;
-      padding: 8px;
+      padding: 6px;
     }
 
     .day-head {
@@ -544,25 +571,25 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      margin-bottom: 4px;
-      font-size: 11px;
+      margin-bottom: 3px;
+      font-size: 10px;
       font-weight: 700;
     }
 
     .day-meta {
       color: var(--muted);
       font-weight: 500;
-      font-size: 11px;
+      font-size: 10px;
     }
 
     .day-items {
       display: grid;
-      gap: 4px;
+      gap: 3px;
     }
 
     .day-item {
-      font-size: 11px;
-      line-height: 1.45;
+      font-size: 10px;
+      line-height: 1.35;
       color: var(--text);
       padding-left: 9px;
       position: relative;
@@ -582,16 +609,16 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     .member-actions {
       display: flex;
       justify-content: flex-end;
-      margin-top: 8px;
+      margin-top: 6px;
     }
 
     .save-btn {
-      min-height: 31px;
-      padding: 0 12px;
+      min-height: 28px;
+      padding: 0 10px;
       border-radius: 11px;
       background: var(--primary);
       color: #fff;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
     }
 
@@ -610,14 +637,6 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       .shell {
         padding-left: 8px;
         padding-right: 8px;
-      }
-
-      .toolbar {
-        grid-template-columns: 1fr;
-      }
-
-      .toolbar-actions {
-        justify-content: flex-end;
       }
     }
   </style>
@@ -646,12 +665,16 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         <input id="mobile-anchor-date" type="date" value="__INITIAL_DATE__">
         <div class="toolbar-actions">
           <button type="button" class="toolbar-btn soft" id="mobile-refresh-button">刷新</button>
+          <label class="compact-toggle">
+            <input id="mobile-compact-toggle" type="checkbox" checked>
+            <span>精简显示</span>
+          </label>
+          <button type="button" class="toolbar-btn ghost" id="mobile-clear-filter-button" hidden>清空选择</button>
           <button type="button" class="toolbar-btn ghost" id="mobile-logout-button" hidden>退出</button>
         </div>
       </div>
 
       <div class="picker-block">
-        <button type="button" class="picker-clear" id="mobile-clear-filter-button" hidden>清空选择</button>
         <div class="picker-grid">
           <div class="picker-group">
             <div class="picker-select">
@@ -687,6 +710,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     const refreshButtonEl = document.getElementById("mobile-refresh-button");
     const logoutButtonEl = document.getElementById("mobile-logout-button");
     const clearFilterButtonEl = document.getElementById("mobile-clear-filter-button");
+    const compactToggleEl = document.getElementById("mobile-compact-toggle");
     const positionTriggerEl = document.getElementById("mobile-position-trigger");
     const positionMenuEl = document.getElementById("mobile-position-menu");
     const memberTriggerEl = document.getElementById("mobile-member-trigger");
@@ -703,6 +727,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     let selectedMemberIds = [];
     let selectedPositions = [];
     let openDropdown = "";
+    let compactModeEnabled = true;
 
     function normalizeAuthState(source) {
       const payload = source && typeof source === "object" ? source : {};
@@ -729,6 +754,11 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 
     function normalizeKey(value) {
       return String(value || "").trim().toLowerCase();
+    }
+
+    function isWeekendLabel(label) {
+      const normalized = String(label || "").trim();
+      return normalized.includes("周六") || normalized.includes("周日");
     }
 
     function dedupeValues(values) {
@@ -846,6 +876,22 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       });
     }
 
+    function getVisibleWeeklyPlanRows(member) {
+      const rows = Array.isArray(member && member.weekly_plan_rows) ? member.weekly_plan_rows : [];
+      if (!compactModeEnabled) {
+        return rows;
+      }
+      return rows.filter((row) => !isWeekendLabel(row && row.weekday_label));
+    }
+
+    function getVisibleMemberDays(member) {
+      const days = Array.isArray(member && member.days) ? member.days : [];
+      if (!compactModeEnabled) {
+        return days;
+      }
+      return days.filter((day) => !isWeekendLabel(day && day.weekday_label));
+    }
+
     function reconcileActiveFilters() {
       const memberOptions = getMemberOptions();
       const positionOptions = getPositionOptions();
@@ -961,8 +1007,10 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       refreshButtonEl.disabled = !loggedIn || isLoading;
       logoutButtonEl.disabled = !loggedIn || isLoading;
       clearFilterButtonEl.disabled = !loggedIn || isLoading;
+      compactToggleEl.disabled = !loggedIn || isLoading;
       positionTriggerEl.disabled = !loggedIn || isLoading;
       memberTriggerEl.disabled = !loggedIn || isLoading;
+      compactToggleEl.checked = compactModeEnabled;
       if (!loggedIn || isLoading) {
         openDropdown = "";
       }
@@ -1012,7 +1060,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         const metaText = getMemberMeta(member);
         const weekStats = member && typeof member === "object" ? member.week_stats || {} : {};
         const statText = `${String(weekStats.total_items || 0)} 条 · ${String(weekStats.total_hours || 0)}h`;
-        const rows = Array.isArray(member.weekly_plan_rows) ? member.weekly_plan_rows : [];
+        const rows = getVisibleWeeklyPlanRows(member);
         const rowMarkup = rows.map((row, rowIndex) => {
           const weekdayLabel = String(row && row.weekday_label || `第${rowIndex + 1}天`).trim();
           const am = String(row && row.am || "");
@@ -1037,6 +1085,16 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         const dayMarkup = showDailySection ? renderMemberDays(member) : "";
         const updatedAt = String(member && member.weekly_plan_updated_at || "").trim();
         const helperText = updatedAt ? `最近保存：${updatedAt}` : (canEdit ? "修改后点击保存。" : "当前账号仅可查看。");
+        const helperMarkup = `<div class="helper-text${compactModeEnabled ? " compact-helper" : ""}">${escapeHtml(helperText)}</div>`;
+        const pendingMarkup = compactModeEnabled ? helperMarkup : `
+            <div class="pending-block">
+              <label class="field">
+                <span class="field-label">其他待办</span>
+                <textarea data-user-id="${escapeHtml(userId)}" data-field="weekly_other_pending" ${canEdit ? "" : "disabled"} placeholder="补充待办">${escapeHtml(pendingValue)}</textarea>
+              </label>
+              ${helperMarkup}
+            </div>
+        `;
         return `
           <section class="member-card" data-user-id="${escapeHtml(userId)}">
             <div class="member-head">
@@ -1047,13 +1105,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
               <div class="member-stats">${escapeHtml(statText)}</div>
             </div>
             <div class="week-grid">${rowMarkup}</div>
-            <div class="pending-block">
-              <label class="field">
-                <span class="field-label">其他待办</span>
-                <textarea data-user-id="${escapeHtml(userId)}" data-field="weekly_other_pending" ${canEdit ? "" : "disabled"} placeholder="补充待办">${escapeHtml(pendingValue)}</textarea>
-              </label>
-              <div class="helper-text">${escapeHtml(helperText)}</div>
-            </div>
+            ${pendingMarkup}
             ${dayMarkup}
             ${canEdit ? `
               <div class="member-actions">
@@ -1086,7 +1138,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     function renderMemberDays(member) {
-      const days = Array.isArray(member && member.days) ? member.days : [];
+      const days = getVisibleMemberDays(member);
       if (!days.length) {
         return "";
       }
@@ -1379,6 +1431,10 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     refreshButtonEl.addEventListener("click", () => loadDepartmentSchedule());
     anchorDateEl.addEventListener("change", () => loadDepartmentSchedule(false));
     clearFilterButtonEl.addEventListener("click", clearFilters);
+    compactToggleEl.addEventListener("change", () => {
+      compactModeEnabled = Boolean(compactToggleEl.checked);
+      renderLayout();
+    });
 
     renderLayout();
     if (authState.authenticated) {
