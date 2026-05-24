@@ -63,7 +63,8 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 
     textarea {
       min-height: 50px;
-      resize: vertical;
+      resize: none;
+      overflow-y: hidden;
       line-height: 1.45;
       font-size: 12px;
     }
@@ -1026,6 +1027,20 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       `;
     }
 
+    function resizeTextarea(target) {
+      if (!(target instanceof HTMLTextAreaElement)) {
+        return;
+      }
+      target.style.height = "auto";
+      target.style.height = `${target.scrollHeight}px`;
+    }
+
+    function syncTextareaHeights() {
+      memberListEl.querySelectorAll("textarea").forEach((textarea) => {
+        resizeTextarea(textarea);
+      });
+    }
+
     function renderLayout() {
       reconcileActiveFilters();
       syncControls();
@@ -1115,6 +1130,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
           </section>
         `;
       }).join("");
+      syncTextareaHeights();
     }
 
     function buildDayItemSummary(day) {
@@ -1310,6 +1326,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       if (!(target instanceof HTMLTextAreaElement)) {
         return;
       }
+      resizeTextarea(target);
       const userId = String(target.dataset.userId || "").trim();
       const field = String(target.dataset.field || "").trim();
       const member = findMember(userId);
@@ -1435,6 +1452,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       compactModeEnabled = Boolean(compactToggleEl.checked);
       renderLayout();
     });
+    window.addEventListener("resize", syncTextareaHeights);
 
     renderLayout();
     if (authState.authenticated) {
