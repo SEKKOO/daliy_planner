@@ -6330,9 +6330,11 @@ __HELP_DOCS_OVERLAY__
         renderDailyLogPreviewMeta();
         renderSendConfirmDialog();
         setStatus(
-          payload.source === "cache"
-            ? `已从本地缓存带出 ${payload.name || trimmedName} 的 userId。`
-            : `已从钉钉通讯录获取 ${payload.name || trimmedName} 的 userId，并写入本地数据库。`,
+          payload.source === "department_cache"
+            ? `已从部门共享通讯录带出 ${payload.name || trimmedName} 的 userId。`
+            : payload.source === "cache"
+              ? `已从本地缓存带出 ${payload.name || trimmedName} 的 userId。`
+              : `已从钉钉通讯录获取 ${payload.name || trimmedName} 的 userId，并写入本地数据库。`,
           "success"
         );
       } catch (error) {
@@ -9960,6 +9962,36 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS department_dingtalk_user_directory_cache (
+                department_key TEXT NOT NULL,
+                department_label TEXT NOT NULL,
+                name_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                raw_json TEXT NOT NULL DEFAULT '{}',
+                synced_by_user_id TEXT NOT NULL DEFAULT '',
+                synced_by_display_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (department_key, name_key, user_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_department_dingtalk_user_directory_lookup
+            ON department_dingtalk_user_directory_cache(department_key, name_key, updated_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_department_dingtalk_user_directory_updated
+            ON department_dingtalk_user_directory_cache(department_key, updated_at DESC)
+            """
+        )
+
 
 def get_week_start(value: str) -> str:
     target = validate_date(value)
@@ -10786,6 +10818,41 @@ def get_user_dingtalk_mcp_config_summary(user_id: str | None = None) -> dict:
     if not user:
         user = {"user_id": normalized_user_id}
     return build_user_dingtalk_mcp_config_summary(user)
+
+
+def build_admin_dingtalk_mcp_summary(user_id: str | None = None) -> dict:
+    summary = get_user_dingtalk_mcp_config_summary(user_id)
+    daily_template = normalize_dingtalk_template_config(summary.get("effective_daily_template"))
+    weekly_template = normalize_dingtalk_template_config(summary.get("effective_weekly_template"))
+    return {
+        "log_mcp_url": str(summary.get("log_mcp_url") or "").strip(),
+        "directory_mcp_url": str(summary.get("directory_mcp_url") or "").strip(),
+        "log_mcp_source": str(summary.get("log_mcp_source") or "missing").strip() or "missing",
+        "directory_mcp_source": str(summary.get("directory_mcp_source") or "missing").strip() or "missing",
+        "daily_template_name": str(daily_template.get("template_name") or "").strip(),
+        "weekly_template_name": str(weekly_template.get("template_name") or "").strip(),
+        "daily_template_source": str(summary.get("daily_template_source") or "missing").strip() or "missing",
+        "weekly_template_source": str(summary.get("weekly_template_source") or "missing").strip() or "missing",
+        "updated_at": str(summary.get("updated_at") or "").strip(),
+    }
+
+
+def attach_admin_dingtalk_mcp_summary(rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    source_rows = rows if isinstance(rows, list) else []
+    enriched_rows: list[dict[str, Any]] = []
+    for item in source_rows:
+        row = dict(item or {})
+        row["dingtalk_mcp"] = build_admin_dingtalk_mcp_summary(row.get("user_id"))
+        enriched_rows.append(row)
+    return enriched_rows
+
+
+def list_admin_local_accounts() -> list[dict[str, Any]]:
+    return attach_admin_dingtalk_mcp_summary(list_local_accounts())
+
+
+def list_admin_users() -> list[dict[str, Any]]:
+    return attach_admin_dingtalk_mcp_summary(list_all_users())
 
 
 def get_effective_dingtalk_mcp_config(user_id: str | None = None) -> dict:
@@ -13313,6 +13380,380 @@ def normalize_dingtalk_user_name_key(name: str) -> str:
     return re.sub(r"\s+", "", str(name or "").strip()).lower()
 
 
+def build_department_dingtalk_user_directory_key(department: object) -> str:
+    return _department_label_key(department)
+
+
+def list_department_dingtalk_user_directory_departments() -> list[str]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT department_label
+            FROM department_dingtalk_user_directory_cache
+            ORDER BY department_label ASC
+            """
+        ).fetchall()
+    return _dedupe_department_labels([str(row["department_label"] or "").strip() for row in rows])
+
+
+def resolve_admin_department_directory(
+    requested_department: str | None = None,
+    *,
+    current_user: dict | None = None,
+    allow_empty: bool = True,
+    strict_requested: bool = False,
+) -> tuple[list[str], str]:
+    department_options = _dedupe_department_labels(
+        [
+            *get_department_options()["options"],
+            *list_department_dingtalk_user_directory_departments(),
+        ]
+    )
+    requested_label = _normalize_department_label(requested_department)
+    current_user_department = _normalize_department_label((current_user or {}).get("department"))
+
+    def _match_option(candidate: str) -> str:
+        if not candidate:
+            return ""
+        return next(
+            (option for option in department_options if _match_department_label(option, candidate)),
+            "",
+        )
+
+    selected_department = ""
+    if requested_label:
+        matched_requested = _match_option(requested_label)
+        if matched_requested:
+            selected_department = matched_requested
+        elif strict_requested:
+            raise ValueError("所选部门不存在，请先刷新后重试。")
+    if not selected_department and current_user_department:
+        selected_department = _match_option(current_user_department)
+    if not selected_department and department_options:
+        selected_department = department_options[0]
+    if not selected_department and not allow_empty:
+        raise ValueError("请先在管理员后台至少配置一个所属部门。")
+    return department_options, selected_department
+
+
+def save_department_dingtalk_user_directory_entry(
+    department: str,
+    name: str,
+    user_id: str,
+    raw_payload: dict | None = None,
+    *,
+    synced_by_user: dict | None = None,
+) -> dict[str, Any]:
+    department_label = _normalize_department_label(department)
+    display_name = str(name or "").strip()
+    if not department_label:
+        raise ValueError("部门不能为空。")
+    if not display_name:
+        raise ValueError("姓名不能为空。")
+    normalized_user_id = normalize_user_id(str(user_id or "").strip())
+    department_key = build_department_dingtalk_user_directory_key(department_label)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload = raw_payload if isinstance(raw_payload, dict) else {}
+    raw_synced_by_user_id = str((synced_by_user or {}).get("user_id") or "").strip()
+    synced_by_user_id = normalize_user_id(raw_synced_by_user_id) if raw_synced_by_user_id else ""
+    synced_by_display_name = str(
+        (synced_by_user or {}).get("display_name")
+        or (synced_by_user or {}).get("user_id")
+        or synced_by_user_id
+    ).strip()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO department_dingtalk_user_directory_cache (
+                department_key,
+                department_label,
+                name_key,
+                display_name,
+                user_id,
+                raw_json,
+                synced_by_user_id,
+                synced_by_display_name,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(department_key, name_key, user_id) DO UPDATE SET
+                department_label = excluded.department_label,
+                display_name = excluded.display_name,
+                raw_json = excluded.raw_json,
+                synced_by_user_id = excluded.synced_by_user_id,
+                synced_by_display_name = excluded.synced_by_display_name,
+                updated_at = excluded.updated_at
+            """,
+            (
+                department_key,
+                department_label,
+                normalize_dingtalk_user_name_key(display_name),
+                display_name,
+                normalized_user_id,
+                json.dumps(payload, ensure_ascii=False),
+                synced_by_user_id,
+                synced_by_display_name,
+                timestamp,
+                timestamp,
+            ),
+        )
+    return {
+        "department": department_label,
+        "name": display_name,
+        "user_id": normalized_user_id,
+        "synced_by_user_id": synced_by_user_id,
+        "synced_by_display_name": synced_by_display_name,
+        "updated_at": timestamp,
+        "raw": payload,
+    }
+
+
+def get_department_cached_dingtalk_user_by_name(name: str, department: str | None = None) -> dict | None:
+    department_label = _normalize_department_label(department)
+    name_key = normalize_dingtalk_user_name_key(name)
+    if not department_label or not name_key:
+        return None
+    department_key = build_department_dingtalk_user_directory_key(department_label)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT display_name, user_id, raw_json, synced_by_user_id, synced_by_display_name, updated_at
+            FROM department_dingtalk_user_directory_cache
+            WHERE department_key = ? AND name_key = ?
+            ORDER BY updated_at DESC, display_name ASC, user_id ASC
+            """,
+            (department_key, name_key),
+        ).fetchall()
+    if not rows:
+        return None
+
+    candidates: list[dict[str, Any]] = []
+    seen_user_ids: set[str] = set()
+    for row in rows:
+        resolved_user_id = str(row["user_id"] or "").strip()
+        if not resolved_user_id or resolved_user_id in seen_user_ids:
+            continue
+        seen_user_ids.add(resolved_user_id)
+        try:
+            raw_payload = json.loads(row["raw_json"] or "{}")
+        except json.JSONDecodeError:
+            raw_payload = {}
+        candidates.append(
+            {
+                "name": str(row["display_name"] or "").strip(),
+                "user_id": resolved_user_id,
+                "updated_at": str(row["updated_at"] or ""),
+                "synced_by_user_id": str(row["synced_by_user_id"] or "").strip(),
+                "synced_by_display_name": str(row["synced_by_display_name"] or "").strip(),
+                "raw": raw_payload,
+            }
+        )
+    if not candidates:
+        return None
+    if len(candidates) > 1:
+        candidate_text = "、".join(
+            f"{item['name'] or item['user_id']}（{item['user_id']}）"
+            for item in candidates[:5]
+        )
+        raise RuntimeError(
+            f"当前部门共享通讯录中找到多个同名人员，请直接填写 userId 或联系管理员处理：{candidate_text}"
+        )
+    selected = candidates[0]
+    return {
+        "name": selected["name"],
+        "user_id": selected["user_id"],
+        "source": "department_cache",
+        "department": department_label,
+        "updated_at": selected["updated_at"],
+        "synced_by_user_id": selected["synced_by_user_id"],
+        "synced_by_display_name": selected["synced_by_display_name"],
+        "raw": selected["raw"],
+    }
+
+
+def list_department_dingtalk_user_directory_overview(
+    department_options: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    configured_departments = _dedupe_department_labels(
+        department_options if isinstance(department_options, list) else get_department_options()["options"]
+    )
+    with get_connection() as connection:
+        summary_rows = connection.execute(
+            """
+            SELECT
+                department_key,
+                department_label,
+                COUNT(*) AS record_count,
+                COUNT(DISTINCT name_key) AS unique_name_count,
+                MAX(updated_at) AS updated_at
+            FROM department_dingtalk_user_directory_cache
+            GROUP BY department_key, department_label
+            ORDER BY department_label ASC
+            """
+        ).fetchall()
+        duplicate_rows = connection.execute(
+            """
+            SELECT department_key, COUNT(*) AS duplicate_name_count
+            FROM (
+                SELECT department_key, name_key
+                FROM department_dingtalk_user_directory_cache
+                GROUP BY department_key, name_key
+                HAVING COUNT(*) > 1
+            )
+            GROUP BY department_key
+            """
+        ).fetchall()
+        latest_rows = connection.execute(
+            """
+            SELECT department_key, department_label, synced_by_user_id, synced_by_display_name, updated_at
+            FROM department_dingtalk_user_directory_cache
+            ORDER BY department_key ASC, updated_at DESC, display_name ASC, user_id ASC
+            """
+        ).fetchall()
+
+    summary_map: dict[str, dict[str, Any]] = {}
+    for row in summary_rows:
+        department_key = str(row["department_key"] or "").strip()
+        if not department_key:
+            continue
+        department_label = str(row["department_label"] or "").strip()
+        summary_map[department_key] = {
+            "department": department_label,
+            "record_count": int(row["record_count"] or 0),
+            "unique_name_count": int(row["unique_name_count"] or 0),
+            "duplicate_name_count": 0,
+            "updated_at": str(row["updated_at"] or "").strip(),
+            "synced_by_user_id": "",
+            "synced_by_display_name": "",
+        }
+    for row in duplicate_rows:
+        department_key = str(row["department_key"] or "").strip()
+        if department_key in summary_map:
+            summary_map[department_key]["duplicate_name_count"] = int(row["duplicate_name_count"] or 0)
+    for row in latest_rows:
+        department_key = str(row["department_key"] or "").strip()
+        if department_key in summary_map and not summary_map[department_key]["synced_by_display_name"]:
+            summary_map[department_key]["synced_by_user_id"] = str(row["synced_by_user_id"] or "").strip()
+            summary_map[department_key]["synced_by_display_name"] = str(row["synced_by_display_name"] or "").strip()
+
+    ordered_departments = _dedupe_department_labels(
+        [*configured_departments, *[summary["department"] for summary in summary_map.values()]]
+    )
+    overview: list[dict[str, Any]] = []
+    for department_label in ordered_departments:
+        department_key = build_department_dingtalk_user_directory_key(department_label)
+        summary = summary_map.get(department_key)
+        if summary:
+            overview.append(summary)
+            continue
+        overview.append(
+            {
+                "department": department_label,
+                "record_count": 0,
+                "unique_name_count": 0,
+                "duplicate_name_count": 0,
+                "updated_at": "",
+                "synced_by_user_id": "",
+                "synced_by_display_name": "",
+            }
+        )
+    return overview
+
+
+def list_department_dingtalk_user_directory_entries(
+    department: str | None = None,
+    *,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    department_label = _normalize_department_label(department)
+    if not department_label:
+        return []
+    department_key = build_department_dingtalk_user_directory_key(department_label)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT display_name, user_id, synced_by_user_id, synced_by_display_name, created_at, updated_at
+            FROM department_dingtalk_user_directory_cache
+            WHERE department_key = ?
+            ORDER BY updated_at DESC, display_name ASC, user_id ASC
+            LIMIT ?
+            """,
+            (department_key, max(1, min(int(limit or 200), 1000))),
+        ).fetchall()
+    return [
+        {
+            "department": department_label,
+            "name": str(row["display_name"] or "").strip(),
+            "user_id": str(row["user_id"] or "").strip(),
+            "synced_by_user_id": str(row["synced_by_user_id"] or "").strip(),
+            "synced_by_display_name": str(row["synced_by_display_name"] or "").strip(),
+            "created_at": str(row["created_at"] or "").strip(),
+            "updated_at": str(row["updated_at"] or "").strip(),
+        }
+        for row in rows
+        if str(row["display_name"] or "").strip() and str(row["user_id"] or "").strip()
+    ]
+
+
+def build_admin_department_dingtalk_directory_payload(
+    requested_department: str | None = None,
+    *,
+    current_user: dict | None = None,
+) -> dict[str, Any]:
+    department_options, selected_department = resolve_admin_department_directory(
+        requested_department,
+        current_user=current_user,
+        allow_empty=True,
+        strict_requested=False,
+    )
+    return {
+        "departments": department_options,
+        "selected_department": selected_department,
+        "overview": list_department_dingtalk_user_directory_overview(department_options),
+        "entries": list_department_dingtalk_user_directory_entries(selected_department),
+    }
+
+
+def add_department_dingtalk_user_directory_entry_by_admin(
+    department: str | None,
+    name: str,
+    *,
+    current_user: dict | None = None,
+) -> dict[str, Any]:
+    if not isinstance(current_user, dict) or str(current_user.get("role") or "") != "admin":
+        raise PermissionError("仅管理员可维护部门共享通讯录。")
+    target_name = str(name or "").strip()
+    if not target_name:
+        raise ValueError("请先输入要查询的姓名。")
+    _, selected_department = resolve_admin_department_directory(
+        department,
+        current_user=current_user,
+        allow_empty=False,
+        strict_requested=True,
+    )
+    admin_user_id = normalize_user_id(str(current_user.get("user_id") or "").strip())
+    require_dingtalk_mcp_config(user_id=admin_user_id, include_directory=True)
+    resolved = lookup_dingtalk_user_by_name_via_directory(
+        target_name,
+        user_id=admin_user_id,
+        share_department=False,
+    )
+    added_entry = save_department_dingtalk_user_directory_entry(
+        selected_department,
+        str(resolved.get("name") or target_name).strip() or target_name,
+        str(resolved.get("user_id") or "").strip(),
+        resolved.get("raw") if isinstance(resolved.get("raw"), dict) else resolved,
+        synced_by_user=current_user,
+    )
+    payload = build_admin_department_dingtalk_directory_payload(
+        selected_department,
+        current_user=current_user,
+    )
+    payload["added_entry"] = added_entry
+    return payload
+
+
 def get_cached_dingtalk_user_by_name(name: str) -> dict | None:
     name_key = normalize_dingtalk_user_name_key(name)
     if not name_key:
@@ -13395,7 +13836,12 @@ def build_dingtalk_user_lookup_prompt(name: str, user_id: str | None = None) -> 
     )
 
 
-def lookup_dingtalk_user_by_name_via_directory(name: str, user_id: str | None = None) -> dict:
+def lookup_dingtalk_user_by_name_via_directory(
+    name: str,
+    user_id: str | None = None,
+    *,
+    share_department: bool = True,
+) -> dict:
     target_name = str(name or "").strip()
     if not target_name:
         raise ValueError("姓名不能为空。")
@@ -13407,10 +13853,28 @@ def lookup_dingtalk_user_by_name_via_directory(name: str, user_id: str | None = 
     )
     if result.get("matched") is True:
         resolved_name = str(result.get("resolved_name") or result.get("name") or target_name).strip()
-        user_id = str(result.get("user_id") or "").strip()
-        if not user_id:
+        resolved_user_id = str(result.get("user_id") or "").strip()
+        if not resolved_user_id:
             raise RuntimeError("钉钉通讯录查询未返回有效 userId。")
-        return save_dingtalk_user_cache(resolved_name, user_id, result)
+        saved_entry = save_dingtalk_user_cache(resolved_name, resolved_user_id, result)
+        if share_department:
+            lookup_user = None
+            raw_lookup_user_id = str(user_id or "").strip()
+            if raw_lookup_user_id:
+                try:
+                    lookup_user = get_user_by_id(normalize_user_id(raw_lookup_user_id))
+                except ValueError:
+                    lookup_user = None
+            lookup_department = _normalize_department_label((lookup_user or {}).get("department"))
+            if lookup_department:
+                save_department_dingtalk_user_directory_entry(
+                    lookup_department,
+                    resolved_name,
+                    resolved_user_id,
+                    result,
+                    synced_by_user=lookup_user,
+                )
+        return saved_entry
     reason = str(result.get("reason") or "not_found").strip() or "not_found"
     candidates = normalize_dingtalk_report_recipients(result.get("candidates", []))
     if reason == "ambiguous" and candidates:
@@ -13423,12 +13887,24 @@ def lookup_dingtalk_user_by_name_via_directory(name: str, user_id: str | None = 
 
 
 def resolve_dingtalk_user_by_name(name: str, user_id: str | None = None) -> dict:
-    require_dingtalk_mcp_config(user_id=user_id, include_directory=True)
+    target_name = str(name or "").strip()
+    if not target_name:
+        raise ValueError("姓名不能为空。")
+    current_user = None
+    current_department = ""
+    raw_lookup_user_id = str(user_id or "").strip()
+    if raw_lookup_user_id:
+        current_user = get_user_by_id(normalize_user_id(raw_lookup_user_id))
+        current_department = _normalize_department_label((current_user or {}).get("department"))
+    department_cached = get_department_cached_dingtalk_user_by_name(target_name, current_department)
+    if department_cached:
+        return department_cached
     prompt_override, _ = get_user_prompt_template_override("send/dingtalk_user_lookup.txt", user_id=user_id)
-    cached = None if prompt_override is not None else get_cached_dingtalk_user_by_name(name)
+    cached = None if prompt_override is not None else get_cached_dingtalk_user_by_name(target_name)
     if cached:
         return cached
-    return lookup_dingtalk_user_by_name_via_directory(name, user_id=user_id)
+    require_dingtalk_mcp_config(user_id=user_id, include_directory=True)
+    return lookup_dingtalk_user_by_name_via_directory(target_name, user_id=user_id)
 
 
 def format_daily_log_section_content(items: list[str]) -> str:
@@ -14610,7 +15086,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             if not self._is_admin(current_user):
                 self._send_json({"error": "仅管理员可访问。"}, status=HTTPStatus.FORBIDDEN)
                 return
-            self._send_json({"users": list_all_users()})
+            self._send_json({"users": list_admin_users()})
             return
 
         if parsed.path == "/api/admin/access-control":
@@ -14633,7 +15109,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(
                 {
-                    "accounts": list_local_accounts(),
+                    "accounts": list_admin_local_accounts(),
                     "department_options": get_department_options()["options"],
                 }
             )
@@ -14666,6 +15142,22 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "仅管理员可访问。"}, status=HTTPStatus.FORBIDDEN)
                 return
             self._send_json({"identities": list_dingtalk_user_identities()})
+            return
+
+        if parsed.path == "/api/admin/department-directory-cache":
+            if not self._is_admin(current_user):
+                self._send_json({"error": "仅管理员可访问。"}, status=HTTPStatus.FORBIDDEN)
+                return
+            requested_department = query.get("department", [""])[0]
+            try:
+                self._send_json(
+                    build_admin_department_dingtalk_directory_payload(
+                        requested_department,
+                        current_user=current_user,
+                    )
+                )
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             return
 
         if parsed.path == "/api/admin/overview":
@@ -15392,6 +15884,33 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             except PermissionError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        if self.path == "/api/admin/department-directory-cache":
+            current_user = self._get_current_user()
+            if not self._is_admin(current_user):
+                self._send_json({"error": "仅管理员可访问。"}, status=HTTPStatus.FORBIDDEN)
+                return
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                raw_payload = self.rfile.read(content_length)
+                payload = json.loads(raw_payload.decode("utf-8")) if raw_payload else {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                self._send_json(
+                    add_department_dingtalk_user_directory_entry_by_admin(
+                        str(payload.get("department", "")).strip(),
+                        str(payload.get("name", "")).strip(),
+                        current_user=current_user,
+                    ),
+                    status=HTTPStatus.OK,
+                )
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            except RuntimeError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.NOT_FOUND)
             except json.JSONDecodeError:
                 self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
             return

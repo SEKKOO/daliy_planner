@@ -618,6 +618,59 @@ def render_admin_html(
     .local-account-department-controls button { min-height: 42px; white-space: nowrap; }
     .local-account-select-note { color: var(--text-soft); font-size: 12px; line-height: 1.7; }
     .local-account-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .mcp-config-cell { min-width: 280px; display: grid; gap: 8px; }
+    .mcp-config-item { display: grid; gap: 3px; }
+    .mcp-config-label { color: var(--text-soft); font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
+    .mcp-config-value { font-size: 12px; line-height: 1.5; word-break: break-all; }
+    .mcp-config-value.is-code { font-family: Menlo, Monaco, monospace; font-size: 11px; }
+    .mcp-config-value.is-empty,
+    .mcp-config-meta { color: var(--text-soft); }
+    .mcp-config-meta { font-size: 11px; line-height: 1.4; }
+    .department-directory-overview {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .department-directory-card {
+      display: grid;
+      gap: 6px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(
+        180deg,
+        rgba(var(--surface-rgb), var(--shell-surface-strong-alpha)),
+        rgba(var(--surface-soft-rgb), var(--shell-surface-alpha))
+      );
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    }
+    .department-directory-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(42,111,214,0.18);
+      box-shadow: 0 10px 24px rgba(46,119,208,0.1);
+    }
+    .department-directory-card.is-active {
+      border-color: rgba(42,111,214,0.26);
+      box-shadow: 0 12px 28px rgba(46,119,208,0.12);
+      background: linear-gradient(
+        180deg,
+        rgba(255,255,255,0.78),
+        rgba(233,242,255,0.72)
+      );
+    }
+    .department-directory-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .department-directory-card-title { color: var(--text); font-size: 14px; font-weight: 700; }
+    .department-directory-meta { color: var(--text-soft); font-size: 12px; line-height: 1.6; word-break: break-word; }
+    .department-directory-empty {
+      padding: 14px;
+      border: 1px dashed var(--line);
+      border-radius: 14px;
+      color: var(--text-soft);
+      font-size: 12px;
+      background: rgba(var(--surface-soft-rgb), var(--shell-surface-soft-alpha));
+    }
     .field-manager-shell { margin-top: 14px; }
     .field-manager-select-row { display: grid; gap: 10px; margin-bottom: 12px; }
     .field-manager-block {
@@ -1297,9 +1350,55 @@ __HELP_DOCS_CSS__
         <div class="table-shell">
           <table>
             <thead>
-              <tr><th>账号</th><th>显示名</th><th>岗位</th><th>所属部门</th><th>本地 userId</th><th>状态</th><th>角色</th><th>日程展示</th><th>最近更新时间</th><th>操作</th></tr>
+              <tr><th>账号</th><th>显示名</th><th>岗位</th><th>所属部门</th><th>本地 userId</th><th>状态</th><th>角色</th><th>日程展示</th><th>钉钉 MCP</th><th>最近更新时间</th><th>操作</th></tr>
             </thead>
             <tbody id="local-accounts-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>用户钉钉 MCP 总览</h2>
+        <div class="muted">这里会展示系统内每个用户当前保存的钉钉 MCP 地址与模板选择，方便管理员统一排查配置状态。</div>
+        <div class="row" style="margin-top:10px;">
+          <button class="secondary" id="reload-admin-users">刷新用户 MCP</button>
+          <span class="muted" id="admin-users-status"></span>
+        </div>
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr><th>显示名</th><th>本地 userId</th><th>岗位</th><th>所属部门</th><th>角色</th><th>账号状态</th><th>钉钉 MCP</th></tr>
+            </thead>
+            <tbody id="admin-users-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>部门共享钉钉通讯录</h2>
+        <div class="muted">同部门用户共享一份钉钉姓名 / userId 数据库。员工在用户页通过钉钉通讯录查到的人员会自动写入本部门；这里也可以直接用当前管理员账号补充查询并加入共享人员。</div>
+        <div class="row" style="margin-top:10px;">
+          <div class="col">
+            <label>所属部门
+              <select id="department-directory-department"></select>
+            </label>
+          </div>
+          <div class="col">
+            <label>补充人员姓名
+              <input id="department-directory-lookup-name" type="text" placeholder="输入姓名后查询并加入当前部门">
+            </label>
+          </div>
+          <div class="col" style="display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap;">
+            <button id="add-department-directory-entry">查询并加入当前部门</button>
+            <button class="secondary" id="reload-department-directory">刷新共享人员</button>
+          </div>
+        </div>
+        <span class="muted" id="department-directory-status"></span>
+        <div class="department-directory-overview" id="department-directory-overview"></div>
+        <div class="table-shell" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr><th>姓名</th><th>钉钉 userId</th><th>最近同步人</th><th>最近同步时间</th></tr>
+            </thead>
+            <tbody id="department-directory-body"></tbody>
           </table>
         </div>
       </div>
@@ -1459,6 +1558,15 @@ __HELP_DOCS_OVERLAY__
     const localAccountShowInDepartmentScheduleEl = document.getElementById("local-account-show-in-department-schedule");
     const localAccountsBody = document.getElementById("local-accounts-body");
     const localAccountStatus = document.getElementById("local-account-status");
+    const adminUsersBody = document.getElementById("admin-users-body");
+    const adminUsersStatus = document.getElementById("admin-users-status");
+    const departmentDirectoryDepartmentEl = document.getElementById("department-directory-department");
+    const departmentDirectoryLookupNameEl = document.getElementById("department-directory-lookup-name");
+    const addDepartmentDirectoryEntryButton = document.getElementById("add-department-directory-entry");
+    const reloadDepartmentDirectoryButton = document.getElementById("reload-department-directory");
+    const departmentDirectoryOverviewEl = document.getElementById("department-directory-overview");
+    const departmentDirectoryBody = document.getElementById("department-directory-body");
+    const departmentDirectoryStatus = document.getElementById("department-directory-status");
     const dingtalkEnabledEl = document.getElementById("dingtalk-enabled");
     const dingtalkAutoLoginEl = document.getElementById("dingtalk-auto-login");
     const dingtalkClientIdEl = document.getElementById("dingtalk-client-id");
@@ -1469,9 +1577,11 @@ __HELP_DOCS_OVERLAY__
     const dingtalkConfigStatus = document.getElementById("dingtalk-config-status");
     const dingtalkIdentitiesBody = document.getElementById("dingtalk-identities-body");
     const dingtalkIdentitiesStatus = document.getElementById("dingtalk-identities-status");
+    let adminUsers = [];
     let localAccounts = [];
     let localAccountPositionOptions = [];
     let localAccountDepartmentOptions = [];
+    let isDepartmentDirectoryBusy = false;
     let positionFieldScopes = {};
     let currentPositionFieldScopePosition = "";
     let adminPageVerified = false;
@@ -2101,6 +2211,7 @@ __HELP_DOCS_OVERLAY__
         localAccountDepartmentOptions = normalizeOptionListForUi(data.options || []);
         renderLocalAccountDepartmentOptions(departmentName);
         localAccountNewDepartmentEl.value = "";
+        await loadDepartmentDirectory(departmentName).catch(() => {});
         setMessage(localAccountStatus, `所属部门 ${departmentName} 已添加并选中。`, false);
       } catch (error) {
         setMessage(localAccountStatus, error.message || "新增所属部门失败", true);
@@ -2319,6 +2430,50 @@ __HELP_DOCS_OVERLAY__
         "此操作不可恢复，确认继续删除吗？",
       ].join("\\n");
     }
+    function describeLocalAccountTemplate(label, templateName, source) {
+      const resolvedName = String(templateName || "").trim();
+      if (!resolvedName) {
+        return `${label}：未选择`;
+      }
+      return source === "invalid"
+        ? `${label}：${resolvedName}（不兼容）`
+        : `${label}：${resolvedName}`;
+    }
+    function renderLocalAccountMcpSummary(row) {
+      const summary = row && typeof row === "object" && row.dingtalk_mcp && typeof row.dingtalk_mcp === "object"
+        ? row.dingtalk_mcp
+        : {};
+      const logMcpUrl = String(summary.log_mcp_url || "").trim();
+      const directoryMcpUrl = String(summary.directory_mcp_url || "").trim();
+      const dailyTemplateText = describeLocalAccountTemplate(
+        "日报",
+        summary.daily_template_name,
+        String(summary.daily_template_source || "missing").trim() || "missing"
+      );
+      const weeklyTemplateText = describeLocalAccountTemplate(
+        "周报",
+        summary.weekly_template_name,
+        String(summary.weekly_template_source || "missing").trim() || "missing"
+      );
+      const updatedAt = String(summary.updated_at || "").trim();
+      return `
+        <div class="mcp-config-cell">
+          <div class="mcp-config-item">
+            <div class="mcp-config-label">日志发送 MCP</div>
+            <div class="mcp-config-value${logMcpUrl ? " is-code" : " is-empty"}">${escapeHtml(logMcpUrl || "未配置")}</div>
+          </div>
+          <div class="mcp-config-item">
+            <div class="mcp-config-label">通讯录查询 MCP</div>
+            <div class="mcp-config-value${directoryMcpUrl ? " is-code" : " is-empty"}">${escapeHtml(directoryMcpUrl || "未配置")}</div>
+          </div>
+          <div class="mcp-config-item">
+            <div class="mcp-config-label">模板选择</div>
+            <div class="mcp-config-value">${escapeHtml(`${dailyTemplateText} · ${weeklyTemplateText}`)}</div>
+          </div>
+          <div class="mcp-config-meta">MCP 配置时间：${escapeHtml(updatedAt || "未记录")}</div>
+        </div>
+      `;
+    }
     async function deleteLocalAccount(account) {
       const row = account || {};
       const username = String(row.username || "").trim();
@@ -2342,6 +2497,8 @@ __HELP_DOCS_OVERLAY__
         }
         resetLocalAccountForm();
         await loadLocalAccounts();
+        await loadAdminUsers().catch(() => {});
+        await loadDepartmentDirectory().catch(() => {});
         setMessage(localAccountStatus, `账号 ${username} 已删除，对应历史数据和配置也已清理。`, false);
       } catch (error) {
         setMessage(localAccountStatus, error.message || "删除本地账号失败", true);
@@ -2350,7 +2507,7 @@ __HELP_DOCS_OVERLAY__
     function renderLocalAccounts(rows) {
       localAccounts = Array.isArray(rows) ? rows.slice() : [];
       if (!localAccounts.length) {
-        localAccountsBody.innerHTML = '<tr><td colspan="10">暂无本地账号</td></tr>';
+        localAccountsBody.innerHTML = '<tr><td colspan="11">暂无本地账号</td></tr>';
         return;
       }
       localAccountsBody.innerHTML = localAccounts.map((row) => {
@@ -2380,6 +2537,7 @@ __HELP_DOCS_OVERLAY__
           <td>${status}</td>
           <td>${role}</td>
           <td>${scheduleVisibility}</td>
+          <td>${renderLocalAccountMcpSummary(row)}</td>
           <td>${escapeHtml(row.updated_at || "") || "未记录"}</td>
           <td>
             <div class="local-account-actions">
@@ -2387,6 +2545,42 @@ __HELP_DOCS_OVERLAY__
               <button type="button" class="secondary danger local-account-delete" data-username="${escapeHtml(row.username || "")}">删除</button>
             </div>
           </td>
+        </tr>`;
+      }).join("");
+    }
+    function renderAdminUsers(rows) {
+      adminUsers = Array.isArray(rows) ? rows.slice() : [];
+      if (!adminUsers.length) {
+        adminUsersBody.innerHTML = '<tr><td colspan="7">暂无用户</td></tr>';
+        return;
+      }
+      adminUsersBody.innerHTML = adminUsers.map((row) => {
+        const roleList = [];
+        if (String(row.role || "").trim() === "admin") {
+          roleList.push("管理员");
+        }
+        if (row.is_department_admin) {
+          roleList.push("部门管理员");
+        }
+        if (!roleList.length) {
+          roleList.push("普通用户");
+        }
+        const roleText = roleList.join(" / ");
+        const position = Array.isArray(row.positions) && row.positions.length
+          ? row.positions.join("、")
+          : (String(row.position || "").trim() || "未设置");
+        const department = String(row.department || "").trim() || "未设置";
+        const accountState = row.has_local_account
+          ? (row.enabled ? "本地账号已启用" : "本地账号已停用")
+          : "仅钉钉身份";
+        return `<tr>
+          <td>${escapeHtml(row.display_name || row.user_id || "")}</td>
+          <td><span class="code">${escapeHtml(row.user_id || "")}</span></td>
+          <td>${escapeHtml(position)}</td>
+          <td>${escapeHtml(department)}</td>
+          <td>${escapeHtml(roleText)}</td>
+          <td>${escapeHtml(accountState)}</td>
+          <td>${renderLocalAccountMcpSummary(row)}</td>
         </tr>`;
       }).join("");
     }
@@ -2401,6 +2595,154 @@ __HELP_DOCS_OVERLAY__
       renderLocalAccountDepartmentOptions(selectedDepartment);
       renderLocalAccounts(data.accounts || []);
       setMessage(localAccountStatus, `已加载 ${Array.isArray(data.accounts) ? data.accounts.length : 0} 个本地账号。`, false);
+    }
+    async function loadAdminUsers() {
+      const response = await fetch("/api/admin/users");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "读取用户 MCP 失败");
+      }
+      renderAdminUsers(data.users || []);
+      setMessage(adminUsersStatus, `已加载 ${Array.isArray(data.users) ? data.users.length : 0} 个用户。`, false);
+    }
+    function setDepartmentDirectoryBusy(isBusy, buttonText) {
+      isDepartmentDirectoryBusy = Boolean(isBusy);
+      departmentDirectoryDepartmentEl.disabled = isDepartmentDirectoryBusy;
+      departmentDirectoryLookupNameEl.disabled = isDepartmentDirectoryBusy;
+      addDepartmentDirectoryEntryButton.disabled = isDepartmentDirectoryBusy;
+      reloadDepartmentDirectoryButton.disabled = isDepartmentDirectoryBusy;
+      addDepartmentDirectoryEntryButton.textContent = buttonText || "查询并加入当前部门";
+    }
+    function renderDepartmentDirectoryDepartmentOptions(options, selectedDepartment) {
+      const availableOptions = normalizeOptionListForUi(options);
+      const selectedValue = String(selectedDepartment || "").trim();
+      departmentDirectoryDepartmentEl.innerHTML = [
+        '<option value="">请选择所属部门</option>',
+        ...availableOptions.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`),
+      ].join("");
+      departmentDirectoryDepartmentEl.value = availableOptions.includes(selectedValue) ? selectedValue : "";
+    }
+    function buildDepartmentDirectorySyncedByText(row) {
+      const displayName = String(row && row.synced_by_display_name || "").trim();
+      const userId = String(row && row.synced_by_user_id || "").trim();
+      if (!displayName && !userId) {
+        return "未记录";
+      }
+      return displayName && userId && displayName !== userId
+        ? `${displayName}（${userId}）`
+        : (displayName || userId);
+    }
+    function renderDepartmentDirectoryOverview(rows, selectedDepartment) {
+      const items = Array.isArray(rows) ? rows : [];
+      const currentDepartment = String(selectedDepartment || "").trim();
+      if (!items.length) {
+        departmentDirectoryOverviewEl.innerHTML = '<div class="department-directory-empty">暂无可用部门，请先在“本地账号管理”里维护所属部门。</div>';
+        return;
+      }
+      departmentDirectoryOverviewEl.innerHTML = items.map((row) => {
+        const department = String(row && row.department || "").trim() || "未设置部门";
+        const isActive = currentDepartment && department === currentDepartment;
+        return `
+          <article class="department-directory-card${isActive ? " is-active" : ""}" data-department="${escapeHtml(department)}">
+            <div class="department-directory-card-top">
+              <div class="department-directory-card-title">${escapeHtml(department)}</div>
+              <span class="tag-pill">${escapeHtml(String(row && row.record_count || 0))} 条</span>
+            </div>
+            <div class="department-directory-meta">唯一姓名：${escapeHtml(String(row && row.unique_name_count || 0))} · 同名组数：${escapeHtml(String(row && row.duplicate_name_count || 0))}</div>
+            <div class="department-directory-meta">最近更新：${escapeHtml(String(row && row.updated_at || "").trim() || "未同步")}</div>
+            <div class="department-directory-meta">最近同步人：${escapeHtml(buildDepartmentDirectorySyncedByText(row))}</div>
+          </article>
+        `;
+      }).join("");
+    }
+    function renderDepartmentDirectoryEntries(rows, selectedDepartment) {
+      const items = Array.isArray(rows) ? rows : [];
+      const currentDepartment = String(selectedDepartment || "").trim();
+      if (!currentDepartment) {
+        departmentDirectoryBody.innerHTML = '<tr><td colspan="4">暂无可用部门，请先在“本地账号管理”里维护所属部门。</td></tr>';
+        return;
+      }
+      if (!items.length) {
+        departmentDirectoryBody.innerHTML = `<tr><td colspan="4">${escapeHtml(currentDepartment)} 暂无已同步人员。</td></tr>`;
+        return;
+      }
+      departmentDirectoryBody.innerHTML = items.map((row) => `
+        <tr>
+          <td>${escapeHtml(String(row && row.name || "").trim())}</td>
+          <td><span class="code">${escapeHtml(String(row && row.user_id || "").trim())}</span></td>
+          <td>${escapeHtml(buildDepartmentDirectorySyncedByText(row))}</td>
+          <td>${escapeHtml(String(row && row.updated_at || "").trim() || "未记录")}</td>
+        </tr>
+      `).join("");
+    }
+    async function loadDepartmentDirectory(requestedDepartment = "") {
+      const currentDepartment = String(requestedDepartment || departmentDirectoryDepartmentEl.value || "").trim();
+      setDepartmentDirectoryBusy(true, "查询并加入当前部门");
+      try {
+        const query = currentDepartment ? `?department=${encodeURIComponent(currentDepartment)}` : "";
+        const response = await fetch(`/api/admin/department-directory-cache${query}`);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "读取部门共享通讯录失败");
+        }
+        renderDepartmentDirectoryDepartmentOptions(data.departments || [], data.selected_department || "");
+        renderDepartmentDirectoryOverview(data.overview || [], data.selected_department || "");
+        renderDepartmentDirectoryEntries(data.entries || [], data.selected_department || "");
+        if (String(data.selected_department || "").trim()) {
+          setMessage(
+            departmentDirectoryStatus,
+            `已加载 ${String(data.selected_department || "").trim()} 部门共享通讯录，共 ${Array.isArray(data.entries) ? data.entries.length : 0} 条记录。`,
+            false
+          );
+        } else {
+          setMessage(departmentDirectoryStatus, "暂无可用部门，请先在本地账号中配置所属部门。", false);
+        }
+      } catch (error) {
+        renderDepartmentDirectoryOverview([], "");
+        renderDepartmentDirectoryEntries([], "");
+        setMessage(departmentDirectoryStatus, error.message || "读取部门共享通讯录失败", true);
+      } finally {
+        setDepartmentDirectoryBusy(false, "查询并加入当前部门");
+      }
+    }
+    async function addDepartmentDirectoryEntry() {
+      const selectedDepartment = String(departmentDirectoryDepartmentEl.value || "").trim();
+      const targetName = String(departmentDirectoryLookupNameEl.value || "").trim();
+      if (!selectedDepartment) {
+        setMessage(departmentDirectoryStatus, "请先选择要维护的所属部门。", true);
+        return;
+      }
+      if (!targetName) {
+        setMessage(departmentDirectoryStatus, "请先输入要查询的姓名。", true);
+        return;
+      }
+      setDepartmentDirectoryBusy(true, "查询中...");
+      setMessage(departmentDirectoryStatus, `正在使用当前管理员账号查询 ${targetName} 并写入 ${selectedDepartment} 部门共享通讯录，请稍候...`, false);
+      try {
+        const response = await fetch("/api/admin/department-directory-cache", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ department: selectedDepartment, name: targetName }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "补充共享通讯录失败");
+        }
+        renderDepartmentDirectoryDepartmentOptions(data.departments || [], data.selected_department || "");
+        renderDepartmentDirectoryOverview(data.overview || [], data.selected_department || "");
+        renderDepartmentDirectoryEntries(data.entries || [], data.selected_department || "");
+        const addedEntry = data.added_entry || {};
+        departmentDirectoryLookupNameEl.value = "";
+        setMessage(
+          departmentDirectoryStatus,
+          `已将 ${String(addedEntry.name || targetName).trim() || targetName}（${String(addedEntry.user_id || "").trim() || "未返回 userId"}）加入 ${String(data.selected_department || selectedDepartment).trim()} 部门共享通讯录。`,
+          false
+        );
+      } catch (error) {
+        setMessage(departmentDirectoryStatus, error.message || "补充共享通讯录失败", true);
+      } finally {
+        setDepartmentDirectoryBusy(false, "查询并加入当前部门");
+      }
     }
     async function saveLocalAccount() {
       const username = String(localAccountUsernameEl.value || "").trim();
@@ -2441,6 +2783,8 @@ __HELP_DOCS_OVERLAY__
         localAccountPasswordEl.value = "";
         localAccountNewDepartmentEl.value = "";
         await loadLocalAccounts();
+        await loadAdminUsers().catch(() => {});
+        await loadDepartmentDirectory(payload.department).catch(() => {});
         await loadAccessControl().catch(() => {});
         await loadAdminAccountInfo().catch(() => {});
         setMessage(localAccountStatus, `本地账号 ${username} 保存成功。`, false);
@@ -2709,6 +3053,8 @@ __HELP_DOCS_OVERLAY__
         const tasks = [
           ["岗位字段配置", loadPositionFieldScopes, positionFieldScopeStatusEl],
           ["本地账号", loadLocalAccounts, localAccountStatus],
+          ["用户 MCP", loadAdminUsers, adminUsersStatus],
+          ["部门共享通讯录", loadDepartmentDirectory, departmentDirectoryStatus],
           ["登录权限", loadAccessControl, accessStatus],
           ["钉钉配置", loadDingtalkConfig, dingtalkConfigStatus],
           ["钉钉身份缓存", loadDingtalkIdentities, dingtalkIdentitiesStatus],
@@ -2751,6 +3097,7 @@ __HELP_DOCS_OVERLAY__
       ].forEach((inputEl) => bindFieldSaveShortcut(inputEl, savePositionFieldScopeButton));
     bindFieldSaveShortcut(positionFieldScopeNewPositionEl, createPositionFieldScopeButton);
     bindFieldSaveShortcut(localAccountNewDepartmentEl, addLocalAccountDepartmentButton);
+    bindFieldSaveShortcut(departmentDirectoryLookupNameEl, addDepartmentDirectoryEntryButton);
     document.getElementById("admin-login").addEventListener("click", handleAdminLogin);
     adminAccountButton.addEventListener("click", openAdminAccountOverlay);
     adminLogoutButton.addEventListener("click", handleAdminLogout);
@@ -2823,8 +3170,43 @@ __HELP_DOCS_OVERLAY__
     document.getElementById("reload-access").addEventListener("click", () => {
       loadAccessControl().catch((error) => setMessage(accessStatus, error.message || "加载失败", true));
     });
-    document.getElementById("reload-local-accounts").addEventListener("click", () => {
-      loadLocalAccounts().catch((error) => setMessage(localAccountStatus, error.message || "加载失败", true));
+    document.getElementById("reload-local-accounts").addEventListener("click", async () => {
+      try {
+        await loadLocalAccounts();
+        await loadDepartmentDirectory().catch(() => {});
+      } catch (error) {
+        setMessage(localAccountStatus, error.message || "加载失败", true);
+      }
+    });
+    document.getElementById("reload-admin-users").addEventListener("click", () => {
+      loadAdminUsers().catch((error) => setMessage(adminUsersStatus, error.message || "加载失败", true));
+    });
+    reloadDepartmentDirectoryButton.addEventListener("click", () => {
+      loadDepartmentDirectory().catch((error) => setMessage(departmentDirectoryStatus, error.message || "加载失败", true));
+    });
+    addDepartmentDirectoryEntryButton.addEventListener("click", addDepartmentDirectoryEntry);
+    departmentDirectoryDepartmentEl.addEventListener("change", () => {
+      loadDepartmentDirectory(departmentDirectoryDepartmentEl.value).catch((error) => {
+        setMessage(departmentDirectoryStatus, error.message || "加载失败", true);
+      });
+    });
+    departmentDirectoryOverviewEl.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) {
+        return;
+      }
+      const card = target.closest("[data-department]");
+      if (!card) {
+        return;
+      }
+      const department = String(card.getAttribute("data-department") || "").trim();
+      if (!department) {
+        return;
+      }
+      departmentDirectoryDepartmentEl.value = department;
+      loadDepartmentDirectory(department).catch((error) => {
+        setMessage(departmentDirectoryStatus, error.message || "加载失败", true);
+      });
     });
     document.getElementById("save-local-account").addEventListener("click", saveLocalAccount);
     addLocalAccountDepartmentButton.addEventListener("click", addLocalAccountDepartment);
@@ -2870,6 +3252,7 @@ __HELP_DOCS_OVERLAY__
         }
         loginUsersEl.value = (data.login_allowed_users || []).join("\\n");
         adminUsersEl.value = (data.admin_allowed_users || []).join("\\n");
+        await loadAdminUsers().catch(() => {});
         setMessage(accessStatus, "权限配置保存成功。", false);
       } catch (error) {
         setMessage(accessStatus, error.message || "保存失败", true);
