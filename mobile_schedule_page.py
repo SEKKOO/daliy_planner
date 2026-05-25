@@ -374,14 +374,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     .member-list.two-column .week-row {
-      grid-template-columns: 30px minmax(0, 1fr);
-      gap: 6px;
       padding: 6px;
-    }
-
-    .member-list.two-column .week-label {
-      font-size: 11px;
-      padding-top: 16px;
     }
 
     .member-list.two-column .week-fields {
@@ -491,24 +484,17 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       border-radius: 10px;
       background: #fff;
       padding: 6px;
-      display: grid;
-      grid-template-columns: 32px minmax(0, 1fr);
-      gap: 6px;
-      align-items: start;
-    }
-
-    .week-label {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text);
-      padding-top: 16px;
-      line-height: 1.2;
     }
 
     .week-fields {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 4px;
+    }
+
+    .week-prefix {
+      color: var(--primary);
+      font-weight: 700;
     }
 
     .week-fields .field {
@@ -1057,15 +1043,14 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
           const pm = String(row && row.pm || "");
           return `
             <div class="week-row">
-              <div class="week-label">${escapeHtml(weekdayLabel)}</div>
               <div class="week-fields">
                 <label class="field">
-                  <span class="field-label">上午</span>
-                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="am" ${canEdit ? "" : "disabled"} placeholder="上午安排">${escapeHtml(am)}</textarea>
+                  <span class="field-label"><span class="week-prefix">${escapeHtml(weekdayLabel)}</span>上午</span>
+                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="am" ${canEdit ? "" : "disabled"} placeholder="${escapeHtml(`${weekdayLabel}上午安排`)}">${escapeHtml(am)}</textarea>
                 </label>
                 <label class="field">
-                  <span class="field-label">下午</span>
-                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="pm" ${canEdit ? "" : "disabled"} placeholder="下午安排">${escapeHtml(pm)}</textarea>
+                  <span class="field-label"><span class="week-prefix">${escapeHtml(weekdayLabel)}</span>下午</span>
+                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="pm" ${canEdit ? "" : "disabled"} placeholder="${escapeHtml(`${weekdayLabel}下午安排`)}">${escapeHtml(pm)}</textarea>
                 </label>
               </div>
             </div>
