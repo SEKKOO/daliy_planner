@@ -361,15 +361,6 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       font-size: 12px;
     }
 
-    .member-list.two-column .member-meta {
-      font-size: 10px;
-      line-height: 1.35;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-
     .member-list.two-column .member-stats {
       width: fit-content;
       max-width: 100%;
@@ -478,14 +469,6 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       font-size: 13px;
       font-weight: 700;
       line-height: 1.2;
-    }
-
-    .member-meta {
-      margin-top: 3px;
-      font-size: 10px;
-      color: var(--muted);
-      line-height: 1.4;
-      word-break: break-word;
     }
 
     .member-stats {
@@ -802,13 +785,6 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       return dedupeValues(values);
     }
 
-    function getMemberMeta(member) {
-      const user = member && typeof member === "object" ? member.user || {} : {};
-      const positions = getMemberPositionLabels(member).join(" / ");
-      const department = String(user.department || "").trim();
-      return [positions, department].filter(Boolean).join(" · ") || "未配置岗位/部门";
-    }
-
     function getMemberOptions() {
       if (!(pagePayload && Array.isArray(pagePayload.members))) {
         return [];
@@ -1072,7 +1048,6 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       memberListEl.innerHTML = visibleMembers.map((member, memberIndex) => {
         const userId = getMemberUserId(member);
         const name = getMemberName(member, memberIndex);
-        const metaText = getMemberMeta(member);
         const weekStats = member && typeof member === "object" ? member.week_stats || {} : {};
         const statText = `${String(weekStats.total_items || 0)} 条 · ${String(weekStats.total_hours || 0)}h`;
         const rows = getVisibleWeeklyPlanRows(member);
@@ -1115,7 +1090,6 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
             <div class="member-head">
               <div>
                 <div class="member-name">${escapeHtml(name)}</div>
-                <div class="member-meta">${escapeHtml(metaText)}</div>
               </div>
               <div class="member-stats">${escapeHtml(statText)}</div>
             </div>
