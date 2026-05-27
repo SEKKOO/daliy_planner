@@ -9,6 +9,8 @@ import secrets
 import sqlite3
 import subprocess
 import tempfile
+import threading
+import time
 import zipfile
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
@@ -73,6 +75,13 @@ DINGTALK_LOG_MCP_REQUIRED_ERROR = "当前用户未配置日志发送 MCP，请�
 DINGTALK_DIRECTORY_MCP_REQUIRED_ERROR = "当前用户未配置通讯录查询 MCP，请先在右上角“钉钉MCP”中配置。"
 DINGTALK_DAILY_TEMPLATE_REQUIRED_ERROR = "当前用户未选择日报模板，请先在右上角“钉钉MCP”中读取并选择。"
 DINGTALK_WEEKLY_TEMPLATE_REQUIRED_ERROR = "当前用户未选择周报模板，请先在右上角“钉钉MCP”中读取并选择。"
+DINGTALK_SCHEDULED_LOG_STATUS_PENDING = "pending"
+DINGTALK_SCHEDULED_LOG_STATUS_SENT = "sent"
+DINGTALK_SCHEDULED_LOG_STATUS_FAILED = "failed"
+DINGTALK_SCHEDULED_LOG_MAX_ATTEMPTS = 3
+DINGTALK_SCHEDULED_LOG_RETRY_DELAY_SECONDS = 60
+DINGTALK_SCHEDULED_LOG_START_LEAD_MINUTES = 2
+DINGTALK_SCHEDULED_LOG_DISPATCH_POLL_SECONDS = 30
 DINGTALK_OAUTH_CONFIG_SETTING_KEY = "dingtalk_oauth_config_json"
 DINGTALK_OAUTH_AUTHORIZE_URL = str(APP_CONFIG["dingtalk"]["oauth"].get("authorize_url", "")).strip()
 DINGTALK_OAUTH_USER_ACCESS_TOKEN_URL = str(APP_CONFIG["dingtalk"]["oauth"].get("user_access_token_url", "")).strip()
@@ -113,6 +122,8 @@ DEFAULT_PAGE_SETTINGS = {
     "weekly_sunday_pm": "",
     "weekly_other_pending": "",
 }
+_scheduled_dingtalk_log_dispatcher_thread: threading.Thread | None = None
+_scheduled_dingtalk_log_dispatcher_lock = threading.Lock()
 WEEKLY_PLAN_KEYS = tuple(DEFAULT_PAGE_SETTINGS.keys())
 WEEKLY_PLAN_FIELD_LABELS = {
     "weekly_monday_am": "周一上午",
@@ -1856,6 +1867,10 @@ INDEX_HTML = """<!DOCTYPE html>
       min-width: 0;
     }
 
+    .send-confirm-summary-item-stack {
+      align-items: flex-start;
+    }
+
     .send-confirm-label {
       color: var(--muted);
       font-size: var(--fs-xs);
@@ -1875,24 +1890,34 @@ INDEX_HTML = """<!DOCTYPE html>
     .send-confirm-toggle {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 6px;
       width: fit-content;
-      padding: 10px 14px;
-      border-radius: 14px;
+      padding: 7px 10px;
+      border-radius: 12px;
       border: 1px solid rgba(49, 102, 173, 0.12);
       background: rgba(255,255,255,0.46);
       color: var(--accent-deep);
-      font-size: var(--fs-xs);
+      font-size: 12px;
       font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
       cursor: pointer;
     }
 
     .send-confirm-toggle input {
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       margin: 0;
       accent-color: var(--accent);
       cursor: pointer;
+    }
+
+    .send-confirm-toggle-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
+      max-width: 100%;
     }
 
     .send-confirm-recipient-top {
@@ -1917,6 +1942,58 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .send-confirm-recipient-row input {
       min-width: 0;
+    }
+
+    .send-confirm-schedule-shell {
+      display: grid;
+      gap: 10px;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .send-confirm-schedule-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .send-confirm-schedule-input {
+      min-width: min(100%, 240px);
+    }
+
+    .send-confirm-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .scheduled-log-failure-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .scheduled-log-failure-item {
+      display: grid;
+      gap: 6px;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(49, 102, 173, 0.12);
+      background: rgba(255,255,255,0.46);
+    }
+
+    .scheduled-log-failure-title {
+      color: var(--accent-deep);
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .scheduled-log-failure-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+      word-break: break-word;
     }
 
     .daily-log-intro-card {
@@ -3123,6 +3200,27 @@ INDEX_HTML = """<!DOCTYPE html>
         grid-template-columns: 1fr;
       }
 
+      .send-confirm-summary-grid,
+      .send-confirm-recipient-row {
+        grid-template-columns: 1fr;
+      }
+
+      .send-confirm-summary-item,
+      .send-confirm-recipient-line {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .send-confirm-schedule-row {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .send-confirm-schedule-input {
+        width: 100%;
+        min-width: 0;
+      }
+
     }
 __HELP_DOCS_CSS__
 </style>
@@ -3669,6 +3767,24 @@ __HELP_DOCS_OVERLAY__
     <div class="send-result-toast-title" id="send-result-toast-title">发送成功</div>
     <div class="send-result-toast-message" id="send-result-toast-message">日志已发送。</div>
   </div>
+  <div class="prompt-overlay" id="scheduled-log-failure-overlay" hidden>
+    <section class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="scheduled-log-failure-title">
+      <div class="prompt-dialog-head">
+        <div>
+          <h2 class="prompt-dialog-title" id="scheduled-log-failure-title">定时发送失败提醒</h2>
+          <div class="muted">以下定时发送日志没有成功发出，请确认后关闭提醒。</div>
+        </div>
+      </div>
+      <div class="prompt-dialog-body">
+        <div class="prompt-dialog-note">系统会在目标时间前 2 分钟开始自动发送；以下任务已按默认策略重试，仍然失败。</div>
+        <div class="scheduled-log-failure-list" id="scheduled-log-failure-list"></div>
+        <div class="auth-status-text" id="scheduled-log-failure-status"></div>
+        <div class="actions" style="margin-top:0;">
+          <button type="button" class="primary" id="scheduled-log-failure-confirm">我知道了</button>
+        </div>
+      </div>
+    </section>
+  </div>
   <div class="send-confirm-overlay" id="send-confirm-overlay" hidden>
     <section class="send-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="send-confirm-title">
       <div class="send-confirm-head">
@@ -3867,6 +3983,10 @@ __HELP_DOCS_OVERLAY__
     const sendConfirmCloseButton = document.getElementById("send-confirm-close");
     const sendConfirmCancelButton = document.getElementById("send-confirm-cancel");
     const sendConfirmSubmitButton = document.getElementById("send-confirm-submit");
+    const scheduledLogFailureOverlay = document.getElementById("scheduled-log-failure-overlay");
+    const scheduledLogFailureList = document.getElementById("scheduled-log-failure-list");
+    const scheduledLogFailureStatus = document.getElementById("scheduled-log-failure-status");
+    const scheduledLogFailureConfirmButton = document.getElementById("scheduled-log-failure-confirm");
     const AUTO_THEME_DAY_START_HOUR = 6;
     const AUTO_THEME_NIGHT_START_HOUR = 19;
     const DEFAULT_STORAGE_SCOPE_TOKEN = "__default__";
@@ -3887,7 +4007,9 @@ __HELP_DOCS_OVERLAY__
     let isDeliveryProgressLoading = false;
     let isPreviewOpen = false;
     let isSendConfirmOpen = false;
+    let isScheduledLogFailureOpen = false;
     let isSendingDailyLog = false;
+    let isAcknowledgingScheduledLogFailures = false;
     let isAuthOverlayOpen = false;
     let isPasswordOverlayOpen = false;
     let isPromptOverlayOpen = false;
@@ -3895,6 +4017,7 @@ __HELP_DOCS_OVERLAY__
     let isHelpOverlayOpen = false;
     let activeHelpSectionKey = "";
     let dailyLogEditorState = null;
+    let scheduledLogFailures = [];
     let sendResultToastTimer = null;
     let backgroundStretchFrame = 0;
     let currentEditorWorkDate = dateInput.value;
@@ -4036,6 +4159,154 @@ __HELP_DOCS_OVERLAY__
 
     function replaceLiteral(value, search, replacement) {
       return String(value).split(search).join(replacement);
+    }
+
+    function padNumber(value) {
+      return String(value || 0).padStart(2, "0");
+    }
+
+    function buildDateTimeLocalValue(dateValue) {
+      const source = dateValue instanceof Date ? dateValue : new Date(dateValue || Date.now());
+      return [
+        source.getFullYear(),
+        padNumber(source.getMonth() + 1),
+        padNumber(source.getDate()),
+      ].join("-") + `T${padNumber(source.getHours())}:${padNumber(source.getMinutes())}`;
+    }
+
+    function buildTimeInputValue(dateValue) {
+      const source = dateValue instanceof Date ? dateValue : new Date(dateValue || Date.now());
+      return `${padNumber(source.getHours())}:${padNumber(source.getMinutes())}`;
+    }
+
+    function normalizeScheduledSendTimeValue(value) {
+      const normalized = String(value || "").trim();
+      if (!normalized) {
+        return "";
+      }
+      return normalized.replace(" ", "T").slice(0, 16);
+    }
+
+    function extractScheduledSendClockValue(value) {
+      const normalized = String(value || "").trim();
+      if (!normalized) {
+        return "";
+      }
+      if (/^\d{2}:\d{2}$/.test(normalized)) {
+        return normalized;
+      }
+      const normalizedDateTime = normalizeScheduledSendTimeValue(normalized);
+      return normalizedDateTime.length >= 16 ? normalizedDateTime.slice(11, 16) : "";
+    }
+
+    function getTodayDateString(baseDate = new Date()) {
+      return buildDateTimeLocalValue(baseDate).slice(0, 10);
+    }
+
+    function buildScheduledSendTimeValue(value, baseDate = new Date()) {
+      const clockValue = extractScheduledSendClockValue(value);
+      if (!clockValue) {
+        return "";
+      }
+      return `${getTodayDateString(baseDate)}T${clockValue}`;
+    }
+
+    function getScheduledSendWindow(baseDate = new Date()) {
+      const source = baseDate instanceof Date ? new Date(baseDate.getTime()) : new Date(baseDate || Date.now());
+      const minDate = new Date(source.getTime());
+      minDate.setSeconds(0, 0);
+      if (source.getSeconds() > 0 || source.getMilliseconds() > 0) {
+        minDate.setMinutes(minDate.getMinutes() + 1);
+      }
+      const maxDate = new Date(source.getTime());
+      maxDate.setHours(23, 59, 0, 0);
+      const minValue = buildDateTimeLocalValue(minDate);
+      const maxValue = buildDateTimeLocalValue(maxDate);
+      return {
+        todayDate: getTodayDateString(source),
+        minValue,
+        minTimeValue: buildTimeInputValue(minDate),
+        maxValue,
+        maxTimeValue: buildTimeInputValue(maxDate),
+        hasAvailableTime: Date.parse(`${minValue}:00`) <= Date.parse(`${maxValue}:00`),
+      };
+    }
+
+    function getDefaultScheduledSendTimeValue(baseDate = new Date()) {
+      const scheduleWindow = getScheduledSendWindow(baseDate);
+      if (!scheduleWindow.hasAvailableTime) {
+        return "";
+      }
+      const nextDate = baseDate instanceof Date ? new Date(baseDate.getTime()) : new Date(baseDate || Date.now());
+      nextDate.setSeconds(0, 0);
+      nextDate.setMinutes(nextDate.getMinutes() + 5);
+      const candidate = buildDateTimeLocalValue(nextDate);
+      if (candidate < scheduleWindow.minValue) {
+        return scheduleWindow.minValue;
+      }
+      if (candidate > scheduleWindow.maxValue) {
+        return scheduleWindow.maxValue;
+      }
+      return candidate;
+    }
+
+    function validateScheduledSendTimeValue(value, baseDate = new Date()) {
+      const scheduleWindow = getScheduledSendWindow(baseDate);
+      const normalized = normalizeScheduledSendTimeValue(value);
+      const scheduledDateTimeValue = normalized.includes("T")
+        ? normalized
+        : buildScheduledSendTimeValue(normalized, baseDate);
+      if (!scheduleWindow.hasAvailableTime) {
+        return {
+          ok: false,
+          value: "",
+          windowInfo: scheduleWindow,
+          message: "今天已没有可用的定时时间，请直接立即发送。",
+        };
+      }
+      if (!scheduledDateTimeValue) {
+        return {
+          ok: false,
+          value: "",
+          windowInfo: scheduleWindow,
+          message: "请选择定时发送时间。",
+        };
+      }
+      if (!scheduledDateTimeValue.startsWith(`${scheduleWindow.todayDate}T`)) {
+        return {
+          ok: false,
+          value: scheduledDateTimeValue,
+          windowInfo: scheduleWindow,
+          message: "定时发送日期固定为今天，请重新选择时间。",
+        };
+      }
+      if (scheduledDateTimeValue < scheduleWindow.minValue) {
+        return {
+          ok: false,
+          value: scheduledDateTimeValue,
+          windowInfo: scheduleWindow,
+          message: "定时发送时间必须晚于当前时间。",
+        };
+      }
+      if (scheduledDateTimeValue > scheduleWindow.maxValue) {
+        return {
+          ok: false,
+          value: scheduledDateTimeValue,
+          windowInfo: scheduleWindow,
+          message: "定时发送日期固定为今天，请重新选择时间。",
+        };
+      }
+      return {
+        ok: true,
+        value: scheduledDateTimeValue,
+        windowInfo: scheduleWindow,
+        message: "",
+      };
+    }
+
+    function formatScheduledSendTimeDisplay(value) {
+      const normalized = normalizeScheduledSendTimeValue(value);
+      return normalized ? normalized.replace("T", " ") : "";
     }
 
     function getActiveScopeUserId() {
@@ -5477,6 +5748,7 @@ __HELP_DOCS_OVERLAY__
       invalidateScopedAsyncRequests();
       resetScopedInMemoryCaches();
       await refreshAuthState();
+      await loadScheduledLogFailures({ silent: true });
       await loadFieldOptionsForCurrentScope().catch(() => {});
       await loadVisualSettings({ silent: true });
       await loadDingtalkAuthConfig().catch(() => {});
@@ -6194,11 +6466,114 @@ __HELP_DOCS_OVERLAY__
       updateBodyOverlayState();
     }
 
+    function renderScheduledLogFailureDialog() {
+      if (!scheduledLogFailureList) {
+        return;
+      }
+      if (!Array.isArray(scheduledLogFailures) || !scheduledLogFailures.length) {
+        scheduledLogFailureList.innerHTML = '<div class="scheduled-log-failure-item"><div class="scheduled-log-failure-meta">当前没有待确认的定时发送失败记录。</div></div>';
+        return;
+      }
+      scheduledLogFailureList.innerHTML = scheduledLogFailures.map((item) => {
+        const reportLabel = String(item && item.report_label || "").trim() || "定时日志";
+        const scheduledAt = formatScheduledSendTimeDisplay(item && item.scheduled_send_at || "");
+        const lastAttemptAt = formatScheduledSendTimeDisplay(item && item.last_attempt_at || "");
+        const attempts = Number(item && item.attempt_count || 0);
+        const maxAttempts = Number(item && item.max_attempts || 0);
+        const errorText = String(item && item.last_error || "").trim() || "未返回失败原因。";
+        return `
+          <article class="scheduled-log-failure-item">
+            <div class="scheduled-log-failure-title">${escapeHtml(reportLabel)}</div>
+            <div class="scheduled-log-failure-meta">计划发送时间：${escapeHtml(scheduledAt || "未记录")}</div>
+            <div class="scheduled-log-failure-meta">最近尝试：${escapeHtml(lastAttemptAt || "未记录")} · 已重试 ${escapeHtml(String(attempts))}${maxAttempts ? ` / ${escapeHtml(String(maxAttempts))}` : ""} 次</div>
+            <div class="scheduled-log-failure-meta">失败原因：${escapeHtml(errorText)}</div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function setScheduledLogFailureOpen(isOpen) {
+      isScheduledLogFailureOpen = Boolean(isOpen);
+      scheduledLogFailureOverlay.hidden = !isScheduledLogFailureOpen;
+      updateBodyOverlayState();
+    }
+
+    async function loadScheduledLogFailures(options = {}) {
+      const silent = Boolean(options && options.silent);
+      if (!authState.authenticated) {
+        scheduledLogFailures = [];
+        renderScheduledLogFailureDialog();
+        setScheduledLogFailureOpen(false);
+        return;
+      }
+      try {
+        const response = await nativeFetch("/api/scheduled-log-failures");
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "读取定时发送失败提醒失败");
+        }
+        scheduledLogFailures = Array.isArray(payload.failures) ? payload.failures : [];
+        renderScheduledLogFailureDialog();
+        setScheduledLogFailureOpen(scheduledLogFailures.length > 0);
+        if (!silent) {
+          setInlineStatus(
+            scheduledLogFailureStatus,
+            scheduledLogFailures.length ? `检测到 ${scheduledLogFailures.length} 条需要确认的定时发送失败记录。` : "",
+            false
+          );
+        } else {
+          setInlineStatus(scheduledLogFailureStatus, "", false);
+        }
+      } catch (error) {
+        scheduledLogFailures = [];
+        renderScheduledLogFailureDialog();
+        setScheduledLogFailureOpen(false);
+        if (!silent) {
+          setInlineStatus(scheduledLogFailureStatus, error.message || "读取定时发送失败提醒失败。", true);
+        }
+      }
+    }
+
+    async function acknowledgeScheduledLogFailures() {
+      if (isAcknowledgingScheduledLogFailures) {
+        return;
+      }
+      isAcknowledgingScheduledLogFailures = true;
+      scheduledLogFailureConfirmButton.disabled = true;
+      setInlineStatus(scheduledLogFailureStatus, "正在确认失败提醒...", false);
+      try {
+        const response = await nativeFetch("/api/scheduled-log-failures/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            job_ids: Array.isArray(scheduledLogFailures)
+              ? scheduledLogFailures.map((item) => Number(item && item.id || 0)).filter((item) => item > 0)
+              : [],
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "确认失败提醒失败");
+        }
+        scheduledLogFailures = [];
+        renderScheduledLogFailureDialog();
+        setScheduledLogFailureOpen(false);
+        setInlineStatus(scheduledLogFailureStatus, "", false);
+        setStatus("已确认定时发送失败提醒。", "success");
+      } catch (error) {
+        setInlineStatus(scheduledLogFailureStatus, error.message || "确认失败提醒失败。", true);
+      } finally {
+        isAcknowledgingScheduledLogFailures = false;
+        scheduledLogFailureConfirmButton.disabled = false;
+      }
+    }
+
     function updateBodyOverlayState() {
       document.body.style.overflow = (
         isDeliveryProgressOpen
         || isPreviewOpen
         || isSendConfirmOpen
+        || isScheduledLogFailureOpen
         || isAuthOverlayOpen
         || isPasswordOverlayOpen
         || isPromptOverlayOpen
@@ -6278,12 +6653,22 @@ __HELP_DOCS_OVERLAY__
     }
 
     function syncSendConfirmButtons() {
+      const isScheduledMode = Boolean(
+        dailyLogEditorState
+        && dailyLogEditorState.scheduleMode === "scheduled"
+      );
+      const scheduledValidation = isScheduledMode
+        ? validateScheduledSendTimeValue(dailyLogEditorState && dailyLogEditorState.scheduledSendTime)
+        : { ok: true };
       sendConfirmSubmitButton.disabled = (
         !dailyLogEditorState
         || isSendingDailyLog
         || dailyLogEditorState.templateConfigured === false
+        || (isScheduledMode && !scheduledValidation.ok)
       );
-      sendConfirmSubmitButton.textContent = isSendingDailyLog ? "发送中..." : "确定发送";
+      sendConfirmSubmitButton.textContent = isSendingDailyLog
+        ? (isScheduledMode ? "提交中..." : "发送中...")
+        : (isScheduledMode ? "加入定时发送" : "确定发送");
       sendConfirmCloseButton.disabled = isSendingDailyLog;
       sendConfirmCancelButton.disabled = isSendingDailyLog;
     }
@@ -6358,6 +6743,19 @@ __HELP_DOCS_OVERLAY__
         return;
       }
       const extraRecipients = Array.isArray(dailyLogEditorState.extraRecipients) ? dailyLogEditorState.extraRecipients : [];
+      const isScheduledMode = dailyLogEditorState.scheduleMode === "scheduled";
+      const scheduleWindow = getScheduledSendWindow();
+      let scheduledSendTime = normalizeScheduledSendTimeValue(dailyLogEditorState.scheduledSendTime);
+      if (isScheduledMode) {
+        const scheduledValidation = validateScheduledSendTimeValue(scheduledSendTime);
+        if (scheduledValidation.ok) {
+          scheduledSendTime = scheduledValidation.value;
+        } else {
+          scheduledSendTime = getDefaultScheduledSendTimeValue();
+        }
+        dailyLogEditorState.scheduledSendTime = scheduledSendTime;
+      }
+      const scheduledSendClockValue = extractScheduledSendClockValue(scheduledSendTime);
       const recipientRows = extraRecipients.length
         ? `
           <div class="send-confirm-recipient-editor">
@@ -6377,12 +6775,36 @@ __HELP_DOCS_OVERLAY__
             <span class="send-confirm-label">当前日志模版：</span>
             <span class="send-confirm-value">${escapeHtml(dailyLogEditorState.templateName || "未选择模板")}</span>
           </div>
-          <div class="send-confirm-summary-item">
-            <span class="send-confirm-label">是否发送聊天：</span>
-            <label class="send-confirm-toggle">
-              <input type="checkbox" id="send-confirm-to-chat" ${dailyLogEditorState.toChat ? "checked" : ""}>
-              <span>${dailyLogEditorState.toChat ? "是" : "否"}</span>
-            </label>
+          <div class="send-confirm-summary-item send-confirm-summary-item-stack">
+            <span class="send-confirm-label">发送设置：</span>
+            <div class="send-confirm-schedule-shell">
+              <div class="send-confirm-toggle-group">
+                <label class="send-confirm-toggle">
+                  <input type="checkbox" id="send-confirm-to-chat" ${dailyLogEditorState.toChat ? "checked" : ""}>
+                  <span>发送聊天</span>
+                </label>
+                <label class="send-confirm-toggle">
+                  <input type="checkbox" id="send-confirm-scheduled" ${isScheduledMode ? "checked" : ""} ${scheduleWindow.hasAvailableTime ? "" : "disabled"}>
+                  <span>定时发送</span>
+                </label>
+              </div>
+              ${isScheduledMode ? `
+                <div class="send-confirm-schedule-row">
+                  <span class="send-confirm-label">发送时间：</span>
+                  <input
+                    type="time"
+                    id="send-confirm-scheduled-time"
+                    class="send-confirm-schedule-input"
+                    value="${escapeHtml(scheduledSendClockValue || "")}"
+                    min="${escapeHtml(scheduleWindow.minTimeValue)}"
+                    max="${escapeHtml(scheduleWindow.maxTimeValue)}"
+                    step="60">
+                </div>
+                <div class="send-confirm-note">日期固定为今天 ${escapeHtml(scheduleWindow.todayDate)}；系统会在目标时间前 2 分钟开始调用钉钉 MCP 发送，失败最多重试 3 次。</div>
+              ` : `
+                <div class="send-confirm-note">${scheduleWindow.hasAvailableTime ? `默认立即发送；如需改为定时发送，只需选择今天 ${escapeHtml(scheduleWindow.todayDate)} 的发送时间。` : "今天已没有可用的定时时间，请直接立即发送。"}</div>
+              `}
+            </div>
           </div>
         </div>
         <div class="send-confirm-recipient-top">
@@ -6646,6 +7068,7 @@ __HELP_DOCS_OVERLAY__
         periodText,
         `已保存 ${dailyLogEditorState.savedFilename || ""}`,
         dailyLogEditorState.savedPath || "",
+        dailyLogEditorState.scheduledSendAt ? `定时发送 ${formatScheduledSendTimeDisplay(dailyLogEditorState.scheduledSendAt)}` : "",
         dailyLogEditorState.sentTemplateName ? `已发送 ${dailyLogEditorState.sentTemplateName}` : "",
         dailyLogEditorState.sentAt ? `发送时间 ${dailyLogEditorState.sentAt}` : "",
         dailyLogEditorState.reportId ? `日志ID ${dailyLogEditorState.reportId}` : "",
@@ -6785,6 +7208,10 @@ __HELP_DOCS_OVERLAY__
         sentAt: "",
         reportId: "",
         toChat: Boolean(payload.send_config && payload.send_config.to_chat),
+        scheduleMode: "immediate",
+        scheduledSendTime: "",
+        scheduledSendAt: "",
+        scheduledJobId: 0,
         configuredRecipients: Array.isArray(payload.send_config && payload.send_config.base_recipients)
           ? payload.send_config.base_recipients.map((recipient) => normalizeDailyLogRecipient(recipient))
           : [],
@@ -6867,6 +7294,10 @@ __HELP_DOCS_OVERLAY__
         sentAt: "",
         reportId: "",
         toChat: Boolean(payload.send_config && payload.send_config.to_chat),
+        scheduleMode: "immediate",
+        scheduledSendTime: "",
+        scheduledSendAt: "",
+        scheduledJobId: 0,
         configuredRecipients: Array.isArray(payload.send_config && payload.send_config.base_recipients)
           ? payload.send_config.base_recipients.map((recipient) => normalizeDailyLogRecipient(recipient))
           : [],
@@ -7069,6 +7500,18 @@ __HELP_DOCS_OVERLAY__
       }
       const isWeeklyReport = dailyLogEditorState.kind === "weekly_report";
       const reportName = isWeeklyReport ? "周报" : "售后日报";
+      const scheduleMode = dailyLogEditorState.scheduleMode === "scheduled" ? "scheduled" : "immediate";
+      let scheduledSendTime = "";
+      if (scheduleMode === "scheduled") {
+        const scheduledValidation = validateScheduledSendTimeValue(dailyLogEditorState.scheduledSendTime);
+        if (!scheduledValidation.ok) {
+          setStatus(scheduledValidation.message, "warning");
+          showSendResultToast("定时发送设置无效", scheduledValidation.message, "error");
+          return;
+        }
+        scheduledSendTime = scheduledValidation.value;
+        dailyLogEditorState.scheduledSendTime = scheduledSendTime;
+      }
       if (dailyLogEditorState.templateConfigured === false) {
         const templateWarning = isWeeklyReport
           ? "当前用户还未选择周报模板，请先到右上角“钉钉MCP”里读取并选择。"
@@ -7079,10 +7522,18 @@ __HELP_DOCS_OVERLAY__
       }
       setDailyLogSendState(true);
       syncSendConfirmButtons();
-      setStatus("正在发送日志到钉钉...", "success");
-      previewSubtitle.textContent = isWeeklyReport
-        ? `${dailyLogEditorState.week_start || ""} 至 ${dailyLogEditorState.week_end || ""} 的周报正在通过所选钉钉模板发送，请稍候。`
-        : `${dailyLogEditorState.work_date || ""} 的售后日报正在通过所选钉钉模板发送，请稍候。`;
+      setStatus(scheduleMode === "scheduled" ? "正在加入定时发送队列..." : "正在发送日志到钉钉...", "success");
+      previewSubtitle.textContent = scheduleMode === "scheduled"
+        ? (
+            isWeeklyReport
+              ? `${dailyLogEditorState.week_start || ""} 至 ${dailyLogEditorState.week_end || ""} 的周报正在加入定时发送队列，请稍候。`
+              : `${dailyLogEditorState.work_date || ""} 的售后日报正在加入定时发送队列，请稍候。`
+          )
+        : (
+            isWeeklyReport
+              ? `${dailyLogEditorState.week_start || ""} 至 ${dailyLogEditorState.week_end || ""} 的周报正在通过所选钉钉模板发送，请稍候。`
+              : `${dailyLogEditorState.work_date || ""} 的售后日报正在通过所选钉钉模板发送，请稍候。`
+          );
       try {
         const response = await fetch(isWeeklyReport ? "/api/send-weekly-report" : "/api/send-daily-log", {
           method: "POST",
@@ -7096,12 +7547,16 @@ __HELP_DOCS_OVERLAY__
                   sections: dailyLogEditorState.sections || [],
                   to_chat: Boolean(dailyLogEditorState.toChat),
                   recipients: dailyLogEditorState.extraRecipients || [],
+                  schedule_mode: scheduleMode,
+                  scheduled_send_time: scheduledSendTime,
                 }
               : {
                   work_date: dailyLogEditorState.work_date || dateInput.value,
                   sections: dailyLogEditorState.sections || [],
                   to_chat: Boolean(dailyLogEditorState.toChat),
                   recipients: dailyLogEditorState.extraRecipients || [],
+                  schedule_mode: scheduleMode,
+                  scheduled_send_time: scheduledSendTime,
                 }
           )
         });
@@ -7115,11 +7570,6 @@ __HELP_DOCS_OVERLAY__
         ) {
           return;
         }
-        dailyLogEditorState.sentTemplateName = isWeeklyReport
-          ? normalizeWeeklyReportTemplateDisplayName(payload.template_name)
-          : (payload.template_name || "未选择模板");
-        dailyLogEditorState.sentAt = payload.sent_at || "";
-        dailyLogEditorState.reportId = payload.report_id || "";
         dailyLogEditorState.toChat = Boolean(payload.to_chat);
         dailyLogEditorState.templateConfigured = Boolean(payload.template_id);
         dailyLogEditorState.configuredRecipients = Array.isArray(payload.base_recipients)
@@ -7128,6 +7578,25 @@ __HELP_DOCS_OVERLAY__
         dailyLogEditorState.extraRecipients = Array.isArray(payload.last_recipients)
           ? payload.last_recipients.map((recipient) => normalizeDailyLogRecipient(recipient))
           : dailyLogEditorState.extraRecipients;
+        if (scheduleMode === "scheduled") {
+          dailyLogEditorState.scheduledJobId = Number(payload.job_id || 0);
+          dailyLogEditorState.scheduledSendAt = String(payload.scheduled_send_at || "").trim();
+          dailyLogEditorState.scheduleMode = "immediate";
+          dailyLogEditorState.scheduledSendTime = "";
+          renderDailyLogPreviewMeta();
+          setSendConfirmOpen(false);
+          previewSubtitle.textContent = isWeeklyReport
+            ? `${dailyLogEditorState.week_start || ""} 至 ${dailyLogEditorState.week_end || ""} 的周报已加入定时发送队列，系统会在目标时间前 2 分钟开始自动发送。`
+            : `${dailyLogEditorState.work_date || ""} 的售后日报已加入定时发送队列，系统会在目标时间前 2 分钟开始自动发送。`;
+          setStatus(payload.message || "已加入定时发送队列。", "success");
+          showSendResultToast("已加入定时发送", payload.message || `${reportName}已加入定时发送队列。`, "success");
+          return;
+        }
+        dailyLogEditorState.sentTemplateName = isWeeklyReport
+          ? normalizeWeeklyReportTemplateDisplayName(payload.template_name)
+          : (payload.template_name || "未选择模板");
+        dailyLogEditorState.sentAt = payload.sent_at || "";
+        dailyLogEditorState.reportId = payload.report_id || "";
         renderDailyLogPreviewMeta();
         setSendConfirmOpen(false);
         previewSubtitle.textContent = isWeeklyReport
@@ -7142,11 +7611,23 @@ __HELP_DOCS_OVERLAY__
         ) {
           return;
         }
-        previewSubtitle.textContent = isWeeklyReport
-          ? `${dailyLogEditorState.week_start || ""} 至 ${dailyLogEditorState.week_end || ""} 的周报发送失败，请检查后重试。`
-          : `${dailyLogEditorState.work_date || ""} 的售后日报发送失败，请检查后重试。`;
-        setStatus(error.message || "发送日志失败。", "error");
-        showSendResultToast("发送失败", error.message || "发送日志失败，请稍后重试。", "error");
+        previewSubtitle.textContent = scheduleMode === "scheduled"
+          ? (
+              isWeeklyReport
+                ? `${dailyLogEditorState.week_start || ""} 至 ${dailyLogEditorState.week_end || ""} 的周报加入定时发送队列失败，请检查后重试。`
+                : `${dailyLogEditorState.work_date || ""} 的售后日报加入定时发送队列失败，请检查后重试。`
+            )
+          : (
+              isWeeklyReport
+                ? `${dailyLogEditorState.week_start || ""} 至 ${dailyLogEditorState.week_end || ""} 的周报发送失败，请检查后重试。`
+                : `${dailyLogEditorState.work_date || ""} 的售后日报发送失败，请检查后重试。`
+            );
+        setStatus(error.message || (scheduleMode === "scheduled" ? "加入定时发送队列失败。" : "发送日志失败。"), "error");
+        showSendResultToast(
+          scheduleMode === "scheduled" ? "定时发送失败" : "发送失败",
+          error.message || (scheduleMode === "scheduled" ? "加入定时发送队列失败，请稍后重试。" : "发送日志失败，请稍后重试。"),
+          "error"
+        );
       } finally {
         if (
           isPreviewSessionActive(previewSessionId, scopeMarker)
@@ -8756,6 +9237,7 @@ __HELP_DOCS_OVERLAY__
     previewSendLogButton.addEventListener("click", sendDailyLogToDingtalk);
     previewDownloadLogButton.addEventListener("click", downloadCurrentWeeklyReport);
     sendConfirmSubmitButton.addEventListener("click", confirmDailyLogSend);
+    scheduledLogFailureConfirmButton.addEventListener("click", acknowledgeScheduledLogFailures);
     sendConfirmCloseButton.addEventListener("click", () => setSendConfirmOpen(false));
     sendConfirmCancelButton.addEventListener("click", () => setSendConfirmOpen(false));
     sendConfirmOverlay.addEventListener("click", (event) => {
@@ -8862,6 +9344,44 @@ __HELP_DOCS_OVERLAY__
         );
         return;
       }
+      const scheduledCheckbox = event.target.closest("#send-confirm-scheduled");
+      if (scheduledCheckbox && dailyLogEditorState) {
+        if (scheduledCheckbox.checked) {
+          const scheduleWindow = getScheduledSendWindow();
+          if (!scheduleWindow.hasAvailableTime) {
+            dailyLogEditorState.scheduleMode = "immediate";
+            dailyLogEditorState.scheduledSendTime = "";
+            renderSendConfirmDialog();
+            setStatus("今天已没有可用的定时时间，请直接立即发送。", "warning");
+            showSendResultToast("无法定时发送", "今天已没有可用的定时时间，请直接立即发送。", "error");
+            return;
+          }
+          dailyLogEditorState.scheduleMode = "scheduled";
+          const scheduledValidation = validateScheduledSendTimeValue(dailyLogEditorState.scheduledSendTime);
+          dailyLogEditorState.scheduledSendTime = scheduledValidation.ok
+            ? scheduledValidation.value
+            : (getDefaultScheduledSendTimeValue() || scheduleWindow.minValue);
+          setStatus("已切换为定时发送，可选择今天的发送时间。", "success");
+        } else {
+          dailyLogEditorState.scheduleMode = "immediate";
+          setStatus("已切换为立即发送。", "success");
+        }
+        renderSendConfirmDialog();
+        return;
+      }
+      const scheduledTimeInput = event.target.closest("#send-confirm-scheduled-time");
+      if (scheduledTimeInput && dailyLogEditorState) {
+        dailyLogEditorState.scheduledSendTime = buildScheduledSendTimeValue(scheduledTimeInput.value);
+        const scheduledValidation = validateScheduledSendTimeValue(dailyLogEditorState.scheduledSendTime);
+        if (scheduledValidation.ok) {
+          dailyLogEditorState.scheduledSendTime = scheduledValidation.value;
+        }
+        if (!scheduledValidation.ok) {
+          setStatus(scheduledValidation.message, "warning");
+        }
+        syncSendConfirmButtons();
+        return;
+      }
       const nameInput = event.target.closest('[data-send-confirm-field="name"]');
       if (!nameInput || !dailyLogEditorState) {
         return;
@@ -8873,6 +9393,12 @@ __HELP_DOCS_OVERLAY__
       lookupDailyLogRecipientByName(recipientIndex, nameInput.value);
     });
     sendConfirmContent.addEventListener("input", (event) => {
+      const scheduledTimeInput = event.target.closest("#send-confirm-scheduled-time");
+      if (scheduledTimeInput && dailyLogEditorState) {
+        dailyLogEditorState.scheduledSendTime = buildScheduledSendTimeValue(scheduledTimeInput.value);
+        syncSendConfirmButtons();
+        return;
+      }
       const input = event.target.closest("[data-send-confirm-field]");
       if (!input || !dailyLogEditorState) {
         return;
@@ -9022,6 +9548,7 @@ __HELP_DOCS_OVERLAY__
       scheduleBackgroundStretch();
       renderItems([makeBlankItem()]);
       await refreshAuthState();
+      await loadScheduledLogFailures({ silent: true });
       await loadFieldOptionsForCurrentScope().catch(() => {});
       dateInput.value = "__INITIAL_DATE__";
       currentEditorWorkDate = dateInput.value;
@@ -9991,6 +10518,43 @@ def init_db() -> None:
             ON department_dingtalk_user_directory_cache(department_key, updated_at DESC)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduled_dingtalk_log_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                job_kind TEXT NOT NULL,
+                report_label TEXT NOT NULL DEFAULT '',
+                work_date TEXT NOT NULL DEFAULT '',
+                scheduled_send_at TEXT NOT NULL,
+                dispatch_not_before TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 3,
+                last_attempt_at TEXT NOT NULL DEFAULT '',
+                next_attempt_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                report_id TEXT NOT NULL DEFAULT '',
+                sent_at TEXT NOT NULL DEFAULT '',
+                failure_acknowledged_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scheduled_dingtalk_log_jobs_due
+            ON scheduled_dingtalk_log_jobs(status, next_attempt_at, id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scheduled_dingtalk_log_jobs_user_failure
+            ON scheduled_dingtalk_log_jobs(user_id, status, failure_acknowledged_at, updated_at DESC, id DESC)
+            """
+        )
 
 
 def get_week_start(value: str) -> str:
@@ -10914,6 +11478,18 @@ def build_dingtalk_mcp_extra_config(
             )
         )
     return extra_config
+
+
+def build_dingtalk_log_extra_config_from_url(log_mcp_url: str) -> list[str]:
+    normalized_url = str(log_mcp_url or "").strip()
+    if not normalized_url:
+        raise RuntimeError(DINGTALK_LOG_MCP_REQUIRED_ERROR)
+    return [
+        build_codex_config_override(
+            "mcp_servers.dingtalk-log.url",
+            normalized_url,
+        )
+    ]
 
 
 def build_dingtalk_report_template_list_prompt() -> str:
@@ -13323,6 +13899,298 @@ def save_dingtalk_weekly_report_send_config(
     return payload, timestamp
 
 
+def build_scheduled_dingtalk_log_report_label(
+    job_kind: str,
+    work_date: str,
+    *,
+    week_start: str = "",
+    week_end: str = "",
+) -> str:
+    if str(job_kind or "").strip() == "weekly_report":
+        return f"{week_start or work_date} 至 {week_end or work_date} 周报"
+    return f"{work_date} 售后日报"
+
+
+def parse_scheduled_dingtalk_log_datetime(value: str) -> datetime:
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        raise ValueError("请选择定时发送时间。")
+    for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(normalized_value, fmt)
+        except ValueError:
+            continue
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            parsed_time = datetime.strptime(normalized_value, fmt).time().replace(second=0, microsecond=0)
+            return datetime.combine(date.today(), parsed_time)
+        except ValueError:
+            continue
+    raise ValueError("定时发送时间格式不正确。")
+
+
+def parse_scheduled_dingtalk_log_timestamp(value: object) -> datetime | None:
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        return None
+    try:
+        return datetime.strptime(normalized_value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def serialize_scheduled_dingtalk_log_job_payload(row: dict | sqlite3.Row | None) -> dict[str, Any]:
+    source = row if isinstance(row, (dict, sqlite3.Row)) else {}
+    try:
+        payload = json.loads(source["payload_json"] or "{}") if source else {}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return payload
+
+
+def build_scheduled_dingtalk_log_job_payload(row: dict | sqlite3.Row | None) -> dict[str, Any]:
+    source = row if isinstance(row, (dict, sqlite3.Row)) else {}
+    payload = serialize_scheduled_dingtalk_log_job_payload(source)
+    week_start = str(payload.get("week_start") or "").strip()
+    week_end = str(payload.get("week_end") or "").strip()
+    return {
+        "id": int(source["id"] or 0) if source else 0,
+        "user_id": str(source["user_id"] or "").strip() if source else "",
+        "job_kind": str(source["job_kind"] or "").strip() if source else "",
+        "report_label": str(source["report_label"] or "").strip() if source else "",
+        "work_date": str(source["work_date"] or "").strip() if source else "",
+        "week_start": week_start,
+        "week_end": week_end,
+        "scheduled_send_at": str(source["scheduled_send_at"] or "").strip() if source else "",
+        "dispatch_not_before": str(source["dispatch_not_before"] or "").strip() if source else "",
+        "status": str(source["status"] or "").strip() if source else "",
+        "attempt_count": int(source["attempt_count"] or 0) if source else 0,
+        "max_attempts": int(source["max_attempts"] or 0) if source else 0,
+        "last_attempt_at": str(source["last_attempt_at"] or "").strip() if source else "",
+        "last_error": str(source["last_error"] or "").strip() if source else "",
+        "report_id": str(source["report_id"] or "").strip() if source else "",
+        "sent_at": str(source["sent_at"] or "").strip() if source else "",
+        "created_at": str(source["created_at"] or "").strip() if source else "",
+        "updated_at": str(source["updated_at"] or "").strip() if source else "",
+    }
+
+
+def list_unacknowledged_scheduled_dingtalk_log_failures(user_id: str | None = None) -> list[dict[str, Any]]:
+    normalized_user_id = normalize_user_id(user_id)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM scheduled_dingtalk_log_jobs
+            WHERE user_id = ? AND status = ? AND failure_acknowledged_at = ''
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 10
+            """,
+            (normalized_user_id, DINGTALK_SCHEDULED_LOG_STATUS_FAILED),
+        ).fetchall()
+    return [build_scheduled_dingtalk_log_job_payload(row) for row in rows]
+
+
+def acknowledge_scheduled_dingtalk_log_failures(
+    user_id: str | None = None,
+    job_ids: object | None = None,
+) -> dict[str, Any]:
+    normalized_user_id = normalize_user_id(user_id)
+    selected_ids: list[int] = []
+    for raw_value in job_ids if isinstance(job_ids, (list, tuple)) else []:
+        try:
+            selected_id = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if selected_id > 0 and selected_id not in selected_ids:
+            selected_ids.append(selected_id)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as connection:
+        if selected_ids:
+            placeholders = ",".join("?" for _ in selected_ids)
+            acknowledged = connection.execute(
+                f"""
+                UPDATE scheduled_dingtalk_log_jobs
+                SET failure_acknowledged_at = ?, updated_at = ?
+                WHERE user_id = ? AND status = ? AND failure_acknowledged_at = '' AND id IN ({placeholders})
+                """,
+                [timestamp, timestamp, normalized_user_id, DINGTALK_SCHEDULED_LOG_STATUS_FAILED, *selected_ids],
+            ).rowcount
+        else:
+            acknowledged = connection.execute(
+                """
+                UPDATE scheduled_dingtalk_log_jobs
+                SET failure_acknowledged_at = ?, updated_at = ?
+                WHERE user_id = ? AND status = ? AND failure_acknowledged_at = ''
+                """,
+                (timestamp, timestamp, normalized_user_id, DINGTALK_SCHEDULED_LOG_STATUS_FAILED),
+            ).rowcount
+    return {"ok": True, "acknowledged_count": int(acknowledged or 0), "acknowledged_at": timestamp}
+
+
+def build_scheduled_dingtalk_log_failures_payload(user_id: str | None = None) -> dict[str, Any]:
+    failures = list_unacknowledged_scheduled_dingtalk_log_failures(user_id=user_id)
+    return {"failures": failures, "count": len(failures)}
+
+
+def create_scheduled_dingtalk_log_job(
+    job_kind: str,
+    work_date: str,
+    raw_sections: object,
+    scheduled_send_time: str,
+    *,
+    to_chat: bool | None = None,
+    recipients: object | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    normalized_user_id = ensure_user(normalize_user_id(user_id))
+    validated_date = validate_date(work_date)
+    scheduled_send_dt = parse_scheduled_dingtalk_log_datetime(scheduled_send_time)
+    now = datetime.now()
+    if scheduled_send_dt.date() != date.today():
+        raise ValueError("定时发送仅支持选择今天的时间。")
+    if scheduled_send_dt <= now:
+        raise ValueError("定时发送时间必须晚于当前时间。")
+
+    normalized_job_kind = str(job_kind or "").strip()
+    send_to_chat = DINGTALK_REPORT_TO_CHAT_DEFAULT if to_chat is None else bool(to_chat)
+    normalized_last_recipients = normalize_dingtalk_report_recipients(recipients)
+    effective_mcp_config = require_dingtalk_mcp_config(user_id=normalized_user_id, include_log=True)
+    log_mcp_url = str(effective_mcp_config.get("log_mcp_url") or "").strip()
+    payload: dict[str, Any]
+    template_config: dict[str, Any]
+    report_label: str
+
+    if normalized_job_kind == "weekly_report":
+        week_start, week_end, _ = build_week_window(validated_date)
+        template_config = require_selected_dingtalk_report_template_config(
+            user_id=normalized_user_id,
+            report_kind="weekly",
+        )
+        normalized_sections = normalize_weekly_report_sections_payload(raw_sections)
+        payload = {
+            "sections": normalized_sections,
+            "to_chat": send_to_chat,
+            "recipients": normalized_last_recipients,
+            "template_config": template_config,
+            "log_mcp_url": log_mcp_url,
+            "week_start": week_start,
+            "week_end": week_end,
+        }
+        saved_config, saved_updated_at = save_dingtalk_weekly_report_send_config(
+            send_to_chat,
+            normalized_last_recipients,
+            user_id=normalized_user_id,
+        )
+        report_label = build_scheduled_dingtalk_log_report_label(
+            normalized_job_kind,
+            validated_date,
+            week_start=week_start,
+            week_end=week_end,
+        )
+    else:
+        normalized_job_kind = "daily_log"
+        template_config = require_selected_dingtalk_report_template_config(
+            user_id=normalized_user_id,
+            report_kind="daily",
+        )
+        normalized_sections = normalize_daily_log_sections_payload(raw_sections)
+        payload = {
+            "sections": normalized_sections,
+            "to_chat": send_to_chat,
+            "recipients": normalized_last_recipients,
+            "template_config": template_config,
+            "log_mcp_url": log_mcp_url,
+        }
+        saved_config, saved_updated_at = save_dingtalk_daily_log_send_config(
+            send_to_chat,
+            normalized_last_recipients,
+            user_id=normalized_user_id,
+        )
+        report_label = build_scheduled_dingtalk_log_report_label(normalized_job_kind, validated_date)
+
+    dispatch_not_before = scheduled_send_dt - timedelta(minutes=DINGTALK_SCHEDULED_LOG_START_LEAD_MINUTES)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO scheduled_dingtalk_log_jobs (
+                user_id,
+                job_kind,
+                report_label,
+                work_date,
+                scheduled_send_at,
+                dispatch_not_before,
+                payload_json,
+                status,
+                attempt_count,
+                max_attempts,
+                last_attempt_at,
+                next_attempt_at,
+                last_error,
+                report_id,
+                sent_at,
+                failure_acknowledged_at,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, '', ?, '', '', '', '', ?, ?)
+            """,
+            (
+                normalized_user_id,
+                normalized_job_kind,
+                report_label,
+                validated_date,
+                scheduled_send_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                dispatch_not_before.strftime("%Y-%m-%d %H:%M:%S"),
+                json.dumps(payload, ensure_ascii=False),
+                DINGTALK_SCHEDULED_LOG_STATUS_PENDING,
+                DINGTALK_SCHEDULED_LOG_MAX_ATTEMPTS,
+                dispatch_not_before.strftime("%Y-%m-%d %H:%M:%S"),
+                timestamp,
+                timestamp,
+            ),
+        )
+        job_id = int(cursor.lastrowid or 0)
+    response = {
+        "ok": True,
+        "scheduled": True,
+        "schedule_mode": "scheduled",
+        "job_id": job_id,
+        "work_date": validated_date,
+        "template_id": str(template_config.get("template_id") or "").strip(),
+        "template_name": str(template_config.get("template_name") or "").strip(),
+        "message": (
+            f"{report_label} 已加入定时发送队列，将在 "
+            f"{dispatch_not_before.strftime('%Y-%m-%d %H:%M')} 开始尝试发送"
+            f"（目标时间 {scheduled_send_dt.strftime('%Y-%m-%d %H:%M')}）。"
+        ),
+        "report_id": "",
+        "to_chat": send_to_chat,
+        "base_recipients": normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS),
+        "last_recipients": saved_config["recipients"],
+        "recipients": normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS) + [
+            recipient
+            for recipient in normalized_last_recipients
+            if all(
+                existing.get("user_id") != recipient.get("user_id")
+                and existing.get("name") != recipient.get("name")
+                for existing in normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS)
+            )
+        ],
+        "send_config_updated_at": saved_updated_at,
+        "sent_at": "",
+        "scheduled_send_at": scheduled_send_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "dispatch_not_before": dispatch_not_before.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    if normalized_job_kind == "weekly_report":
+        response["week_start"] = str(payload.get("week_start") or "").strip()
+        response["week_end"] = str(payload.get("week_end") or "").strip()
+    return response
+
+
 def normalize_daily_log_section_title(title: str) -> str:
     normalized = str(title or "").strip()
     normalized = re.sub(r"^\d+\s*[、.．:：]?\s*", "", normalized)
@@ -13961,6 +14829,19 @@ def build_dingtalk_daily_log_send_payload(
     return payload
 
 
+def merge_dingtalk_send_recipients(recipients: object | None = None) -> tuple[list[dict], list[dict]]:
+    merged_recipients = normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS)
+    normalized_last_recipients = normalize_dingtalk_report_recipients(recipients)
+    for recipient in normalized_last_recipients:
+        if all(
+            existing.get("user_id") != recipient.get("user_id")
+            and existing.get("name") != recipient.get("name")
+            for existing in merged_recipients
+        ):
+            merged_recipients.append(recipient)
+    return merged_recipients, normalized_last_recipients
+
+
 def build_dingtalk_daily_log_send_prompt(
     work_date: str,
     contents: list[dict],
@@ -14006,11 +14887,7 @@ def send_daily_log_to_dingtalk(
     template_config = require_selected_dingtalk_report_template_config(user_id=user_id, report_kind="daily")
     contents = build_dingtalk_daily_log_contents(sections, template_config)
     send_to_chat = DINGTALK_REPORT_TO_CHAT_DEFAULT if to_chat is None else bool(to_chat)
-    merged_recipients = normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS)
-    normalized_last_recipients = normalize_dingtalk_report_recipients(recipients)
-    for recipient in normalized_last_recipients:
-        if all(existing.get("user_id") != recipient.get("user_id") and existing.get("name") != recipient.get("name") for existing in merged_recipients):
-            merged_recipients.append(recipient)
+    merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(recipients)
     result = parse_codex_json_output(
         run_codex_action_prompt(
             build_dingtalk_daily_log_send_prompt(
@@ -14141,11 +15018,7 @@ def send_weekly_report_to_dingtalk(
     template_config = require_selected_dingtalk_report_template_config(user_id=user_id, report_kind="weekly")
     contents = build_dingtalk_weekly_report_contents(sections, template_config)
     send_to_chat = DINGTALK_REPORT_TO_CHAT_DEFAULT if to_chat is None else bool(to_chat)
-    merged_recipients = normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS)
-    normalized_last_recipients = normalize_dingtalk_report_recipients(recipients)
-    for recipient in normalized_last_recipients:
-        if all(existing.get("user_id") != recipient.get("user_id") and existing.get("name") != recipient.get("name") for existing in merged_recipients):
-            merged_recipients.append(recipient)
+    merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(recipients)
     result = parse_codex_json_output(
         run_codex_action_prompt(
             build_dingtalk_weekly_report_send_prompt(
@@ -14184,6 +15057,209 @@ def send_weekly_report_to_dingtalk(
         "send_config_updated_at": saved_updated_at,
         "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+
+def send_scheduled_daily_log_job(job: dict | sqlite3.Row) -> dict[str, Any]:
+    row = build_scheduled_dingtalk_log_job_payload(job)
+    payload = serialize_scheduled_dingtalk_log_job_payload(job)
+    validated_date = validate_date(row["work_date"])
+    template_config = normalize_dingtalk_template_config(payload.get("template_config"))
+    contents = build_dingtalk_daily_log_contents(payload.get("sections", []), template_config)
+    send_to_chat = bool(payload.get("to_chat"))
+    merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(payload.get("recipients", []))
+    result = parse_codex_json_output(
+        run_codex_action_prompt(
+            build_dingtalk_daily_log_send_prompt(
+                validated_date,
+                contents,
+                send_to_chat,
+                merged_recipients,
+                user_id=row["user_id"],
+                template_config=template_config,
+            ),
+            extra_config=build_dingtalk_log_extra_config_from_url(str(payload.get("log_mcp_url") or "").strip()),
+        )
+    )
+    if result.get("ok") is False or result.get("success") is False:
+        raise RuntimeError(str(result.get("message") or "钉钉日志发送失败。"))
+    saved_config, saved_updated_at = save_dingtalk_daily_log_send_config(
+        send_to_chat,
+        normalized_last_recipients,
+        user_id=row["user_id"],
+    )
+    return {
+        "ok": True,
+        "work_date": validated_date,
+        "template_id": str(result.get("template_id") or template_config.get("template_id") or "").strip(),
+        "template_name": str(result.get("template_name") or template_config.get("template_name") or "").strip(),
+        "message": str(result.get("message") or f"{validated_date} 的日志已发送到钉钉模板。"),
+        "report_id": str(result.get("reportId") or result.get("report_id") or ""),
+        "to_chat": send_to_chat,
+        "base_recipients": normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS),
+        "last_recipients": saved_config["recipients"],
+        "recipients": merged_recipients,
+        "send_config_updated_at": saved_updated_at,
+        "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def send_scheduled_weekly_report_job(job: dict | sqlite3.Row) -> dict[str, Any]:
+    row = build_scheduled_dingtalk_log_job_payload(job)
+    payload = serialize_scheduled_dingtalk_log_job_payload(job)
+    validated_date = validate_date(row["work_date"])
+    week_start = str(payload.get("week_start") or row["week_start"] or "").strip()
+    week_end = str(payload.get("week_end") or row["week_end"] or "").strip()
+    template_config = normalize_dingtalk_template_config(payload.get("template_config"))
+    contents = build_dingtalk_weekly_report_contents(payload.get("sections", []), template_config)
+    send_to_chat = bool(payload.get("to_chat"))
+    merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(payload.get("recipients", []))
+    result = parse_codex_json_output(
+        run_codex_action_prompt(
+            build_dingtalk_weekly_report_send_prompt(
+                week_start,
+                week_end,
+                contents,
+                send_to_chat,
+                merged_recipients,
+                user_id=row["user_id"],
+                template_config=template_config,
+            ),
+            extra_config=build_dingtalk_log_extra_config_from_url(str(payload.get("log_mcp_url") or "").strip()),
+        )
+    )
+    if result.get("ok") is False or result.get("success") is False:
+        raise RuntimeError(str(result.get("message") or "钉钉周报发送失败。"))
+    saved_config, saved_updated_at = save_dingtalk_weekly_report_send_config(
+        send_to_chat,
+        normalized_last_recipients,
+        user_id=row["user_id"],
+    )
+    return {
+        "ok": True,
+        "work_date": validated_date,
+        "week_start": week_start,
+        "week_end": week_end,
+        "template_id": str(result.get("template_id") or template_config.get("template_id") or "").strip(),
+        "template_name": str(result.get("template_name") or template_config.get("template_name") or "").strip(),
+        "message": str(result.get("message") or f"{week_start} 至 {week_end} 的周报已发送到钉钉模板。"),
+        "report_id": str(result.get("reportId") or result.get("report_id") or ""),
+        "to_chat": send_to_chat,
+        "base_recipients": normalize_dingtalk_report_recipients(DINGTALK_REPORT_RECIPIENTS),
+        "last_recipients": saved_config["recipients"],
+        "recipients": merged_recipients,
+        "send_config_updated_at": saved_updated_at,
+        "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def dispatch_scheduled_dingtalk_log_job(job: dict | sqlite3.Row) -> dict[str, Any]:
+    row = build_scheduled_dingtalk_log_job_payload(job)
+    if row["job_kind"] == "weekly_report":
+        return send_scheduled_weekly_report_job(job)
+    return send_scheduled_daily_log_job(job)
+
+
+def list_due_scheduled_dingtalk_log_jobs(limit: int = 3) -> list[sqlite3.Row]:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT *
+            FROM scheduled_dingtalk_log_jobs
+            WHERE status = ? AND next_attempt_at != '' AND next_attempt_at <= ?
+            ORDER BY next_attempt_at ASC, id ASC
+            LIMIT ?
+            """,
+            (
+                DINGTALK_SCHEDULED_LOG_STATUS_PENDING,
+                timestamp,
+                max(1, min(int(limit or 3), 10)),
+            ),
+        ).fetchall()
+
+
+def process_scheduled_dingtalk_log_job(job: dict | sqlite3.Row) -> None:
+    row = build_scheduled_dingtalk_log_job_payload(job)
+    if not row["id"] or row["status"] != DINGTALK_SCHEDULED_LOG_STATUS_PENDING:
+        return
+    attempt_count = row["attempt_count"] + 1
+    attempt_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        result = dispatch_scheduled_dingtalk_log_job(job)
+    except Exception as error:
+        next_status = (
+            DINGTALK_SCHEDULED_LOG_STATUS_FAILED
+            if attempt_count >= max(int(row["max_attempts"] or 0), 1)
+            else DINGTALK_SCHEDULED_LOG_STATUS_PENDING
+        )
+        next_attempt_at = (
+            ""
+            if next_status == DINGTALK_SCHEDULED_LOG_STATUS_FAILED
+            else (datetime.now() + timedelta(seconds=DINGTALK_SCHEDULED_LOG_RETRY_DELAY_SECONDS)).strftime("%Y-%m-%d %H:%M:%S")
+        )
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE scheduled_dingtalk_log_jobs
+                SET status = ?, attempt_count = ?, last_attempt_at = ?, next_attempt_at = ?,
+                    last_error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    next_status,
+                    attempt_count,
+                    attempt_time,
+                    next_attempt_at,
+                    str(error),
+                    attempt_time,
+                    row["id"],
+                ),
+            )
+        return
+
+    sent_at = str(result.get("sent_at") or attempt_time).strip() or attempt_time
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE scheduled_dingtalk_log_jobs
+            SET status = ?, attempt_count = ?, last_attempt_at = ?, next_attempt_at = '',
+                last_error = '', report_id = ?, sent_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                DINGTALK_SCHEDULED_LOG_STATUS_SENT,
+                attempt_count,
+                attempt_time,
+                str(result.get("report_id") or "").strip(),
+                sent_at,
+                sent_at,
+                row["id"],
+            ),
+        )
+
+
+def run_scheduled_dingtalk_log_dispatcher_forever() -> None:
+    while True:
+        try:
+            due_jobs = list_due_scheduled_dingtalk_log_jobs()
+            for job in due_jobs:
+                process_scheduled_dingtalk_log_job(job)
+        except Exception:
+            pass
+        time.sleep(DINGTALK_SCHEDULED_LOG_DISPATCH_POLL_SECONDS)
+
+
+def start_scheduled_dingtalk_log_dispatcher() -> None:
+    global _scheduled_dingtalk_log_dispatcher_thread
+    with _scheduled_dingtalk_log_dispatcher_lock:
+        if _scheduled_dingtalk_log_dispatcher_thread and _scheduled_dingtalk_log_dispatcher_thread.is_alive():
+            return
+        _scheduled_dingtalk_log_dispatcher_thread = threading.Thread(
+            target=run_scheduled_dingtalk_log_dispatcher_forever,
+            name="scheduled-dingtalk-log-dispatcher",
+            daemon=True,
+        )
+        _scheduled_dingtalk_log_dispatcher_thread.start()
 
 
 def generate_weekly_strength_preview(work_date: str, user_id: str | None = None) -> dict:
@@ -14366,6 +15442,10 @@ def delete_local_account_with_all_history(
             "DELETE FROM dingtalk_user_identities WHERE local_user_id = ?",
             (target_user_id,),
         ).rowcount
+        deleted_scheduled_jobs = connection.execute(
+            "DELETE FROM scheduled_dingtalk_log_jobs WHERE user_id = ?",
+            (target_user_id,),
+        ).rowcount
         deleted_accounts = connection.execute(
             "DELETE FROM local_accounts WHERE username = ?",
             (normalized_username,),
@@ -14394,6 +15474,7 @@ def delete_local_account_with_all_history(
         "deleted_sessions": deleted_sessions,
         "deleted_scan_sessions": deleted_scan_sessions,
         "deleted_identities": deleted_identities,
+        "deleted_scheduled_jobs": deleted_scheduled_jobs,
         "deleted_accounts": deleted_accounts,
         "deleted_users": deleted_users,
         "deleted_logs": deleted_logs,
@@ -15245,6 +16326,18 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
             return
 
+        if parsed.path == "/api/scheduled-log-failures":
+            if not current_user:
+                self._send_json({"error": "请先登录后再查看定时发送失败记录。"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            try:
+                self._send_json(build_scheduled_dingtalk_log_failures_payload(user_id=self._resolve_user_id(query=query)))
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            except PermissionError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)
+            return
+
         if parsed.path == BING_DAILY_BACKGROUND_PROXY_PATH:
             try:
                 requested_market = str(query.get("mkt", [BING_DAILY_IMAGE_MARKET])[0] or "").strip()
@@ -15803,7 +16896,21 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 sections = payload.get("sections", [])
                 to_chat = payload.get("to_chat")
                 recipients = payload.get("recipients", [])
-                self._send_json(send_daily_log_to_dingtalk(work_date, sections, to_chat, recipients, user_id=user_id))
+                schedule_mode = str(payload.get("schedule_mode", "immediate") or "immediate").strip().lower()
+                if schedule_mode == "scheduled":
+                    self._send_json(
+                        create_scheduled_dingtalk_log_job(
+                            "daily_log",
+                            work_date,
+                            sections,
+                            str(payload.get("scheduled_send_time", "")).strip(),
+                            to_chat=to_chat,
+                            recipients=recipients,
+                            user_id=user_id,
+                        )
+                    )
+                else:
+                    self._send_json(send_daily_log_to_dingtalk(work_date, sections, to_chat, recipients, user_id=user_id))
             except ValueError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             except PermissionError as error:
@@ -15824,13 +16931,53 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 sections = payload.get("sections", [])
                 to_chat = payload.get("to_chat")
                 recipients = payload.get("recipients", [])
-                self._send_json(send_weekly_report_to_dingtalk(work_date, sections, to_chat, recipients, user_id=user_id))
+                schedule_mode = str(payload.get("schedule_mode", "immediate") or "immediate").strip().lower()
+                if schedule_mode == "scheduled":
+                    self._send_json(
+                        create_scheduled_dingtalk_log_job(
+                            "weekly_report",
+                            work_date,
+                            sections,
+                            str(payload.get("scheduled_send_time", "")).strip(),
+                            to_chat=to_chat,
+                            recipients=recipients,
+                            user_id=user_id,
+                        )
+                    )
+                else:
+                    self._send_json(send_weekly_report_to_dingtalk(work_date, sections, to_chat, recipients, user_id=user_id))
             except ValueError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             except PermissionError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)
             except RuntimeError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        if self.path == "/api/scheduled-log-failures/ack":
+            current_user = self._get_current_user()
+            if not current_user:
+                self._send_json({"error": "请先登录后再确认失败提醒。"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                raw_payload = self.rfile.read(content_length)
+                payload = json.loads(raw_payload.decode("utf-8")) if raw_payload else {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                user_id = self._resolve_user_id(payload=payload)
+                self._send_json(
+                    acknowledge_scheduled_dingtalk_log_failures(
+                        user_id=user_id,
+                        job_ids=payload.get("job_ids", []),
+                    )
+                )
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            except PermissionError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)
             except json.JSONDecodeError:
                 self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
             return
@@ -16103,6 +17250,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
 def run() -> None:
     init_db()
     ensure_current_version_snapshot()
+    start_scheduled_dingtalk_log_dispatcher()
     server = ThreadingHTTPServer((HOST, PORT), DailyPlannerHandler)
     print(f"Daily Planner running at http://{HOST}:{PORT}")
     print(f"Config file: {CONFIG_SOURCE_PATH}")
