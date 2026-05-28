@@ -1350,7 +1350,7 @@ __HELP_DOCS_CSS__
         <div class="table-shell">
           <table>
             <thead>
-              <tr><th>账号</th><th>显示名</th><th>岗位</th><th>所属部门</th><th>本地 userId</th><th>状态</th><th>角色</th><th>日程展示</th><th>钉钉 MCP</th><th>最近更新时间</th><th>操作</th></tr>
+              <tr><th>账号</th><th>显示名</th><th>岗位</th><th>所属部门</th><th>本地 userId</th><th>状态</th><th>角色</th><th>日程展示</th><th>最近更新时间</th><th>操作</th></tr>
             </thead>
             <tbody id="local-accounts-body"></tbody>
           </table>
@@ -1358,7 +1358,7 @@ __HELP_DOCS_CSS__
       </div>
       <div class="card">
         <h2>用户钉钉 MCP 总览</h2>
-        <div class="muted">这里会展示系统内每个用户当前保存的钉钉 MCP 地址与模板选择，方便管理员统一排查配置状态。</div>
+        <div class="muted">这里会展示每个用户当前保存的钉钉 MCP 地址与模板选择，方便管理员直接排查具体配置。</div>
         <div class="row" style="margin-top:10px;">
           <button class="secondary" id="reload-admin-users">刷新用户 MCP</button>
           <span class="muted" id="admin-users-status"></span>
@@ -1366,7 +1366,7 @@ __HELP_DOCS_CSS__
         <div class="table-shell">
           <table>
             <thead>
-              <tr><th>显示名</th><th>本地 userId</th><th>岗位</th><th>所属部门</th><th>角色</th><th>账号状态</th><th>钉钉 MCP</th></tr>
+              <tr><th>显示名</th><th>本地 userId</th><th>钉钉 MCP</th></tr>
             </thead>
             <tbody id="admin-users-body"></tbody>
           </table>
@@ -2507,7 +2507,7 @@ __HELP_DOCS_OVERLAY__
     function renderLocalAccounts(rows) {
       localAccounts = Array.isArray(rows) ? rows.slice() : [];
       if (!localAccounts.length) {
-        localAccountsBody.innerHTML = '<tr><td colspan="11">暂无本地账号</td></tr>';
+        localAccountsBody.innerHTML = '<tr><td colspan="10">暂无本地账号</td></tr>';
         return;
       }
       localAccountsBody.innerHTML = localAccounts.map((row) => {
@@ -2537,7 +2537,6 @@ __HELP_DOCS_OVERLAY__
           <td>${status}</td>
           <td>${role}</td>
           <td>${scheduleVisibility}</td>
-          <td>${renderLocalAccountMcpSummary(row)}</td>
           <td>${escapeHtml(row.updated_at || "") || "未记录"}</td>
           <td>
             <div class="local-account-actions">
@@ -2551,35 +2550,13 @@ __HELP_DOCS_OVERLAY__
     function renderAdminUsers(rows) {
       adminUsers = Array.isArray(rows) ? rows.slice() : [];
       if (!adminUsers.length) {
-        adminUsersBody.innerHTML = '<tr><td colspan="7">暂无用户</td></tr>';
+        adminUsersBody.innerHTML = '<tr><td colspan="3">暂无用户</td></tr>';
         return;
       }
       adminUsersBody.innerHTML = adminUsers.map((row) => {
-        const roleList = [];
-        if (String(row.role || "").trim() === "admin") {
-          roleList.push("管理员");
-        }
-        if (row.is_department_admin) {
-          roleList.push("部门管理员");
-        }
-        if (!roleList.length) {
-          roleList.push("普通用户");
-        }
-        const roleText = roleList.join(" / ");
-        const position = Array.isArray(row.positions) && row.positions.length
-          ? row.positions.join("、")
-          : (String(row.position || "").trim() || "未设置");
-        const department = String(row.department || "").trim() || "未设置";
-        const accountState = row.has_local_account
-          ? (row.enabled ? "本地账号已启用" : "本地账号已停用")
-          : "仅钉钉身份";
         return `<tr>
           <td>${escapeHtml(row.display_name || row.user_id || "")}</td>
           <td><span class="code">${escapeHtml(row.user_id || "")}</span></td>
-          <td>${escapeHtml(position)}</td>
-          <td>${escapeHtml(department)}</td>
-          <td>${escapeHtml(roleText)}</td>
-          <td>${escapeHtml(accountState)}</td>
           <td>${renderLocalAccountMcpSummary(row)}</td>
         </tr>`;
       }).join("");
