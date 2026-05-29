@@ -617,7 +617,32 @@ def render_admin_html(
     .local-account-department-controls { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; }
     .local-account-department-controls button { min-height: 42px; white-space: nowrap; }
     .local-account-select-note { color: var(--text-soft); font-size: 12px; line-height: 1.7; }
-    .local-account-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .local-account-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: nowrap;
+      white-space: nowrap;
+    }
+    .local-account-actions button {
+      min-height: 30px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+      box-shadow: none;
+    }
+    .local-account-actions button:hover { box-shadow: none; }
+    .local-accounts-table th:nth-child(6),
+    .local-accounts-table td:nth-child(6),
+    .local-accounts-table th:nth-child(8),
+    .local-accounts-table td:nth-child(8),
+    .local-accounts-table th:nth-child(9),
+    .local-accounts-table td:nth-child(9),
+    .local-accounts-table th:nth-child(10),
+    .local-accounts-table td:nth-child(10) {
+      white-space: nowrap;
+    }
+    .local-accounts-table td:nth-child(10) { width: 124px; }
     .mcp-config-cell { min-width: 280px; display: grid; gap: 8px; }
     .mcp-config-item { display: grid; gap: 3px; }
     .mcp-config-label { color: var(--text-soft); font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
@@ -1348,7 +1373,19 @@ __HELP_DOCS_CSS__
           <span class="muted" id="local-account-status"></span>
         </div>
         <div class="table-shell">
-          <table>
+          <table class="local-accounts-table">
+            <colgroup>
+              <col style="width: 96px;">
+              <col style="width: 110px;">
+              <col style="width: 132px;">
+              <col style="width: 110px;">
+              <col style="width: 148px;">
+              <col style="width: 72px;">
+              <col style="width: 116px;">
+              <col style="width: 86px;">
+              <col style="width: 142px;">
+              <col style="width: 124px;">
+            </colgroup>
             <thead>
               <tr><th>账号</th><th>显示名</th><th>岗位</th><th>所属部门</th><th>本地 userId</th><th>状态</th><th>角色</th><th>日程展示</th><th>最近更新时间</th><th>操作</th></tr>
             </thead>
