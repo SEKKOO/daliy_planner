@@ -793,6 +793,13 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     .schedule-filter-option-label {
       flex: 1 1 auto;
       min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+    .schedule-filter-option-meta {
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--text-soft);
     }
     .schedule-filter-option.is-empty {
       cursor: default;
@@ -870,6 +877,180 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     }
     .row-status-badge.time {
       line-height: 1.6;
+    }
+    .weekly-stats-filter-shell {
+      display: grid;
+      gap: 0;
+      margin-bottom: 12px;
+    }
+    .weekly-stats-member-scope {
+      display: grid;
+      gap: 8px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(42,111,214,0.12);
+      background: linear-gradient(
+        180deg,
+        rgba(var(--surface-rgb), var(--shell-surface-strong-alpha)),
+        rgba(var(--surface-soft-rgb), var(--shell-surface-alpha))
+      );
+      box-shadow: var(--inner-shadow);
+    }
+    .weekly-stats-member-scope-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .weekly-stats-filter-action {
+      white-space: nowrap;
+      margin-left: auto;
+      min-height: 34px;
+      padding: 0 12px;
+      font-size: 12px;
+    }
+    .weekly-stats-member-scope-title {
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--text-soft);
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .weekly-stats-member-scope-summary {
+      font-size: 16px;
+      line-height: 1.3;
+      color: var(--accent-deep);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .weekly-stats-member-scope-inline {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .weekly-stats-member-scope-inline .chip-row {
+      gap: 4px;
+    }
+    .weekly-stats-member-empty {
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-soft);
+    }
+    .weekly-stats-grid {
+      column-count: 2;
+      column-gap: 10px;
+    }
+    .weekly-stats-panel {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      width: 100%;
+      margin: 0 0 10px;
+      border-radius: 18px;
+      border: 1px solid rgba(42,111,214,0.12);
+      background: linear-gradient(
+        180deg,
+        rgba(var(--surface-rgb), var(--shell-surface-strong-alpha)),
+        rgba(var(--surface-soft-rgb), var(--shell-surface-alpha))
+      );
+      box-shadow: var(--inner-shadow);
+      break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .weekly-stats-panel.wide {
+      column-span: all;
+    }
+    .weekly-stats-panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .weekly-stats-panel-title {
+      font-size: 15px;
+      line-height: 1.4;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .weekly-stats-panel-note {
+      margin-top: 2px;
+      font-size: 11px;
+      line-height: 1.55;
+      color: var(--text-soft);
+    }
+    .weekly-stats-table-wrap {
+      overflow: auto;
+      border: 1px solid rgba(42,111,214,0.08);
+      border-radius: 14px;
+      background: rgba(var(--surface-rgb), var(--shell-surface-alpha));
+    }
+    .weekly-stats-table {
+      width: max(360px, 100%);
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+    .weekly-stats-table th,
+    .weekly-stats-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(42,111,214,0.08);
+      border-right: 1px solid rgba(42,111,214,0.06);
+      background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
+      font-size: 11px;
+      line-height: 1.5;
+      vertical-align: top;
+    }
+    .weekly-stats-table th:last-child,
+    .weekly-stats-table td:last-child { border-right: none; }
+    .weekly-stats-table tr:last-child td { border-bottom: none; }
+    .weekly-stats-table th {
+      white-space: nowrap;
+      background: rgba(var(--table-head-rgb), var(--shell-surface-strong-alpha));
+      color: var(--text);
+      font-weight: 700;
+    }
+    .weekly-stats-table tfoot td {
+      font-weight: 800;
+      color: var(--accent-deep);
+      background: rgba(var(--table-head-rgb), var(--shell-surface-strong-alpha));
+    }
+    .weekly-stats-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .weekly-stats-subtext {
+      margin-top: 3px;
+      font-size: 10px;
+      line-height: 1.5;
+      color: var(--text-soft);
+    }
+    .weekly-stats-tag-row {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .weekly-stats-inline-value {
+      white-space: nowrap;
+      font-weight: 700;
+      color: var(--primary-deep);
+    }
+    .weekly-stats-rank {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(42,111,214,0.12);
+      color: var(--primary-deep);
+      font-size: 12px;
+      font-weight: 800;
     }
     .daily-select-row {
       display: grid;
@@ -1478,7 +1659,10 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       .page-theme-toggle .login-status-chip { width: 100%; }
       .hero { flex-direction: column; }
       .toolbar-grid,
-      .daily-select-row { grid-template-columns: 1fr; }
+      .daily-select-row,
+      .weekly-stats-grid { column-count: 1; }
+      .weekly-stats-member-scope-head { align-items: stretch; }
+      .weekly-stats-filter-action { margin-left: 0; }
       .plan-week-meta { justify-items: start; }
       .plan-week-meta-top { justify-content: flex-start; }
       .plan-week-meta-chips { justify-content: flex-start; }
@@ -1755,6 +1939,19 @@ __HELP_DOCS_CSS__
       </div>
     </section>
 
+    <section class="card section-card" id="weekly-stats-section" hidden>
+      <div class="section-head">
+        <div class="section-head-main">
+          <h2>本周工作统计</h2>
+          <div class="muted">按部门、岗位和人员筛选本周已填写的事项，再从人员、销售、项目和服务类型几个维度查看团队工时情况。</div>
+        </div>
+      </div>
+      <div class="weekly-stats-filter-shell">
+        <div class="weekly-stats-member-scope" id="weekly-stats-member-scope"></div>
+      </div>
+      <div class="weekly-stats-grid" id="weekly-stats-grid"></div>
+    </section>
+
     <section class="card section-card" id="daily-section" hidden>
       <div class="section-head">
         <div class="section-head-main">
@@ -1864,7 +2061,7 @@ __HELP_DOCS_CSS__
 __HELP_DOCS_OVERLAY__
   <div class="schedule-filter-overlay" id="schedule-filter-overlay" hidden>
       <section class="schedule-filter-dialog" role="dialog" aria-modal="false" aria-labelledby="schedule-filter-title">
-        <div class="schedule-filter-title" id="schedule-filter-title">筛选成员</div>
+        <div class="schedule-filter-title" id="schedule-filter-title">筛选范围</div>
         <section class="schedule-filter-section">
           <div class="schedule-filter-section-title">部门筛选</div>
           <div class="schedule-filter-options" id="schedule-filter-department-options"></div>
@@ -1872,6 +2069,10 @@ __HELP_DOCS_OVERLAY__
         <section class="schedule-filter-section">
           <div class="schedule-filter-section-title">岗位筛选</div>
           <div class="schedule-filter-options" id="schedule-filter-position-options"></div>
+        </section>
+        <section class="schedule-filter-section">
+          <div class="schedule-filter-section-title">人员筛选</div>
+          <div class="schedule-filter-options" id="schedule-filter-user-options"></div>
         </section>
       </section>
     </div>
@@ -1914,6 +2115,9 @@ __HELP_DOCS_OVERLAY__
     const stateMessageEl = document.getElementById("state-message");
     const toolbarCardEl = document.getElementById("toolbar-card");
     const planSectionEl = document.getElementById("plan-section");
+    const weeklyStatsSectionEl = document.getElementById("weekly-stats-section");
+    const weeklyStatsMemberScopeEl = document.getElementById("weekly-stats-member-scope");
+    const weeklyStatsGridEl = document.getElementById("weekly-stats-grid");
     const dailySectionEl = document.getElementById("daily-section");
     const backAdminPageButton = document.getElementById("back-admin-page");
     const authLoginButton = document.getElementById("auth-login-button");
@@ -1970,6 +2174,7 @@ __HELP_DOCS_OVERLAY__
     const scheduleFilterOverlay = document.getElementById("schedule-filter-overlay");
     const scheduleFilterDepartmentOptionsEl = document.getElementById("schedule-filter-department-options");
     const scheduleFilterPositionOptionsEl = document.getElementById("schedule-filter-position-options");
+    const scheduleFilterUserOptionsEl = document.getElementById("schedule-filter-user-options");
     const PLAN_AUTO_SAVE_DELAY_MS = 1000;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -2003,8 +2208,9 @@ __HELP_DOCS_OVERLAY__
     let latestEditLogPayload = null;
     let isScheduleFilterOverlayOpen = false;
     let requestedScheduleFilterState = null;
-    let scheduleFilterDraftState = { departments: [], positions: [] };
+    let scheduleFilterDraftState = { departments: [], positions: [], users: [] };
     let scheduleFilterPositionFrameId = 0;
+    let activeScheduleFilterTriggerEl = null;
     let dingtalkAuthConfig = normalizeDingtalkAuthConfig({});
     let currentDingtalkScanSessionId = "";
     let dingtalkScanPollTimer = null;
@@ -2170,12 +2376,14 @@ __HELP_DOCS_OVERLAY__
       const source = payload;
       const hasDepartments = Array.isArray(source.departments);
       const hasPositions = Array.isArray(source.positions);
-      if (!hasDepartments && !hasPositions) {
+      const hasUsers = Array.isArray(source.users);
+      if (!hasDepartments && !hasPositions && !hasUsers) {
         return null;
       }
       const departments = normalizeSelectionValues(hasDepartments ? source.departments : []);
       const positions = normalizeSelectionValues(hasPositions ? source.positions : []);
-      return { departments, positions };
+      const users = normalizeSelectionValues(hasUsers ? source.users : []);
+      return { departments, positions, users };
     }
     function readStoredScheduleFilterState() {
       try {
@@ -2871,6 +3079,62 @@ __HELP_DOCS_OVERLAY__
       return normalizeSelectionValues(payload && payload.available_positions || []);
     }
 
+    function getAvailableUserFilterOptions(payload = latestPayload) {
+      const source = Array.isArray(payload && payload.available_users) ? payload.available_users : [];
+      const options = [];
+      const seen = new Set();
+      source.forEach((item) => {
+        const userId = String(item && item.user_id || '').trim();
+        if (!userId) {
+          return;
+        }
+        const key = userId.toLowerCase();
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        const displayName = String(item && (item.display_name || userId) || userId).trim() || userId;
+        const department = String(item && item.department || '').trim();
+        const positionLabels = String(item && item.position_labels || '').trim();
+        const metaParts = [department, positionLabels].filter(Boolean);
+        options.push({
+          value: userId,
+          label: displayName,
+          meta: metaParts.join(' · '),
+        });
+      });
+      return options;
+    }
+
+    function normalizeUserSelectionValues(values, options = getAvailableUserFilterOptions()) {
+      const rawValues = Array.isArray(values) ? values : [values];
+      const normalizedOptions = Array.isArray(options)
+        ? options
+          .map((item) => String(item && item.value || item || '').trim())
+          .filter(Boolean)
+        : [];
+      const selectedKeys = new Set();
+      const fallbackValues = [];
+      rawValues.forEach((item) => {
+        const userId = String(item || '').trim();
+        if (!userId) {
+          return;
+        }
+        const key = userId.toLowerCase();
+        if (selectedKeys.has(key)) {
+          return;
+        }
+        selectedKeys.add(key);
+        if (!normalizedOptions.length) {
+          fallbackValues.push(userId);
+        }
+      });
+      if (!normalizedOptions.length) {
+        return fallbackValues;
+      }
+      return normalizedOptions.filter((option) => selectedKeys.has(option.toLowerCase()));
+    }
+
     function getSelectedDepartmentFilters(payload = latestPayload) {
       const availableDepartments = getAvailableDepartmentFilters(payload);
       const selectedExplicitEmpty = Boolean(payload && payload.selected_departments_explicit_empty);
@@ -2897,31 +3161,56 @@ __HELP_DOCS_OVERLAY__
       return defaultPositions.length ? defaultPositions : availablePositions;
     }
 
+    function getSelectedUserFilters(payload = latestPayload) {
+      const availableUserOptions = getAvailableUserFilterOptions(payload);
+      const selectedExplicitEmpty = Boolean(payload && payload.selected_users_explicit_empty);
+      const selected = normalizeUserSelectionValues(payload && payload.selected_users || [], availableUserOptions);
+      if (selected.length || selectedExplicitEmpty) {
+        return selected;
+      }
+      const defaultUsers = normalizeUserSelectionValues(payload && payload.default_selected_users || [], availableUserOptions);
+      if (defaultUsers.length) {
+        return defaultUsers;
+      }
+      return availableUserOptions.map((item) => item.value);
+    }
+
     function buildCurrentScheduleFilterQueryState(payload = latestPayload) {
       const availableDepartments = getAvailableDepartmentFilters(payload);
       const availablePositions = getAvailablePositionFilters(payload);
+      const availableUserOptions = getAvailableUserFilterOptions(payload);
       const activeState = requestedScheduleFilterState && typeof requestedScheduleFilterState === 'object'
         ? requestedScheduleFilterState
         : null;
       const hasActiveDepartments = Boolean(activeState && Array.isArray(activeState.departments));
       const hasActivePositions = Boolean(activeState && Array.isArray(activeState.positions));
+      const hasActiveUsers = Boolean(activeState && Array.isArray(activeState.users));
       const selectedDepartmentsExplicitEmpty = hasActiveDepartments
         ? activeState.departments.length === 0
         : Boolean(payload && payload.selected_departments_explicit_empty);
       const selectedPositionsExplicitEmpty = hasActivePositions
         ? activeState.positions.length === 0
         : Boolean(payload && payload.selected_positions_explicit_empty);
+      const selectedUsersExplicitEmpty = hasActiveUsers
+        ? activeState.users.length === 0
+        : Boolean(payload && payload.selected_users_explicit_empty);
       let selectedDepartments = hasActiveDepartments
         ? normalizeSelectionValues(activeState.departments, availableDepartments)
         : getSelectedDepartmentFilters(payload);
       let selectedPositions = hasActivePositions
         ? normalizeSelectionValues(activeState.positions, availablePositions)
         : getSelectedPositionFilters(payload);
+      let selectedUsers = hasActiveUsers
+        ? normalizeUserSelectionValues(activeState.users, availableUserOptions)
+        : getSelectedUserFilters(payload);
       if (!selectedDepartments.length && !selectedDepartmentsExplicitEmpty) {
         selectedDepartments = getSelectedDepartmentFilters(payload);
       }
       if (!selectedPositions.length && !selectedPositionsExplicitEmpty) {
         selectedPositions = getSelectedPositionFilters(payload);
+      }
+      if (!selectedUsers.length && !selectedUsersExplicitEmpty) {
+        selectedUsers = getSelectedUserFilters(payload);
       }
       let departmentParam = '';
       if (selectedDepartmentsExplicitEmpty) {
@@ -2938,11 +3227,14 @@ __HELP_DOCS_OVERLAY__
       return {
         selectedDepartments,
         selectedPositions,
+        selectedUsers,
         selectedDepartmentsExplicitEmpty,
         selectedPositionsExplicitEmpty,
+        selectedUsersExplicitEmpty,
         departmentParam,
         availableDepartments,
         availablePositions,
+        availableUserOptions,
       };
     }
 
@@ -2964,19 +3256,30 @@ __HELP_DOCS_OVERLAY__
       } else {
         queryState.selectedPositions.forEach((position) => params.append('positions', position));
       }
+      params.delete('users');
+      if (queryState.selectedUsersExplicitEmpty) {
+        params.append('users', '__none__');
+      } else {
+        queryState.selectedUsers.forEach((userId) => params.append('users', userId));
+      }
       return queryState;
     }
 
+    function getScheduleFilterTriggerButtons() {
+      return Array.from(document.querySelectorAll('button[data-action="open-schedule-filter"]'));
+    }
+
     function getScheduleFilterTriggerButton() {
-      return planWeekMetaEl.querySelector('button[data-action="open-schedule-filter"]');
+      if (activeScheduleFilterTriggerEl && activeScheduleFilterTriggerEl.isConnected) {
+        return activeScheduleFilterTriggerEl;
+      }
+      return getScheduleFilterTriggerButtons().find((button) => !button.hidden) || null;
     }
 
     function syncScheduleFilterTriggerButtonState() {
-      const triggerButton = getScheduleFilterTriggerButton();
-      if (!triggerButton) {
-        return;
-      }
-      triggerButton.setAttribute('aria-expanded', isScheduleFilterOverlayOpen ? 'true' : 'false');
+      getScheduleFilterTriggerButtons().forEach((button) => {
+        button.setAttribute('aria-expanded', isScheduleFilterOverlayOpen ? 'true' : 'false');
+      });
     }
 
     function scheduleScheduleFilterOverlayPosition() {
@@ -2998,7 +3301,7 @@ __HELP_DOCS_OVERLAY__
         return;
       }
       const viewportPadding = 12;
-      const desiredWidth = Math.min(240, Math.max(180, window.innerWidth - viewportPadding * 2));
+      const desiredWidth = Math.min(320, Math.max(220, window.innerWidth - viewportPadding * 2));
       scheduleFilterOverlay.style.width = `${desiredWidth}px`;
       scheduleFilterOverlay.style.visibility = 'hidden';
       scheduleFilterOverlay.style.left = `${viewportPadding}px`;
@@ -3019,25 +3322,86 @@ __HELP_DOCS_OVERLAY__
       scheduleFilterOverlay.style.visibility = '';
     }
 
+    function normalizeScheduleFilterOptionItems(options) {
+      const normalizedItems = [];
+      const seen = new Set();
+      (Array.isArray(options) ? options : [options]).forEach((option) => {
+        if (option && typeof option === 'object' && !Array.isArray(option)) {
+          const value = String(option.value || option.user_id || '').trim();
+          if (!value) {
+            return;
+          }
+          const key = value.toLowerCase();
+          if (seen.has(key)) {
+            return;
+          }
+          seen.add(key);
+          normalizedItems.push({
+            value,
+            label: String(option.label || option.display_name || value).trim() || value,
+            meta: String(option.meta || '').trim(),
+          });
+          return;
+        }
+        const value = String(option || '').trim();
+        if (!value) {
+          return;
+        }
+        const key = value.toLowerCase();
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        normalizedItems.push({ value, label: value, meta: '' });
+      });
+      return normalizedItems;
+    }
+
+    function getScheduleFilterOptionItems(groupName, payload = latestPayload) {
+      if (groupName === 'departments') {
+        return normalizeScheduleFilterOptionItems(getAvailableDepartmentFilters(payload));
+      }
+      if (groupName === 'positions') {
+        return normalizeScheduleFilterOptionItems(getAvailablePositionFilters(payload));
+      }
+      if (groupName === 'users') {
+        return normalizeScheduleFilterOptionItems(getAvailableUserFilterOptions(payload));
+      }
+      return [];
+    }
+
+    function normalizeScheduleFilterGroupValues(groupName, values, optionItems) {
+      const optionValues = Array.isArray(optionItems) ? optionItems.map((item) => item.value) : [];
+      if (groupName === 'users') {
+        return normalizeUserSelectionValues(values, optionItems);
+      }
+      return normalizeSelectionValues(values, optionValues);
+    }
+
     function renderScheduleFilterOptionList(target, groupName, options, selectedValues, emptyMessage) {
-      const normalizedOptions = normalizeSelectionValues(options);
-      const selectedSet = new Set(normalizeSelectionValues(selectedValues, normalizedOptions).map((item) => item.toLowerCase()));
+      const normalizedOptions = normalizeScheduleFilterOptionItems(options);
+      const selectedSet = new Set(
+        normalizeScheduleFilterGroupValues(groupName, selectedValues, normalizedOptions).map((item) => item.toLowerCase())
+      );
       if (!normalizedOptions.length) {
         target.innerHTML = `<div class="schedule-filter-option is-empty">${escapeHtml(emptyMessage)}</div>`;
         return;
       }
       target.innerHTML = normalizedOptions.map((option) => {
-        const isSelected = selectedSet.has(option.toLowerCase());
+        const isSelected = selectedSet.has(option.value.toLowerCase());
         return `
           <label class="schedule-filter-option${isSelected ? ' is-selected' : ''}">
             <input
               type="checkbox"
               class="schedule-filter-checkbox"
               data-filter-group="${escapeHtml(groupName)}"
-              data-filter-value="${escapeHtml(option)}"
+              data-filter-value="${escapeHtml(option.value)}"
               ${isSelected ? 'checked' : ''}
             >
-            <span class="schedule-filter-option-label">${escapeHtml(option)}</span>
+            <span class="schedule-filter-option-label">
+              ${escapeHtml(option.label)}
+              ${option.meta ? `<span class="schedule-filter-option-meta">${escapeHtml(option.meta)}</span>` : ''}
+            </span>
           </label>
         `;
       }).join('');
@@ -3046,8 +3410,10 @@ __HELP_DOCS_OVERLAY__
     function renderScheduleFilterOverlay(payload = latestPayload) {
       const departmentOptions = getAvailableDepartmentFilters(payload);
       const positionOptions = getAvailablePositionFilters(payload);
+      const userOptions = getAvailableUserFilterOptions(payload);
       const selectedDepartments = normalizeSelectionValues(scheduleFilterDraftState.departments, departmentOptions);
       const selectedPositions = normalizeSelectionValues(scheduleFilterDraftState.positions, positionOptions);
+      const selectedUsers = normalizeUserSelectionValues(scheduleFilterDraftState.users, userOptions);
       renderScheduleFilterOptionList(
         scheduleFilterDepartmentOptionsEl,
         'departments',
@@ -3062,16 +3428,25 @@ __HELP_DOCS_OVERLAY__
         selectedPositions,
         '当前范围内暂无可筛选岗位。'
       );
+      renderScheduleFilterOptionList(
+        scheduleFilterUserOptionsEl,
+        'users',
+        userOptions,
+        selectedUsers,
+        '当前范围内暂无可筛选人员。'
+      );
     }
 
     function openScheduleFilterOverlay() {
       if (!latestPayload) {
         return;
       }
+      const queryState = buildCurrentScheduleFilterQueryState(latestPayload);
       isScheduleFilterOverlayOpen = true;
       scheduleFilterDraftState = {
-        departments: buildCurrentScheduleFilterQueryState(latestPayload).selectedDepartments,
-        positions: buildCurrentScheduleFilterQueryState(latestPayload).selectedPositions,
+        departments: queryState.selectedDepartments,
+        positions: queryState.selectedPositions,
+        users: queryState.selectedUsers,
       };
       renderScheduleFilterOverlay(latestPayload);
       scheduleFilterOverlay.hidden = false;
@@ -3086,7 +3461,8 @@ __HELP_DOCS_OVERLAY__
         window.cancelAnimationFrame(scheduleFilterPositionFrameId);
         scheduleFilterPositionFrameId = 0;
       }
-      scheduleFilterDraftState = { departments: [], positions: [] };
+      scheduleFilterDraftState = { departments: [], positions: [], users: [] };
+      activeScheduleFilterTriggerEl = null;
       syncScheduleFilterTriggerButtonState();
     }
 
@@ -3096,11 +3472,14 @@ __HELP_DOCS_OVERLAY__
       }
       const departmentOptions = getAvailableDepartmentFilters(latestPayload);
       const positionOptions = getAvailablePositionFilters(latestPayload);
+      const userOptions = getAvailableUserFilterOptions(latestPayload);
       const selectedDepartments = normalizeSelectionValues(scheduleFilterDraftState.departments, departmentOptions);
       const selectedPositions = normalizeSelectionValues(scheduleFilterDraftState.positions, positionOptions);
+      const selectedUsers = normalizeUserSelectionValues(scheduleFilterDraftState.users, userOptions);
       requestedScheduleFilterState = {
         departments: selectedDepartments,
         positions: selectedPositions,
+        users: selectedUsers,
       };
       if (!selectedDepartments.length) {
         departmentSelect.value = '__none__';
@@ -3121,12 +3500,11 @@ __HELP_DOCS_OVERLAY__
       if (!normalizedGroupName || !normalizedValue) {
         return;
       }
-      const optionList = normalizedGroupName === 'departments'
-        ? getAvailableDepartmentFilters(latestPayload)
-        : getAvailablePositionFilters(latestPayload);
-      const currentSelectedValues = normalizeSelectionValues(
-        normalizedGroupName === 'departments' ? scheduleFilterDraftState.departments : scheduleFilterDraftState.positions,
-        optionList
+      const optionItems = getScheduleFilterOptionItems(normalizedGroupName, latestPayload);
+      const currentSelectedValues = normalizeScheduleFilterGroupValues(
+        normalizedGroupName,
+        scheduleFilterDraftState[normalizedGroupName],
+        optionItems
       );
       const isSelected = currentSelectedValues.some((item) => item.toLowerCase() === normalizedValue.toLowerCase());
       const nextSelectedValues = isSelected
@@ -3134,7 +3512,7 @@ __HELP_DOCS_OVERLAY__
         : currentSelectedValues.concat([normalizedValue]);
       scheduleFilterDraftState = {
         ...scheduleFilterDraftState,
-        [normalizedGroupName]: normalizeSelectionValues(nextSelectedValues, optionList),
+        [normalizedGroupName]: normalizeScheduleFilterGroupValues(normalizedGroupName, nextSelectedValues, optionItems),
       };
       renderScheduleFilterOverlay(latestPayload);
       applyScheduleFilterDraft().catch((error) => {
@@ -3154,6 +3532,7 @@ __HELP_DOCS_OVERLAY__
       stateCardEl.hidden = false;
       toolbarCardEl.hidden = false;
       planSectionEl.hidden = true;
+      weeklyStatsSectionEl.hidden = true;
       dailySectionEl.hidden = true;
       editLogButton.hidden = true;
       stateLoginButton.hidden = !showLoginButton;
@@ -3164,6 +3543,7 @@ __HELP_DOCS_OVERLAY__
       stateCardEl.hidden = true;
       stateLoginButton.hidden = true;
       planSectionEl.hidden = false;
+      weeklyStatsSectionEl.hidden = false;
     }
 
     function getMembers() {
@@ -3421,10 +3801,16 @@ __HELP_DOCS_OVERLAY__
       return Boolean(latestPayload && latestPayload.show_daily_section);
     }
 
+    function canViewWeeklyStats() {
+      return Boolean(latestPayload && latestPayload.show_weekly_stats);
+    }
+
     function applyPayloadViewVisibility(payload) {
       const viewer = payload && payload.viewer ? payload.viewer : {};
+      const canShowWeeklyStats = Boolean(payload && payload.show_weekly_stats);
       const canShowDailySection = Boolean(payload && payload.show_daily_section);
       const canShowAdminButton = Boolean(payload && payload.show_admin_button);
+      weeklyStatsSectionEl.hidden = !canShowWeeklyStats;
       dailySectionEl.hidden = !canShowDailySection;
       backAdminPageButton.hidden = !canShowAdminButton;
       editLogButton.hidden = !canCurrentViewerOpenEditLogs(viewer);
@@ -3791,6 +4177,7 @@ __HELP_DOCS_OVERLAY__
       const planMetaChips = [
         `当前部门展示 ${payload && payload.selected_department_label || "全部部门"}`,
         `岗位筛选 ${payload && payload.selected_position_label || "全部岗位"}`,
+        `人员筛选 ${payload && payload.selected_user_label || "全部人员"}`,
       ];
       const latestUpdatedAt = getLatestDepartmentWeeklyPlanUpdatedAt(payload);
       planWeekMetaEl.innerHTML = `
@@ -3803,13 +4190,261 @@ __HELP_DOCS_OVERLAY__
             aria-haspopup="menu"
             aria-controls="schedule-filter-overlay"
             aria-expanded="${isScheduleFilterOverlayOpen ? "true" : "false"}"
-          >筛选成员</button>
+          >调整范围</button>
         </div>
         <div class="plan-week-meta-updated">最近保存：${escapeHtml(latestUpdatedAt || "未记录")}</div>
       `;
       if (isScheduleFilterOverlayOpen) {
         scheduleScheduleFilterOverlayPosition();
       }
+    }
+
+    function formatWeeklyStatsHours(value) {
+      const normalized = String(value || "").trim();
+      return `${normalized || "0"}h`;
+    }
+
+    function renderWeeklyStatsPanel(title, note, bodyHtml, options = {}) {
+      const extraClass = options.wide ? " wide" : "";
+      const metaChips = Array.isArray(options.metaChips) && options.metaChips.length
+        ? `<div class="chip-row">${options.metaChips.map((item) => renderChip(item)).join("")}</div>`
+        : "";
+      return `
+        <section class="weekly-stats-panel${extraClass}">
+          <div class="weekly-stats-panel-head">
+            <div>
+              <div class="weekly-stats-panel-title">${escapeHtml(title)}</div>
+              <div class="weekly-stats-panel-note">${escapeHtml(note)}</div>
+            </div>
+            ${metaChips}
+          </div>
+          ${bodyHtml}
+        </section>
+      `;
+    }
+
+    function renderWeeklyStatsEmpty(message) {
+      return `<div class="empty-card full-width-note">${escapeHtml(message)}</div>`;
+    }
+
+    function renderWeeklyStatsFilterSummary(payload) {
+      const members = getMembers();
+      if (!members.length) {
+        weeklyStatsMemberScopeEl.innerHTML = `
+          <div class="weekly-stats-member-scope-head">
+            <div>
+              <div class="weekly-stats-member-scope-title">当前统计用户</div>
+              <div class="weekly-stats-member-scope-summary">当前没有可统计用户</div>
+            </div>
+            <button
+              type="button"
+              class="secondary plan-filter-button weekly-stats-filter-action"
+              data-action="open-schedule-filter"
+              aria-haspopup="menu"
+              aria-controls="schedule-filter-overlay"
+              aria-expanded="${isScheduleFilterOverlayOpen ? 'true' : 'false'}"
+            >调整筛选</button>
+          </div>
+          <div class="weekly-stats-member-empty">当前筛选条件下暂无用户可统计，请调整部门、岗位或人员范围。</div>
+        `;
+        return;
+      }
+      weeklyStatsMemberScopeEl.innerHTML = `
+        <div class="weekly-stats-member-scope-head">
+          <div>
+            <div class="weekly-stats-member-scope-title">当前统计用户</div>
+            <div class="weekly-stats-member-scope-inline">
+              <div class="weekly-stats-member-scope-summary">${escapeHtml(String(members.length))} 人</div>
+              <div class="chip-row">${members.map((member) => renderChip(getMemberDisplayName(member))).join('')}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="secondary plan-filter-button weekly-stats-filter-action"
+            data-action="open-schedule-filter"
+            aria-haspopup="menu"
+            aria-controls="schedule-filter-overlay"
+            aria-expanded="${isScheduleFilterOverlayOpen ? 'true' : 'false'}"
+          >调整筛选</button>
+        </div>
+      `;
+    }
+
+    function renderWeeklyStatsMemberHoursPanel(stats) {
+      const rows = Array.isArray(stats && stats.by_member) ? stats.by_member : [];
+      const summary = stats && stats.summary && typeof stats.summary === 'object' ? stats.summary : {};
+      if (!rows.length) {
+        return renderWeeklyStatsPanel(
+          '人员维度工时统计',
+          '按用户查看现场、远程和总工时。',
+          renderWeeklyStatsEmpty('当前周暂无可汇总的人员工时数据。')
+        );
+      }
+      const tableHtml = `
+        <div class="weekly-stats-table-wrap">
+          <table class="weekly-stats-table">
+            <thead>
+              <tr><th>用户</th><th>现场</th><th>远程</th><th>总计</th></tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>
+                  <td>
+                    <div class="weekly-stats-name">${escapeHtml(row.display_name || row.user_id || '未命名用户')}</div>
+                    ${row.position_labels ? `<div class="weekly-stats-subtext">${escapeHtml(row.position_labels)}</div>` : ''}
+                  </td>
+                  <td><span class="weekly-stats-inline-value">${escapeHtml(formatWeeklyStatsHours(row.onsite_hours))}</span></td>
+                  <td><span class="weekly-stats-inline-value">${escapeHtml(formatWeeklyStatsHours(row.remote_hours))}</span></td>
+                  <td><span class="weekly-stats-inline-value">${escapeHtml(formatWeeklyStatsHours(row.total_hours))}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>部门合计</td>
+                <td>${escapeHtml(formatWeeklyStatsHours(summary.onsite_hours))}</td>
+                <td>${escapeHtml(formatWeeklyStatsHours(summary.remote_hours))}</td>
+                <td>${escapeHtml(formatWeeklyStatsHours(summary.total_hours))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+      return renderWeeklyStatsPanel(
+        '人员维度工时统计',
+        '结合人员筛选结果，查看每个人本周现场、远程和总工时分布。',
+        tableHtml
+      );
+    }
+
+    function renderWeeklyStatsSalesPanel(stats) {
+      const rows = Array.isArray(stats && stats.by_sales) ? stats.by_sales : [];
+      const summary = stats && stats.summary && typeof stats.summary === 'object' ? stats.summary : {};
+      if (!rows.length) {
+        return renderWeeklyStatsPanel(
+          '销售对应工时统计',
+          '查看本周工时对应到各销售的投入情况。',
+          renderWeeklyStatsEmpty('当前周暂无销售维度工时数据。')
+        );
+      }
+      const tableHtml = `
+        <div class="weekly-stats-table-wrap">
+          <table class="weekly-stats-table">
+            <thead>
+              <tr><th>销售</th><th>工时</th></tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>
+                  <td><div class="weekly-stats-name">${escapeHtml(row.label || '未标注销售')}</div></td>
+                  <td><span class="weekly-stats-inline-value">${escapeHtml(formatWeeklyStatsHours(row.total_hours))}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>合计</td>
+                <td>${escapeHtml(formatWeeklyStatsHours(summary.total_hours))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+      return renderWeeklyStatsPanel(
+        '销售对应工时统计',
+        '按销售口径快速查看本周投入总量。',
+        tableHtml
+      );
+    }
+
+    function renderWeeklyStatsProjectTopPanel(stats) {
+      const rows = Array.isArray(stats && stats.by_project) ? stats.by_project.slice(0, 10) : [];
+      const summary = stats && stats.summary && typeof stats.summary === 'object' ? stats.summary : {};
+      if (!rows.length) {
+        return renderWeeklyStatsPanel(
+          '项目维度工时统计前十',
+          '按项目 / 客户查看本周工时投入前十。',
+          renderWeeklyStatsEmpty('当前周暂无项目维度工时数据。')
+        );
+      }
+      const tableHtml = `
+        <div class="weekly-stats-table-wrap">
+          <table class="weekly-stats-table">
+            <thead>
+              <tr><th>排名</th><th>项目</th><th>工时</th></tr>
+            </thead>
+            <tbody>
+              ${rows.map((row, index) => `
+                <tr>
+                  <td><span class="weekly-stats-rank">${escapeHtml(String(index + 1))}</span></td>
+                  <td>
+                    <div class="weekly-stats-name">${escapeHtml(row.project_name || '未填写项目')}</div>
+                    <div class="weekly-stats-subtext">参与人员 ${escapeHtml(String(row.member_count || 0))} 人 · 事项 ${escapeHtml(String(row.total_items || 0))} 条</div>
+                  </td>
+                  <td><span class="weekly-stats-inline-value">${escapeHtml(formatWeeklyStatsHours(row.total_hours))}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      return renderWeeklyStatsPanel(
+        '项目维度工时统计前十',
+        '优先查看本周团队工时投入最高的前十个项目。',
+        tableHtml,
+        { metaChips: [`共 ${summary.project_count || rows.length} 个项目`] }
+      );
+    }
+
+    function renderWeeklyStatsTypePanel(stats) {
+      const rows = Array.isArray(stats && stats.by_service_type) ? stats.by_service_type : [];
+      if (!rows.length) {
+        return renderWeeklyStatsPanel(
+          '服务类型维度工时统计',
+          '按服务类型汇总本周工时。',
+          renderWeeklyStatsEmpty('当前周暂无服务类型维度工时数据。')
+        );
+      }
+      const tableHtml = `
+        <div class="weekly-stats-table-wrap">
+          <table class="weekly-stats-table">
+            <thead>
+              <tr><th>服务类型</th><th>工时</th></tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>
+                  <td><div class="weekly-stats-name">${escapeHtml(row.label || '未标注')}</div></td>
+                  <td><span class="weekly-stats-inline-value">${escapeHtml(formatWeeklyStatsHours(row.total_hours))}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      return renderWeeklyStatsPanel(
+        '服务类型维度工时统计',
+        '从服务类型维度判断本周事项结构和工时占比。',
+        tableHtml
+      );
+    }
+
+    function renderWeeklyWorkStats(payload) {
+      if (!canViewWeeklyStats()) {
+        weeklyStatsMemberScopeEl.innerHTML = '';
+        weeklyStatsGridEl.innerHTML = '';
+        return;
+      }
+      const stats = payload && payload.weekly_work_stats && typeof payload.weekly_work_stats === 'object'
+        ? payload.weekly_work_stats
+        : {};
+      renderWeeklyStatsFilterSummary(payload);
+      weeklyStatsGridEl.innerHTML = [
+        renderWeeklyStatsMemberHoursPanel(stats),
+        renderWeeklyStatsSalesPanel(stats),
+        renderWeeklyStatsProjectTopPanel(stats),
+        renderWeeklyStatsTypePanel(stats),
+      ].join('');
     }
 
     function getLatestDepartmentWeeklyPlanUpdatedAt(payload) {
@@ -3850,7 +4485,7 @@ __HELP_DOCS_OVERLAY__
         </div>
       `;
       if (!members.length) {
-        departmentPlanBody.innerHTML = '<tr><td colspan="8"><div class="empty-card">当前筛选条件下暂无可展示成员，请调整部门/岗位筛选，或先在本地账号管理中为对应用户开启“在日程管理页展示”。</div></td></tr>';
+        departmentPlanBody.innerHTML = '<tr><td colspan="8"><div class="empty-card">当前筛选条件下暂无可展示成员，请调整部门、岗位或人员筛选，或先在本地账号管理中为对应用户开启“在日程管理页展示”。</div></td></tr>';
         return;
       }
       departmentPlanMembersEl.innerHTML += members.map((member) => {
@@ -4162,6 +4797,7 @@ __HELP_DOCS_OVERLAY__
       requestedScheduleFilterState = {
         departments: getSelectedDepartmentFilters(payload),
         positions: getSelectedPositionFilters(payload),
+        users: getSelectedUserFilters(payload),
       };
       writeStoredScheduleFilterState(requestedScheduleFilterState);
       clearAllPlanAutoSaveTimers();
@@ -4174,10 +4810,12 @@ __HELP_DOCS_OVERLAY__
         scheduleFilterDraftState = {
           departments: getSelectedDepartmentFilters(payload),
           positions: getSelectedPositionFilters(payload),
+          users: getSelectedUserFilters(payload),
         };
         renderScheduleFilterOverlay(payload);
       }
       renderDepartmentPlanTable(payload);
+      renderWeeklyWorkStats(payload);
       renderMemberSelect(payload);
       renderSelectedMemberDailyItems();
       if (isEditLogOverlayOpen) {
@@ -4214,7 +4852,7 @@ __HELP_DOCS_OVERLAY__
           options.allowFilterReset !== false
           && requestedScheduleFilterState
           && statusCode === 400
-          && /所选(?:部门|岗位)不存在/.test(message)
+          && /所选(?:部门|岗位|人员)不存在/.test(message)
         ) {
           requestedScheduleFilterState = null;
           clearStoredScheduleFilterState();
@@ -4442,17 +5080,20 @@ __HELP_DOCS_OVERLAY__
       }
       loadDepartmentSchedule();
     });
-    planWeekMetaEl.addEventListener('click', (event) => {
+    function handleScheduleFilterTriggerClick(event) {
       const button = event.target.closest('button[data-action="open-schedule-filter"]');
       if (!button) {
         return;
       }
+      activeScheduleFilterTriggerEl = button;
       if (isScheduleFilterOverlayOpen) {
         closeScheduleFilterOverlay();
       } else {
         openScheduleFilterOverlay();
       }
-    });
+    }
+    planWeekMetaEl.addEventListener('click', handleScheduleFilterTriggerClick);
+    weeklyStatsSectionEl.addEventListener('click', handleScheduleFilterTriggerClick);
     memberUserSelect.addEventListener('change', () => {
       selectedMemberUserId = String(memberUserSelect.value || '').trim();
       renderSelectedMemberDailyItems();

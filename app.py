@@ -6802,7 +6802,7 @@ __HELP_DOCS_OVERLAY__
                 </div>
                 <div class="send-confirm-note">日期固定为今天 ${escapeHtml(scheduleWindow.todayDate)}；系统会在目标时间前 2 分钟开始调用钉钉 MCP 发送，失败最多重试 3 次。</div>
               ` : `
-                <div class="send-confirm-note">${scheduleWindow.hasAvailableTime ? `默认立即发送；如需改为定时发送，只需选择今天 ${escapeHtml(scheduleWindow.todayDate)} 的发送时间。` : "今天已没有可用的定时时间，请直接立即发送。"}</div>
+                ${scheduleWindow.hasAvailableTime ? "" : `<div class="send-confirm-note">今天已没有可用的定时时间，请直接立即发送。</div>`}
               `}
             </div>
           </div>
@@ -9770,6 +9770,10 @@ def _can_view_department_schedule_daily_details(user: dict | None) -> bool:
     return bool(user.get("is_department_admin"))
 
 
+def _can_view_department_schedule_weekly_stats(user: dict | None) -> bool:
+    return _can_view_department_schedule_daily_details(user)
+
+
 def _match_department_label(label: str, expected: str) -> bool:
     return _department_label_key(label) == _department_label_key(expected)
 
@@ -9858,6 +9862,31 @@ def _build_schedule_filter_label(
     return f"已筛选 {selected_count} 个{unit_label}"
 
 
+def _build_schedule_user_filter_label(
+    selected_user_ids: list[str],
+    available_users: list[dict[str, str]],
+    *,
+    all_label: str = "全部人员",
+    empty_label: str = "未选择人员",
+) -> str:
+    if not available_users:
+        return "暂无人员"
+    user_name_map = {
+        normalize_user_id(item.get("user_id")): str(item.get("display_name") or item.get("user_id") or "").strip()
+        for item in available_users
+        if normalize_user_id(item.get("user_id"))
+    }
+    available_user_ids = [user_id for user_id in user_name_map.keys() if user_id]
+    if not selected_user_ids:
+        return empty_label
+    if len(selected_user_ids) >= len(available_user_ids):
+        return all_label
+    if len(selected_user_ids) == 1:
+        selected_user_id = normalize_user_id(selected_user_ids[0])
+        return user_name_map.get(selected_user_id, selected_user_id or empty_label)
+    return f"已筛选 {len(selected_user_ids)} 人"
+
+
 def build_department_weekly_plan_rows(settings: dict | None) -> list[dict[str, str]]:
     source = normalize_weekly_plan_settings(settings if isinstance(settings, dict) else {})
     return [
@@ -9924,6 +9953,7 @@ def resolve_department_schedule_scope(
     requested_department: str | None = None,
     requested_departments: object | None = None,
     requested_positions: object | None = None,
+    requested_users: object | None = None,
 ) -> dict[str, Any]:
     if not current_user:
         raise PermissionError("请先登录后再访问部门日程页面。")
@@ -10023,7 +10053,7 @@ def resolve_department_schedule_scope(
         bool(available_positions) and 0 < len(selected_positions) < len(available_positions)
     )
 
-    department_users: list[dict] = []
+    scoped_users: list[dict] = []
     for user in accessible_users:
         user_department = _normalize_department_label(user.get("department"))
         if not user_department:
@@ -10039,13 +10069,61 @@ def resolve_department_schedule_scope(
                 for user_position in user_positions
             ):
                 continue
-        department_users.append(user)
-    department_users.sort(
+        scoped_users.append(user)
+    scoped_users.sort(
         key=lambda item: (
             _normalize_department_label(item.get("department")),
             _normalize_department_label(item.get("display_name")) or _normalize_department_label(item.get("user_id")),
         )
     )
+
+    available_users: list[dict[str, str]] = []
+    default_selected_users: list[str] = []
+    for user in scoped_users:
+        user_id = normalize_user_id(user.get("user_id"))
+        if not user_id:
+            continue
+        default_selected_users.append(user_id)
+        available_users.append(
+            {
+                "user_id": user_id,
+                "display_name": str(user.get("display_name") or user_id).strip() or user_id,
+                "department": _normalize_department_label(user.get("department")),
+                "position_labels": "、".join(_collect_user_position_labels(user)) or str(user.get("position") or "").strip(),
+            }
+        )
+
+    available_user_id_map = {
+        normalize_user_id(item.get("user_id")): str(item.get("user_id") or "").strip()
+        for item in available_users
+        if normalize_user_id(item.get("user_id"))
+    }
+    requested_user_values = _split_schedule_filter_values(requested_users)
+    requested_no_users = any(str(item or "").strip() == "__none__" for item in requested_user_values)
+    requested_all_users = any(str(item or "").strip() == "__all__" for item in requested_user_values)
+    selected_users: list[str] = []
+    if requested_no_users:
+        selected_users = []
+    elif requested_user_values and not requested_all_users:
+        for raw_value in requested_user_values:
+            normalized_user_id = normalize_user_id(raw_value)
+            matched_user_id = available_user_id_map.get(normalized_user_id)
+            if matched_user_id and matched_user_id not in selected_users:
+                selected_users.append(matched_user_id)
+        if not selected_users:
+            selected_users = list(default_selected_users)
+    else:
+        selected_users = list(default_selected_users)
+
+    user_filter_active = requested_no_users or (
+        bool(available_users) and 0 < len(selected_users) < len(available_users)
+    )
+    selected_user_set = {normalize_user_id(item) for item in selected_users if normalize_user_id(item)}
+    department_users = [
+        user
+        for user in scoped_users
+        if not user_filter_active or normalize_user_id(user.get("user_id")) in selected_user_set
+    ]
 
     selected_department = selected_departments[0] if len(selected_departments) == 1 else ""
     selected_department_label = _build_schedule_filter_label(
@@ -10062,14 +10140,22 @@ def resolve_department_schedule_scope(
         unit_label="岗位",
         empty_label="未选择岗位",
     )
+    selected_user_label = _build_schedule_user_filter_label(
+        selected_users,
+        available_users,
+        all_label="全部人员",
+        empty_label="未选择人员",
+    )
 
     return {
         "viewer_is_admin": viewer_is_admin,
         "viewer_can_view_daily_details": viewer_can_view_daily_details,
         "available_departments": available_departments,
         "available_positions": available_positions,
+        "available_users": available_users,
         "default_selected_departments": default_selected_departments,
         "default_selected_positions": default_selected_positions,
+        "default_selected_users": default_selected_users,
         "selected_department": selected_department,
         "selected_departments": selected_departments,
         "selected_departments_explicit_empty": requested_no_departments,
@@ -10077,9 +10163,325 @@ def resolve_department_schedule_scope(
         "selected_positions": selected_positions,
         "selected_positions_explicit_empty": requested_no_positions,
         "selected_position_label": selected_position_label,
+        "selected_users": selected_users,
+        "selected_users_explicit_empty": requested_no_users,
+        "selected_user_label": selected_user_label,
         "department_filter_active": department_filter_active,
         "position_filter_active": position_filter_active,
+        "user_filter_active": user_filter_active,
         "department_users": department_users,
+    }
+
+
+def _parse_schedule_hours_number(value: object) -> float:
+    if value in (None, ""):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalize_schedule_stat_label(value: object, fallback: str) -> str:
+    label = str(value or "").strip()
+    return label or fallback
+
+
+def build_department_weekly_work_stats(members: list[dict] | None) -> dict[str, Any]:
+    source_members = members if isinstance(members, list) else []
+    position_groups: dict[str, dict[str, Any]] = {}
+    project_groups: dict[str, dict[str, Any]] = {}
+    sales_groups: dict[str, dict[str, Any]] = {}
+    service_mode_groups: dict[str, dict[str, Any]] = {}
+    service_type_groups: dict[str, dict[str, Any]] = {}
+    member_rows: list[dict[str, Any]] = []
+    active_member_ids: set[str] = set()
+    total_hours = 0.0
+    total_onsite_hours = 0.0
+    total_remote_hours = 0.0
+    total_items = 0
+    total_filled_days = 0
+
+    for member in source_members:
+        if not isinstance(member, dict):
+            continue
+        user = member.get("user") if isinstance(member.get("user"), dict) else {}
+        user_id = str(user.get("user_id") or "").strip()
+        display_name = str(user.get("display_name") or user_id or "未命名用户").strip() or "未命名用户"
+        position_labels = _collect_user_position_labels(user)
+        position_display = "、".join(position_labels) if position_labels else "未设置岗位"
+        primary_position = position_labels[0] if position_labels else "未设置岗位"
+        week_stats = member.get("week_stats") if isinstance(member.get("week_stats"), dict) else {}
+        member_total_hours = _parse_schedule_hours_number(week_stats.get("total_hours"))
+        member_total_items = int(week_stats.get("total_items") or 0)
+        member_filled_days = int(week_stats.get("filled_days") or 0)
+
+        total_hours += member_total_hours
+        total_items += member_total_items
+        total_filled_days += member_filled_days
+
+        position_group = position_groups.setdefault(
+            primary_position,
+            {
+                "position_label": primary_position,
+                "member_ids": set(),
+                "active_member_ids": set(),
+                "total_hours": 0.0,
+                "total_items": 0,
+                "filled_days": 0,
+            },
+        )
+        if user_id:
+            position_group["member_ids"].add(user_id)
+        position_group["filled_days"] += member_filled_days
+        position_group["total_hours"] += member_total_hours
+        position_group["total_items"] += member_total_items
+        if member_total_hours > 0 or member_total_items > 0 or member_filled_days > 0:
+            if user_id:
+                active_member_ids.add(user_id)
+                position_group["active_member_ids"].add(user_id)
+
+        member_project_names: set[str] = set()
+        member_onsite_hours = 0.0
+        member_remote_hours = 0.0
+        days = member.get("days") if isinstance(member.get("days"), list) else []
+        for day in days:
+            items = day.get("items") if isinstance(day, dict) and isinstance(day.get("items"), list) else []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                hours = _parse_schedule_hours_number(item.get("work_hours"))
+                project_name = _normalize_schedule_stat_label(item.get("customer_name"), "未填写项目")
+                service_mode = _normalize_schedule_stat_label(item.get("service_mode"), "未标注")
+                service_type = _normalize_schedule_stat_label(item.get("item_type"), "未标注")
+                project_type = _normalize_schedule_stat_label(item.get("project_type"), "未标注")
+                sales_label = _normalize_schedule_stat_label(item.get("sales"), "未标注销售")
+                normalized_mode = classify_service_mode_for_weekly_strength(service_mode)
+
+                member_project_names.add(project_name)
+                if normalized_mode == "现场":
+                    member_onsite_hours += hours
+                    total_onsite_hours += hours
+                elif normalized_mode == "远程":
+                    member_remote_hours += hours
+                    total_remote_hours += hours
+
+                project_group = project_groups.setdefault(
+                    project_name,
+                    {
+                        "project_name": project_name,
+                        "member_ids": set(),
+                        "total_hours": 0.0,
+                        "total_items": 0,
+                        "service_modes": set(),
+                        "service_types": set(),
+                        "project_types": set(),
+                    },
+                )
+                if user_id:
+                    project_group["member_ids"].add(user_id)
+                project_group["total_hours"] += hours
+                project_group["total_items"] += 1
+                project_group["service_modes"].add(service_mode)
+                project_group["service_types"].add(service_type)
+                project_group["project_types"].add(project_type)
+
+                sales_group = sales_groups.setdefault(
+                    sales_label,
+                    {
+                        "label": sales_label,
+                        "member_ids": set(),
+                        "project_names": set(),
+                        "total_hours": 0.0,
+                        "total_items": 0,
+                    },
+                )
+                if user_id:
+                    sales_group["member_ids"].add(user_id)
+                sales_group["project_names"].add(project_name)
+                sales_group["total_hours"] += hours
+                sales_group["total_items"] += 1
+
+                service_mode_group = service_mode_groups.setdefault(
+                    service_mode,
+                    {
+                        "label": service_mode,
+                        "member_ids": set(),
+                        "project_names": set(),
+                        "total_hours": 0.0,
+                        "total_items": 0,
+                    },
+                )
+                if user_id:
+                    service_mode_group["member_ids"].add(user_id)
+                service_mode_group["project_names"].add(project_name)
+                service_mode_group["total_hours"] += hours
+                service_mode_group["total_items"] += 1
+
+                service_type_group = service_type_groups.setdefault(
+                    service_type,
+                    {
+                        "label": service_type,
+                        "member_ids": set(),
+                        "project_names": set(),
+                        "total_hours": 0.0,
+                        "total_items": 0,
+                    },
+                )
+                if user_id:
+                    service_type_group["member_ids"].add(user_id)
+                service_type_group["project_names"].add(project_name)
+                service_type_group["total_hours"] += hours
+                service_type_group["total_items"] += 1
+
+        member_rows.append(
+            {
+                "user_id": user_id,
+                "display_name": display_name,
+                "position_labels": position_display,
+                "onsite_hours_value": member_onsite_hours,
+                "onsite_hours": format_hours(member_onsite_hours),
+                "remote_hours_value": member_remote_hours,
+                "remote_hours": format_hours(member_remote_hours),
+                "total_hours_value": member_total_hours,
+                "total_hours": format_hours(member_total_hours),
+                "total_items": member_total_items,
+                "filled_days": member_filled_days,
+                "project_count": len(member_project_names),
+            }
+        )
+
+    by_position = sorted(
+        [
+            {
+                "position_label": str(group["position_label"]),
+                "member_count": len(group["member_ids"]),
+                "active_member_count": len(group["active_member_ids"]),
+                "filled_days": int(group["filled_days"]),
+                "total_items": int(group["total_items"]),
+                "total_hours_value": float(group["total_hours"]),
+                "total_hours": format_hours(group["total_hours"]),
+            }
+            for group in position_groups.values()
+        ],
+        key=lambda item: (
+            -float(item["total_hours_value"]),
+            -int(item["total_items"]),
+            str(item["position_label"]).casefold(),
+        ),
+    )
+
+    by_member = sorted(
+        member_rows,
+        key=lambda item: (
+            -float(item["total_hours_value"]),
+            -int(item["total_items"]),
+            str(item["display_name"]).casefold(),
+        ),
+    )
+
+    by_project = sorted(
+        [
+            {
+                "project_name": str(group["project_name"]),
+                "member_count": len(group["member_ids"]),
+                "total_items": int(group["total_items"]),
+                "total_hours_value": float(group["total_hours"]),
+                "total_hours": format_hours(group["total_hours"]),
+                "service_modes": sorted(str(item) for item in group["service_modes"] if str(item).strip()),
+                "service_types": sorted(str(item) for item in group["service_types"] if str(item).strip()),
+                "project_types": sorted(str(item) for item in group["project_types"] if str(item).strip()),
+            }
+            for group in project_groups.values()
+        ],
+        key=lambda item: (
+            -float(item["total_hours_value"]),
+            -int(item["total_items"]),
+            str(item["project_name"]).casefold(),
+        ),
+    )
+
+    by_sales = sorted(
+        [
+            {
+                "label": str(group["label"]),
+                "member_count": len(group["member_ids"]),
+                "project_count": len(group["project_names"]),
+                "total_items": int(group["total_items"]),
+                "total_hours_value": float(group["total_hours"]),
+                "total_hours": format_hours(group["total_hours"]),
+            }
+            for group in sales_groups.values()
+        ],
+        key=lambda item: (
+            -float(item["total_hours_value"]),
+            -int(item["total_items"]),
+            str(item["label"]).casefold(),
+        ),
+    )
+
+    by_service_mode = sorted(
+        [
+            {
+                "label": str(group["label"]),
+                "member_count": len(group["member_ids"]),
+                "project_count": len(group["project_names"]),
+                "total_items": int(group["total_items"]),
+                "total_hours_value": float(group["total_hours"]),
+                "total_hours": format_hours(group["total_hours"]),
+            }
+            for group in service_mode_groups.values()
+        ],
+        key=lambda item: (
+            -float(item["total_hours_value"]),
+            -int(item["total_items"]),
+            str(item["label"]).casefold(),
+        ),
+    )
+
+    by_service_type = sorted(
+        [
+            {
+                "label": str(group["label"]),
+                "member_count": len(group["member_ids"]),
+                "project_count": len(group["project_names"]),
+                "total_items": int(group["total_items"]),
+                "total_hours_value": float(group["total_hours"]),
+                "total_hours": format_hours(group["total_hours"]),
+            }
+            for group in service_type_groups.values()
+        ],
+        key=lambda item: (
+            -float(item["total_hours_value"]),
+            -int(item["total_items"]),
+            str(item["label"]).casefold(),
+        ),
+    )
+
+    member_count = len(by_member)
+    active_member_count = len(active_member_ids)
+    average_hours = total_hours / member_count if member_count else 0.0
+
+    return {
+        "summary": {
+            "member_count": member_count,
+            "active_member_count": active_member_count,
+            "position_count": len(by_position),
+            "project_count": len(by_project),
+            "sales_count": len(by_sales),
+            "total_items": total_items,
+            "filled_days": total_filled_days,
+            "onsite_hours": format_hours(total_onsite_hours),
+            "remote_hours": format_hours(total_remote_hours),
+            "total_hours": format_hours(total_hours),
+            "average_hours_per_member": format_hours(average_hours),
+        },
+        "by_position": by_position,
+        "by_member": by_member,
+        "by_project": by_project,
+        "by_sales": by_sales,
+        "by_service_mode": by_service_mode,
+        "by_service_type": by_service_type,
     }
 
 
@@ -10089,6 +10491,7 @@ def build_department_schedule_payload(
     requested_department: str | None = None,
     requested_departments: object | None = None,
     requested_positions: object | None = None,
+    requested_users: object | None = None,
 ) -> dict:
     target_date = validate_date(anchor_date)
     week_start, week_end, week_dates = build_week_window(target_date)
@@ -10097,14 +10500,17 @@ def build_department_schedule_payload(
         requested_department,
         requested_departments=requested_departments,
         requested_positions=requested_positions,
+        requested_users=requested_users,
     )
     viewer_is_admin = bool(scope["viewer_is_admin"])
     viewer_can_view_daily_details = bool(scope["viewer_can_view_daily_details"])
+    viewer_can_view_weekly_stats = _can_view_department_schedule_weekly_stats(current_user)
     available_departments = list(scope["available_departments"])
     available_positions = list(scope["available_positions"])
     selected_department = str(scope["selected_department"])
     selected_departments = list(scope["selected_departments"])
     selected_positions = list(scope["selected_positions"])
+    selected_users = list(scope["selected_users"])
     department_users = list(scope["department_users"])
     department_user_ids = [str(item.get("user_id") or "").strip() for item in department_users if str(item.get("user_id") or "").strip()]
     weekly_plan_edit_logs_map = list_weekly_plan_edit_logs_for_targets(
@@ -10193,18 +10599,26 @@ def build_department_schedule_payload(
     for summary in daily_totals:
         summary["total_hours"] = format_hours(summary["total_hours"])
 
+    weekly_work_stats = (
+        build_department_weekly_work_stats(members)
+        if viewer_can_view_weekly_stats
+        else {}
+    )
+
     return {
         "anchor_date": target_date,
         "week_start": week_start,
         "week_end": week_end,
         "viewer": current_user,
         "can_edit_weekly_plan": _can_edit_department_schedule_weekly_plan(current_user),
+        "show_weekly_stats": viewer_can_view_weekly_stats,
         "show_daily_section": viewer_can_view_daily_details,
         "show_admin_button": viewer_is_admin,
         "can_switch_department": viewer_is_admin,
         "allow_all_departments": viewer_is_admin,
         "departments": available_departments,
         "available_positions": available_positions,
+        "available_users": list(scope["available_users"]),
         "selected_department": selected_department,
         "selected_departments": selected_departments,
         "selected_departments_explicit_empty": bool(scope["selected_departments_explicit_empty"]),
@@ -10212,8 +10626,12 @@ def build_department_schedule_payload(
         "selected_positions": selected_positions,
         "selected_positions_explicit_empty": bool(scope["selected_positions_explicit_empty"]),
         "selected_position_label": str(scope["selected_position_label"]),
+        "selected_users": selected_users,
+        "selected_users_explicit_empty": bool(scope["selected_users_explicit_empty"]),
+        "selected_user_label": str(scope["selected_user_label"]),
         "default_selected_departments": list(scope["default_selected_departments"]),
         "default_selected_positions": list(scope["default_selected_positions"]),
+        "default_selected_users": list(scope["default_selected_users"]),
         "member_count": len(members),
         "summary": {
             "member_count": len(members),
@@ -10221,6 +10639,7 @@ def build_department_schedule_payload(
             "total_items": department_total_items,
             "filled_days": department_filled_days,
         },
+        "weekly_work_stats": weekly_work_stats,
         "daily_totals": daily_totals,
         "members": members,
     }
@@ -10253,6 +10672,7 @@ def build_department_schedule_edit_logs_payload(
     requested_department: str | None = None,
     requested_departments: object | None = None,
     requested_positions: object | None = None,
+    requested_users: object | None = None,
 ) -> dict[str, Any]:
     if not current_user:
         raise PermissionError("请先登录后再查看日程编辑日志。")
@@ -10262,6 +10682,7 @@ def build_department_schedule_edit_logs_payload(
         requested_department,
         requested_departments=requested_departments,
         requested_positions=requested_positions,
+        requested_users=requested_users,
     )
     can_view_all_logs = bool(scope["viewer_is_admin"]) or bool(current_user.get("is_department_admin"))
     viewer_user_id = normalize_user_id(current_user.get("user_id"))
@@ -10292,6 +10713,9 @@ def build_department_schedule_edit_logs_payload(
         "selected_positions": list(scope["selected_positions"]),
         "selected_positions_explicit_empty": bool(scope["selected_positions_explicit_empty"]),
         "selected_position_label": str(scope["selected_position_label"]),
+        "selected_users": list(scope["selected_users"]),
+        "selected_users_explicit_empty": bool(scope["selected_users_explicit_empty"]),
+        "selected_user_label": str(scope["selected_user_label"]),
         "log_count": len(logs),
         "logs": logs,
     }
@@ -15932,6 +16356,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             requested_department = query.get("department", [""])[0]
             requested_departments = query.get("departments", [])
             requested_positions = query.get("positions", [])
+            requested_users = query.get("users", [])
             try:
                 payload = build_department_schedule_payload(
                     current_user,
@@ -15939,6 +16364,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                     requested_department,
                     requested_departments=requested_departments,
                     requested_positions=requested_positions,
+                    requested_users=requested_users,
                 )
                 self._send_json(payload)
             except PermissionError as error:
@@ -15954,12 +16380,14 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             requested_department = query.get("department", [""])[0]
             requested_departments = query.get("departments", [])
             requested_positions = query.get("positions", [])
+            requested_users = query.get("users", [])
             try:
                 payload = build_department_schedule_edit_logs_payload(
                     current_user,
                     requested_department,
                     requested_departments=requested_departments,
                     requested_positions=requested_positions,
+                    requested_users=requested_users,
                 )
                 self._send_json(payload)
             except PermissionError as error:
