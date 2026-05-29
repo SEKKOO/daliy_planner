@@ -2448,6 +2448,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .base-info-line,
     .service-content-line,
+    .work-content-line,
     .issue-risk-line {
       display: grid;
       grid-template-columns: 64px minmax(0, 1fr);
@@ -2459,18 +2460,58 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .base-info-line span,
     .service-content-line span,
+    .work-content-line span,
     .issue-risk-line span {
       white-space: nowrap;
+    }
+
+    .required-field-label > span,
+    .required-block-label > span {
+      position: relative;
+      display: inline-block;
+      padding-right: 9px;
+    }
+
+    .required-field-label > span::after,
+    .required-block-label > span::after {
+      content: "*";
+      position: absolute;
+      top: -3px;
+      right: 0;
+      color: var(--danger);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 800;
     }
 
     .base-info-line input,
     .base-info-line select,
     .service-content-line input,
     .service-content-line select,
+    .work-content-line textarea,
     .issue-risk-line textarea {
       width: 100%;
       padding: 8px 10px;
       font-size: var(--fs-xs);
+    }
+
+    .work-content-cell {
+      display: flex;
+      align-items: stretch;
+    }
+
+    .work-content-line {
+      width: 100%;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: stretch;
+    }
+
+    .work-content-line textarea {
+      min-height: 92px;
+      resize: vertical;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
 
     .customer-profile-helper {
@@ -8148,7 +8189,7 @@ __HELP_DOCS_OVERLAY__
       row.innerHTML = `
         <div class="base-info-cell">
           <div class="base-info-stack">
-            <label class="base-info-line">
+            <label class="base-info-line required-field-label">
               <span>客户名称：</span>
               <input type="text" data-field="customer_name" list="customer-name-options" autocomplete="off" value="${escapeHtml(item.customer_name || "")}" placeholder="请输入客户名称">
             </label>
@@ -8172,7 +8213,7 @@ __HELP_DOCS_OVERLAY__
         </div>
         <div class="service-content-cell">
           <div class="service-content-stack">
-            <label class="service-content-line">
+            <label class="service-content-line required-field-label">
               <span>类型：</span>
               <select data-field="item_type">
                 <option value="">请选择类型</option>
@@ -8180,7 +8221,7 @@ __HELP_DOCS_OVERLAY__
                 ${hasCustomType ? `<option value="${escapeHtml(itemType)}" selected>${escapeHtml(itemType)}</option>` : ""}
               </select>
             </label>
-            <label class="service-content-line">
+            <label class="service-content-line required-field-label">
               <span>服务方式：</span>
               <select data-field="service_mode">
                 <option value="">请选择服务方式</option>
@@ -8188,13 +8229,18 @@ __HELP_DOCS_OVERLAY__
                 ${hasCustomServiceMode ? `<option value="${escapeHtml(serviceMode)}" selected>${escapeHtml(serviceMode)}</option>` : ""}
               </select>
             </label>
-            <label class="service-content-line">
+            <label class="service-content-line required-field-label">
               <span>工时：</span>
               <input type="number" data-field="work_hours" min="0" step="0.5" value="${escapeHtml(String(firstDefinedValue(item.work_hours, "")))}" placeholder="请输入工时">
             </label>
           </div>
         </div>
-        <div><textarea data-field="work_content" placeholder="工作内容">${escapeHtml(item.work_content || "")}</textarea></div>
+        <div class="work-content-cell">
+          <label class="work-content-line required-block-label">
+            <span>工作内容</span>
+            <textarea data-field="work_content" placeholder="工作内容">${escapeHtml(item.work_content || "")}</textarea>
+          </label>
+        </div>
         <div class="issue-risk-cell">
           <div class="issue-risk-stack">
             <label class="issue-risk-line">
@@ -8544,17 +8590,36 @@ __HELP_DOCS_OVERLAY__
     }
 
     function validateItems(items) {
-      for (const item of items) {
+      const normalizedItems = (Array.isArray(items) ? items : [])
+        .map((item) => normalizeItemPayload(item))
+        .filter((item) => hasMeaningfulItemContent(item));
+      if (!normalizedItems.length) {
+        throw new Error("请至少填写一条有效事项。");
+      }
+      normalizedItems.forEach((item, index) => {
+        const rowLabel = `第 ${index + 1} 条事项`;
+        if (!item.customer_name) {
+          throw new Error(`${rowLabel}需要填写客户名称。`);
+        }
+        if (!item.item_type) {
+          throw new Error(`${rowLabel}需要选择类型。`);
+        }
+        if (!item.service_mode) {
+          throw new Error(`${rowLabel}需要选择服务方式。`);
+        }
         const value = item.work_hours;
         if (!value) {
-          continue;
+          throw new Error(`${rowLabel}需要填写工时。`);
         }
         const hours = Number(value);
         const halfStep = Math.round(hours * 2);
         if (!Number.isFinite(hours) || hours < 0 || Math.abs(hours * 2 - halfStep) > 1e-9) {
-          throw new Error("工时仅支持输入大于等于 0 的整数或 0.5。");
+          throw new Error(`${rowLabel}的工时仅支持输入大于等于 0 的整数或 0.5。`);
         }
-      }
+        if (!item.work_content) {
+          throw new Error(`${rowLabel}需要填写工作内容。`);
+        }
+      });
     }
 
     function summarizeEntry(entry) {
@@ -10485,54 +10550,67 @@ def build_department_weekly_work_stats(members: list[dict] | None) -> dict[str, 
     }
 
 
-def build_department_schedule_payload(
-    current_user: dict | None,
-    anchor_date: str,
-    requested_department: str | None = None,
-    requested_departments: object | None = None,
-    requested_positions: object | None = None,
-    requested_users: object | None = None,
-) -> dict:
-    target_date = validate_date(anchor_date)
-    week_start, week_end, week_dates = build_week_window(target_date)
-    scope = resolve_department_schedule_scope(
-        current_user,
-        requested_department,
-        requested_departments=requested_departments,
-        requested_positions=requested_positions,
-        requested_users=requested_users,
-    )
-    viewer_is_admin = bool(scope["viewer_is_admin"])
-    viewer_can_view_daily_details = bool(scope["viewer_can_view_daily_details"])
-    viewer_can_view_weekly_stats = _can_view_department_schedule_weekly_stats(current_user)
-    available_departments = list(scope["available_departments"])
-    available_positions = list(scope["available_positions"])
-    selected_department = str(scope["selected_department"])
-    selected_departments = list(scope["selected_departments"])
-    selected_positions = list(scope["selected_positions"])
-    selected_users = list(scope["selected_users"])
-    department_users = list(scope["department_users"])
-    department_user_ids = [str(item.get("user_id") or "").strip() for item in department_users if str(item.get("user_id") or "").strip()]
-    weekly_plan_edit_logs_map = list_weekly_plan_edit_logs_for_targets(
-        week_start,
-        department_user_ids,
-        limit_per_target=3,
-    )
+def build_department_schedule_member_scope_payload(department_users: list[dict] | None) -> list[dict[str, str]]:
+    members: list[dict[str, str]] = []
+    for member in department_users if isinstance(department_users, list) else []:
+        if not isinstance(member, dict):
+            continue
+        user_id = normalize_user_id(member.get("user_id"))
+        if not user_id:
+            continue
+        position_labels = _collect_user_position_labels(member)
+        members.append(
+            {
+                "user_id": user_id,
+                "display_name": str(member.get("display_name") or user_id).strip() or user_id,
+                "department": _normalize_department_label(member.get("department")),
+                "position_labels": "、".join(position_labels) or str(member.get("position") or "").strip(),
+            }
+        )
+    return members
 
+
+def build_department_schedule_member_payloads(
+    target_date: str,
+    week_dates: list[str],
+    department_users: list[dict] | None,
+    *,
+    viewer_can_view_daily_details: bool,
+    include_weekly_plan: bool = True,
+    weekly_plan_edit_logs_map: dict[str, list[dict]] | None = None,
+) -> tuple[list[dict], list[dict[str, Any]], dict[str, Any]]:
     daily_totals = [
-        {"work_date": work_date, "weekday_label": DEPARTMENT_SCHEDULE_WEEKDAY_LABELS[index], "filled_users": 0, "total_items": 0, "total_hours": 0.0}
+        {
+            "work_date": work_date,
+            "weekday_label": DEPARTMENT_SCHEDULE_WEEKDAY_LABELS[index],
+            "filled_users": 0,
+            "total_items": 0,
+            "total_hours": 0.0,
+        }
         for index, work_date in enumerate(week_dates)
     ]
     members: list[dict] = []
-    department_total_hours = 0.0
-    department_total_items = 0
-    department_filled_days = 0
+    total_hours = 0.0
+    total_items = 0
+    total_filled_days = 0
+    edit_logs_map = weekly_plan_edit_logs_map if isinstance(weekly_plan_edit_logs_map, dict) else {}
 
-    for member in department_users:
+    for member in department_users if isinstance(department_users, list) else []:
+        if not isinstance(member, dict):
+            continue
         member_user_id = str(member.get("user_id") or "").strip()
-        _, weekly_plan_settings, weekly_plan_updated_at = get_weekly_plan_settings(target_date, user_id=member_user_id)
-        weekly_plan_rows = build_department_weekly_plan_rows(weekly_plan_settings)
-        weekly_plan_edit_logs = list(weekly_plan_edit_logs_map.get(member_user_id) or [])
+        weekly_plan_rows: list[dict[str, str]] = []
+        weekly_other_pending = ""
+        weekly_plan_updated_at = ""
+        weekly_plan_last_editor = None
+        weekly_plan_edit_logs: list[dict[str, Any]] = []
+        if include_weekly_plan and member_user_id:
+            _, weekly_plan_settings, weekly_plan_updated_at = get_weekly_plan_settings(target_date, user_id=member_user_id)
+            weekly_plan_rows = build_department_weekly_plan_rows(weekly_plan_settings)
+            weekly_other_pending = str(weekly_plan_settings.get("weekly_other_pending", "") or "").strip()
+            weekly_plan_edit_logs = list(edit_logs_map.get(member_user_id) or [])
+            weekly_plan_last_editor = weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None
+
         week_entries = fetch_week_entries(target_date, user_id=member_user_id) if viewer_can_view_daily_details else []
         entry_map = {str(entry["work_date"]): entry for entry in week_entries if entry}
         member_total_hours = 0.0
@@ -10576,34 +10654,136 @@ def build_department_schedule_payload(
                         }
                     )
 
-        department_total_hours += member_total_hours
-        department_total_items += member_total_items
-        department_filled_days += member_filled_days
-        members.append(
-            {
-                "user": member,
-                "weekly_plan_rows": weekly_plan_rows,
-                "weekly_other_pending": str(weekly_plan_settings.get("weekly_other_pending", "") or "").strip(),
-                "weekly_plan_updated_at": weekly_plan_updated_at,
-                "weekly_plan_last_editor": weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None,
-                "weekly_plan_edit_logs": weekly_plan_edit_logs,
-                "days": days,
-                "week_stats": {
-                    "total_hours": format_hours(member_total_hours),
-                    "total_items": member_total_items,
-                    "filled_days": member_filled_days,
-                },
-            }
-        )
+        total_hours += member_total_hours
+        total_items += member_total_items
+        total_filled_days += member_filled_days
+        member_payload = {
+            "user": member,
+            "days": days,
+            "week_stats": {
+                "total_hours": format_hours(member_total_hours),
+                "total_items": member_total_items,
+                "filled_days": member_filled_days,
+            },
+        }
+        if include_weekly_plan:
+            member_payload.update(
+                {
+                    "weekly_plan_rows": weekly_plan_rows,
+                    "weekly_other_pending": weekly_other_pending,
+                    "weekly_plan_updated_at": weekly_plan_updated_at,
+                    "weekly_plan_last_editor": weekly_plan_last_editor,
+                    "weekly_plan_edit_logs": weekly_plan_edit_logs,
+                }
+            )
+        members.append(member_payload)
 
     for summary in daily_totals:
         summary["total_hours"] = format_hours(summary["total_hours"])
 
-    weekly_work_stats = (
-        build_department_weekly_work_stats(members)
-        if viewer_can_view_weekly_stats
-        else {}
+    return (
+        members,
+        daily_totals,
+        {
+            "member_count": len(members),
+            "total_hours_value": total_hours,
+            "total_items": total_items,
+            "filled_days": total_filled_days,
+        },
     )
+
+
+def build_department_schedule_payload(
+    current_user: dict | None,
+    anchor_date: str,
+    requested_department: str | None = None,
+    requested_departments: object | None = None,
+    requested_positions: object | None = None,
+    requested_users: object | None = None,
+    *,
+    requested_stats_department: str | None = None,
+    requested_stats_departments: object | None = None,
+    requested_stats_positions: object | None = None,
+    requested_stats_users: object | None = None,
+) -> dict:
+    target_date = validate_date(anchor_date)
+    week_start, week_end, week_dates = build_week_window(target_date)
+    scope = resolve_department_schedule_scope(
+        current_user,
+        requested_department,
+        requested_departments=requested_departments,
+        requested_positions=requested_positions,
+        requested_users=requested_users,
+    )
+    viewer_is_admin = bool(scope["viewer_is_admin"])
+    viewer_can_view_daily_details = bool(scope["viewer_can_view_daily_details"])
+    viewer_can_view_weekly_stats = _can_view_department_schedule_weekly_stats(current_user)
+    if viewer_can_view_weekly_stats:
+        try:
+            weekly_stats_scope = resolve_department_schedule_scope(
+                current_user,
+                requested_stats_department,
+                requested_departments=requested_stats_departments,
+                requested_positions=requested_stats_positions,
+                requested_users=requested_stats_users,
+            )
+        except ValueError as error:
+            raise ValueError(f"本周工统计筛选：{error}") from error
+    else:
+        weekly_stats_scope = scope
+    available_departments = list(scope["available_departments"])
+    available_positions = list(scope["available_positions"])
+    selected_department = str(scope["selected_department"])
+    selected_departments = list(scope["selected_departments"])
+    selected_positions = list(scope["selected_positions"])
+    selected_users = list(scope["selected_users"])
+    department_users = list(scope["department_users"])
+    department_user_ids = [
+        str(item.get("user_id") or "").strip()
+        for item in department_users
+        if str(item.get("user_id") or "").strip()
+    ]
+    weekly_plan_edit_logs_map = list_weekly_plan_edit_logs_for_targets(
+        week_start,
+        department_user_ids,
+        limit_per_target=3,
+    )
+    members, daily_totals, department_summary = build_department_schedule_member_payloads(
+        target_date,
+        week_dates,
+        department_users,
+        viewer_can_view_daily_details=viewer_can_view_daily_details,
+        include_weekly_plan=True,
+        weekly_plan_edit_logs_map=weekly_plan_edit_logs_map,
+    )
+
+    weekly_stats_available_departments = list(weekly_stats_scope["available_departments"])
+    weekly_stats_available_positions = list(weekly_stats_scope["available_positions"])
+    weekly_stats_available_users = list(weekly_stats_scope["available_users"])
+    weekly_stats_selected_department = str(weekly_stats_scope["selected_department"])
+    weekly_stats_selected_departments = list(weekly_stats_scope["selected_departments"])
+    weekly_stats_selected_positions = list(weekly_stats_scope["selected_positions"])
+    weekly_stats_selected_users = list(weekly_stats_scope["selected_users"])
+    weekly_stats_department_users = list(weekly_stats_scope["department_users"])
+    weekly_stats_department_user_ids = [
+        str(item.get("user_id") or "").strip()
+        for item in weekly_stats_department_users
+        if str(item.get("user_id") or "").strip()
+    ]
+    weekly_stats_members = build_department_schedule_member_scope_payload(weekly_stats_department_users)
+
+    weekly_work_stats: dict[str, Any] = {}
+    if viewer_can_view_weekly_stats:
+        stats_members = members
+        if weekly_stats_department_user_ids != department_user_ids:
+            stats_members, _, _ = build_department_schedule_member_payloads(
+                target_date,
+                week_dates,
+                weekly_stats_department_users,
+                viewer_can_view_daily_details=viewer_can_view_daily_details,
+                include_weekly_plan=False,
+            )
+        weekly_work_stats = build_department_weekly_work_stats(stats_members)
 
     return {
         "anchor_date": target_date,
@@ -10632,13 +10812,31 @@ def build_department_schedule_payload(
         "default_selected_departments": list(scope["default_selected_departments"]),
         "default_selected_positions": list(scope["default_selected_positions"]),
         "default_selected_users": list(scope["default_selected_users"]),
-        "member_count": len(members),
+        "member_count": department_summary["member_count"],
         "summary": {
-            "member_count": len(members),
-            "total_hours": format_hours(department_total_hours),
-            "total_items": department_total_items,
-            "filled_days": department_filled_days,
+            "member_count": department_summary["member_count"],
+            "total_hours": format_hours(department_summary["total_hours_value"]),
+            "total_items": department_summary["total_items"],
+            "filled_days": department_summary["filled_days"],
         },
+        "weekly_stats_available_departments": weekly_stats_available_departments,
+        "weekly_stats_available_positions": weekly_stats_available_positions,
+        "weekly_stats_available_users": weekly_stats_available_users,
+        "weekly_stats_selected_department": weekly_stats_selected_department,
+        "weekly_stats_selected_departments": weekly_stats_selected_departments,
+        "weekly_stats_selected_departments_explicit_empty": bool(weekly_stats_scope["selected_departments_explicit_empty"]),
+        "weekly_stats_selected_department_label": str(weekly_stats_scope["selected_department_label"]),
+        "weekly_stats_selected_positions": weekly_stats_selected_positions,
+        "weekly_stats_selected_positions_explicit_empty": bool(weekly_stats_scope["selected_positions_explicit_empty"]),
+        "weekly_stats_selected_position_label": str(weekly_stats_scope["selected_position_label"]),
+        "weekly_stats_selected_users": weekly_stats_selected_users,
+        "weekly_stats_selected_users_explicit_empty": bool(weekly_stats_scope["selected_users_explicit_empty"]),
+        "weekly_stats_selected_user_label": str(weekly_stats_scope["selected_user_label"]),
+        "weekly_stats_default_selected_departments": list(weekly_stats_scope["default_selected_departments"]),
+        "weekly_stats_default_selected_positions": list(weekly_stats_scope["default_selected_positions"]),
+        "weekly_stats_default_selected_users": list(weekly_stats_scope["default_selected_users"]),
+        "weekly_stats_member_count": len(weekly_stats_members),
+        "weekly_stats_members": weekly_stats_members,
         "weekly_work_stats": weekly_work_stats,
         "daily_totals": daily_totals,
         "members": members,
@@ -12233,16 +12431,23 @@ def normalize_items_payload(items: object) -> list[dict]:
         raise ValueError("事项列表格式不正确。")
 
     normalized: list[dict] = []
-    for raw_item in items:
+    for index, raw_item in enumerate(items, start=1):
         if not isinstance(raw_item, dict):
             continue
         item = normalize_item(raw_item)
         if not any(item.values()):
             continue
+        row_label = f"第 {index} 条事项"
         if not item["customer_name"]:
-            raise ValueError("每条事项都需要填写客户名称。")
+            raise ValueError(f"{row_label}需要填写客户名称。")
+        if not item["item_type"]:
+            raise ValueError(f"{row_label}需要选择类型。")
+        if not item["service_mode"]:
+            raise ValueError(f"{row_label}需要选择服务方式。")
+        if item["work_hours"] in ("", None):
+            raise ValueError(f"{row_label}需要填写工时。")
         if not item["work_content"]:
-            raise ValueError("每条事项都需要填写工作内容。")
+            raise ValueError(f"{row_label}需要填写工作内容。")
         normalized.append(item)
 
     if not normalized:
@@ -16357,6 +16562,10 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             requested_departments = query.get("departments", [])
             requested_positions = query.get("positions", [])
             requested_users = query.get("users", [])
+            requested_stats_department = query.get("stats_department", [""])[0]
+            requested_stats_departments = query.get("stats_departments", [])
+            requested_stats_positions = query.get("stats_positions", [])
+            requested_stats_users = query.get("stats_users", [])
             try:
                 payload = build_department_schedule_payload(
                     current_user,
@@ -16365,6 +16574,10 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                     requested_departments=requested_departments,
                     requested_positions=requested_positions,
                     requested_users=requested_users,
+                    requested_stats_department=requested_stats_department,
+                    requested_stats_departments=requested_stats_departments,
+                    requested_stats_positions=requested_stats_positions,
+                    requested_stats_users=requested_stats_users,
                 )
                 self._send_json(payload)
             except PermissionError as error:

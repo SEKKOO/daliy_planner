@@ -2076,6 +2076,23 @@ __HELP_DOCS_OVERLAY__
         </section>
       </section>
     </div>
+  <div class="schedule-filter-overlay" id="weekly-stats-filter-overlay" hidden>
+      <section class="schedule-filter-dialog" role="dialog" aria-modal="false" aria-labelledby="weekly-stats-filter-title">
+        <div class="schedule-filter-title" id="weekly-stats-filter-title">本周工统计筛选</div>
+        <section class="schedule-filter-section">
+          <div class="schedule-filter-section-title">部门筛选</div>
+          <div class="schedule-filter-options" id="weekly-stats-filter-department-options"></div>
+        </section>
+        <section class="schedule-filter-section">
+          <div class="schedule-filter-section-title">岗位筛选</div>
+          <div class="schedule-filter-options" id="weekly-stats-filter-position-options"></div>
+        </section>
+        <section class="schedule-filter-section">
+          <div class="schedule-filter-section-title">人员筛选</div>
+          <div class="schedule-filter-options" id="weekly-stats-filter-user-options"></div>
+        </section>
+      </section>
+    </div>
     <div class="schedule-log-overlay" id="edit-log-overlay" hidden>
       <section class="schedule-log-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-log-dialog-title">
         <div class="schedule-log-head">
@@ -2175,6 +2192,10 @@ __HELP_DOCS_OVERLAY__
     const scheduleFilterDepartmentOptionsEl = document.getElementById("schedule-filter-department-options");
     const scheduleFilterPositionOptionsEl = document.getElementById("schedule-filter-position-options");
     const scheduleFilterUserOptionsEl = document.getElementById("schedule-filter-user-options");
+    const weeklyStatsFilterOverlay = document.getElementById("weekly-stats-filter-overlay");
+    const weeklyStatsFilterDepartmentOptionsEl = document.getElementById("weekly-stats-filter-department-options");
+    const weeklyStatsFilterPositionOptionsEl = document.getElementById("weekly-stats-filter-position-options");
+    const weeklyStatsFilterUserOptionsEl = document.getElementById("weekly-stats-filter-user-options");
     const PLAN_AUTO_SAVE_DELAY_MS = 1000;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -2182,6 +2203,7 @@ __HELP_DOCS_OVERLAY__
     const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
     const LOCAL_LOGIN_USERNAME_STORAGE_KEY = "daily_planner_last_local_login_username";
     const SCHEDULE_FILTER_STORAGE_KEY_PREFIX = "daily_planner_department_schedule_filter::";
+    const WEEKLY_STATS_FILTER_STORAGE_KEY_PREFIX = "daily_planner_department_weekly_stats_filter::";
     const MEMBER_ORDER_STORAGE_KEY = "daily_planner_department_schedule_member_order_v1";
     const WEEKLY_PLAN_SYNC_SIGNAL_STORAGE_KEY = "daily_planner_weekly_plan_sync_signal_v1";
     const MEMBER_ORDER_DRAG_THRESHOLD_PX = 6;
@@ -2211,6 +2233,11 @@ __HELP_DOCS_OVERLAY__
     let scheduleFilterDraftState = { departments: [], positions: [], users: [] };
     let scheduleFilterPositionFrameId = 0;
     let activeScheduleFilterTriggerEl = null;
+    let isWeeklyStatsFilterOverlayOpen = false;
+    let requestedWeeklyStatsFilterState = null;
+    let weeklyStatsFilterDraftState = { departments: [], positions: [], users: [] };
+    let weeklyStatsFilterPositionFrameId = 0;
+    let activeWeeklyStatsFilterTriggerEl = null;
     let dingtalkAuthConfig = normalizeDingtalkAuthConfig({});
     let currentDingtalkScanSessionId = "";
     let dingtalkScanPollTimer = null;
@@ -2366,8 +2393,14 @@ __HELP_DOCS_OVERLAY__
       const currentUserId = String(currentUser && currentUser.user_id || "").trim();
       return currentUserId || DEFAULT_STORAGE_SCOPE_TOKEN;
     }
+    function getUserScopedFilterStorageKey(prefix) {
+      return `${String(prefix || "").trim()}${getScheduleFilterStorageScopeToken()}`;
+    }
     function getScheduleFilterStorageKey() {
-      return `${SCHEDULE_FILTER_STORAGE_KEY_PREFIX}${getScheduleFilterStorageScopeToken()}`;
+      return getUserScopedFilterStorageKey(SCHEDULE_FILTER_STORAGE_KEY_PREFIX);
+    }
+    function getWeeklyStatsFilterStorageKey() {
+      return getUserScopedFilterStorageKey(WEEKLY_STATS_FILTER_STORAGE_KEY_PREFIX);
     }
     function normalizeScheduleFilterStorageState(payload) {
       if (!payload || typeof payload !== "object") {
@@ -2385,9 +2418,9 @@ __HELP_DOCS_OVERLAY__
       const users = normalizeSelectionValues(hasUsers ? source.users : []);
       return { departments, positions, users };
     }
-    function readStoredScheduleFilterState() {
+    function readStoredFilterState(storageKey) {
       try {
-        const rawValue = window.localStorage.getItem(getScheduleFilterStorageKey());
+        const rawValue = window.localStorage.getItem(storageKey);
         if (!rawValue) {
           return null;
         }
@@ -2396,24 +2429,62 @@ __HELP_DOCS_OVERLAY__
         return null;
       }
     }
-    function writeStoredScheduleFilterState(payload) {
+    function writeStoredFilterState(storageKey, payload) {
       const normalizedState = normalizeScheduleFilterStorageState(payload);
       try {
         if (!normalizedState) {
-          window.localStorage.removeItem(getScheduleFilterStorageKey());
+          window.localStorage.removeItem(storageKey);
           return;
         }
-        window.localStorage.setItem(getScheduleFilterStorageKey(), JSON.stringify(normalizedState));
+        window.localStorage.setItem(storageKey, JSON.stringify(normalizedState));
       } catch (error) {
         // Ignore storage failures.
       }
     }
-    function clearStoredScheduleFilterState() {
+    function clearStoredFilterState(storageKey) {
       try {
-        window.localStorage.removeItem(getScheduleFilterStorageKey());
+        window.localStorage.removeItem(storageKey);
       } catch (error) {
         // Ignore storage failures.
       }
+    }
+    function readStoredScheduleFilterState() {
+      try {
+        const rawValue = window.localStorage.getItem(getScheduleFilterStorageKey());
+        if (!rawValue) {
+          return null;
+        }
+        const parsed = JSON.parse(rawValue);
+        const normalizedState = normalizeScheduleFilterStorageState(parsed);
+        if (!normalizedState) {
+          return null;
+        }
+        const nextState = {};
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.departments)) {
+          nextState.departments = normalizedState.departments;
+        }
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.positions)) {
+          nextState.positions = normalizedState.positions;
+        }
+        return Object.keys(nextState).length ? nextState : null;
+      } catch (error) {
+        return null;
+      }
+    }
+    function writeStoredScheduleFilterState(payload) {
+      writeStoredFilterState(getScheduleFilterStorageKey(), payload);
+    }
+    function clearStoredScheduleFilterState() {
+      clearStoredFilterState(getScheduleFilterStorageKey());
+    }
+    function readStoredWeeklyStatsFilterState() {
+      return readStoredFilterState(getWeeklyStatsFilterStorageKey());
+    }
+    function writeStoredWeeklyStatsFilterState(payload) {
+      writeStoredFilterState(getWeeklyStatsFilterStorageKey(), payload);
+    }
+    function clearStoredWeeklyStatsFilterState() {
+      clearStoredFilterState(getWeeklyStatsFilterStorageKey());
     }
     function canCurrentViewerOpenEditLogs(user) {
       const currentUser = normalizeAuthUser(user);
@@ -2455,6 +2526,7 @@ __HELP_DOCS_OVERLAY__
       };
       if (getScheduleFilterStorageScopeToken() !== previousScopeToken) {
         requestedScheduleFilterState = readStoredScheduleFilterState();
+        requestedWeeklyStatsFilterState = readStoredWeeklyStatsFilterState();
       }
       syncAuthControls();
       return authState;
@@ -3175,6 +3247,93 @@ __HELP_DOCS_OVERLAY__
       return availableUserOptions.map((item) => item.value);
     }
 
+    function getAvailableWeeklyStatsDepartmentFilters(payload = latestPayload) {
+      return normalizeSelectionValues(payload && payload.weekly_stats_available_departments || []);
+    }
+
+    function getAvailableWeeklyStatsPositionFilters(payload = latestPayload) {
+      return normalizeSelectionValues(payload && payload.weekly_stats_available_positions || []);
+    }
+
+    function getAvailableWeeklyStatsUserFilterOptions(payload = latestPayload) {
+      const source = Array.isArray(payload && payload.weekly_stats_available_users) ? payload.weekly_stats_available_users : [];
+      const options = [];
+      const seen = new Set();
+      source.forEach((item) => {
+        const userId = String(item && item.user_id || '').trim();
+        if (!userId) {
+          return;
+        }
+        const key = userId.toLowerCase();
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        const displayName = String(item && (item.display_name || userId) || userId).trim() || userId;
+        const department = String(item && item.department || '').trim();
+        const positionLabels = String(item && item.position_labels || '').trim();
+        const metaParts = [department, positionLabels].filter(Boolean);
+        options.push({
+          value: userId,
+          label: displayName,
+          meta: metaParts.join(' · '),
+        });
+      });
+      return options;
+    }
+
+    function getSelectedWeeklyStatsDepartmentFilters(payload = latestPayload) {
+      const availableDepartments = getAvailableWeeklyStatsDepartmentFilters(payload);
+      const selectedExplicitEmpty = Boolean(payload && payload.weekly_stats_selected_departments_explicit_empty);
+      const selected = normalizeSelectionValues(payload && payload.weekly_stats_selected_departments || [], availableDepartments);
+      if (selected.length || selectedExplicitEmpty) {
+        return selected;
+      }
+      const fallbackDepartment = String(payload && payload.weekly_stats_selected_department || '').trim();
+      if (fallbackDepartment) {
+        return normalizeSelectionValues([fallbackDepartment], availableDepartments);
+      }
+      const defaultDepartments = normalizeSelectionValues(
+        payload && payload.weekly_stats_default_selected_departments || [],
+        availableDepartments
+      );
+      return defaultDepartments.length ? defaultDepartments : availableDepartments;
+    }
+
+    function getSelectedWeeklyStatsPositionFilters(payload = latestPayload) {
+      const availablePositions = getAvailableWeeklyStatsPositionFilters(payload);
+      const selectedExplicitEmpty = Boolean(payload && payload.weekly_stats_selected_positions_explicit_empty);
+      const selected = normalizeSelectionValues(payload && payload.weekly_stats_selected_positions || [], availablePositions);
+      if (selected.length || selectedExplicitEmpty) {
+        return selected;
+      }
+      const defaultPositions = normalizeSelectionValues(
+        payload && payload.weekly_stats_default_selected_positions || [],
+        availablePositions
+      );
+      return defaultPositions.length ? defaultPositions : availablePositions;
+    }
+
+    function getSelectedWeeklyStatsUserFilters(payload = latestPayload) {
+      const availableUserOptions = getAvailableWeeklyStatsUserFilterOptions(payload);
+      const selectedExplicitEmpty = Boolean(payload && payload.weekly_stats_selected_users_explicit_empty);
+      const selected = normalizeUserSelectionValues(
+        payload && payload.weekly_stats_selected_users || [],
+        availableUserOptions
+      );
+      if (selected.length || selectedExplicitEmpty) {
+        return selected;
+      }
+      const defaultUsers = normalizeUserSelectionValues(
+        payload && payload.weekly_stats_default_selected_users || [],
+        availableUserOptions
+      );
+      if (defaultUsers.length) {
+        return defaultUsers;
+      }
+      return availableUserOptions.map((item) => item.value);
+    }
+
     function buildCurrentScheduleFilterQueryState(payload = latestPayload) {
       const availableDepartments = getAvailableDepartmentFilters(payload);
       const availablePositions = getAvailablePositionFilters(payload);
@@ -3238,6 +3397,65 @@ __HELP_DOCS_OVERLAY__
       };
     }
 
+    function buildCurrentWeeklyStatsFilterQueryState(payload = latestPayload) {
+      const availableDepartments = getAvailableWeeklyStatsDepartmentFilters(payload);
+      const availablePositions = getAvailableWeeklyStatsPositionFilters(payload);
+      const availableUserOptions = getAvailableWeeklyStatsUserFilterOptions(payload);
+      const activeState = requestedWeeklyStatsFilterState && typeof requestedWeeklyStatsFilterState === 'object'
+        ? requestedWeeklyStatsFilterState
+        : null;
+      const hasActiveDepartments = Boolean(activeState && Array.isArray(activeState.departments));
+      const hasActivePositions = Boolean(activeState && Array.isArray(activeState.positions));
+      const hasActiveUsers = Boolean(activeState && Array.isArray(activeState.users));
+      const selectedDepartmentsExplicitEmpty = hasActiveDepartments
+        ? activeState.departments.length === 0
+        : Boolean(payload && payload.weekly_stats_selected_departments_explicit_empty);
+      const selectedPositionsExplicitEmpty = hasActivePositions
+        ? activeState.positions.length === 0
+        : Boolean(payload && payload.weekly_stats_selected_positions_explicit_empty);
+      const selectedUsersExplicitEmpty = hasActiveUsers
+        ? activeState.users.length === 0
+        : Boolean(payload && payload.weekly_stats_selected_users_explicit_empty);
+      let selectedDepartments = hasActiveDepartments
+        ? normalizeSelectionValues(activeState.departments, availableDepartments)
+        : getSelectedWeeklyStatsDepartmentFilters(payload);
+      let selectedPositions = hasActivePositions
+        ? normalizeSelectionValues(activeState.positions, availablePositions)
+        : getSelectedWeeklyStatsPositionFilters(payload);
+      let selectedUsers = hasActiveUsers
+        ? normalizeUserSelectionValues(activeState.users, availableUserOptions)
+        : getSelectedWeeklyStatsUserFilters(payload);
+      if (!selectedDepartments.length && !selectedDepartmentsExplicitEmpty) {
+        selectedDepartments = getSelectedWeeklyStatsDepartmentFilters(payload);
+      }
+      if (!selectedPositions.length && !selectedPositionsExplicitEmpty) {
+        selectedPositions = getSelectedWeeklyStatsPositionFilters(payload);
+      }
+      if (!selectedUsers.length && !selectedUsersExplicitEmpty) {
+        selectedUsers = getSelectedWeeklyStatsUserFilters(payload);
+      }
+      let departmentParam = '';
+      if (selectedDepartmentsExplicitEmpty) {
+        departmentParam = '__none__';
+      } else if (selectedDepartments.length > 1) {
+        departmentParam = '__all__';
+      } else {
+        departmentParam = selectedDepartments[0] || '';
+      }
+      return {
+        selectedDepartments,
+        selectedPositions,
+        selectedUsers,
+        selectedDepartmentsExplicitEmpty,
+        selectedPositionsExplicitEmpty,
+        selectedUsersExplicitEmpty,
+        departmentParam,
+        availableDepartments,
+        availablePositions,
+        availableUserOptions,
+      };
+    }
+
     function appendCurrentScheduleFilterParams(params, payload = latestPayload) {
       const queryState = buildCurrentScheduleFilterQueryState(payload);
       params.delete('department');
@@ -3261,6 +3479,33 @@ __HELP_DOCS_OVERLAY__
         params.append('users', '__none__');
       } else {
         queryState.selectedUsers.forEach((userId) => params.append('users', userId));
+      }
+      return queryState;
+    }
+
+    function appendCurrentWeeklyStatsFilterParams(params, payload = latestPayload) {
+      const queryState = buildCurrentWeeklyStatsFilterQueryState(payload);
+      params.delete('stats_department');
+      if (queryState.departmentParam) {
+        params.set('stats_department', queryState.departmentParam);
+      }
+      params.delete('stats_departments');
+      if (queryState.selectedDepartmentsExplicitEmpty) {
+        params.append('stats_departments', '__none__');
+      } else {
+        queryState.selectedDepartments.forEach((department) => params.append('stats_departments', department));
+      }
+      params.delete('stats_positions');
+      if (queryState.selectedPositionsExplicitEmpty) {
+        params.append('stats_positions', '__none__');
+      } else {
+        queryState.selectedPositions.forEach((position) => params.append('stats_positions', position));
+      }
+      params.delete('stats_users');
+      if (queryState.selectedUsersExplicitEmpty) {
+        params.append('stats_users', '__none__');
+      } else {
+        queryState.selectedUsers.forEach((userId) => params.append('stats_users', userId));
       }
       return queryState;
     }
@@ -3441,6 +3686,9 @@ __HELP_DOCS_OVERLAY__
       if (!latestPayload) {
         return;
       }
+      if (isWeeklyStatsFilterOverlayOpen) {
+        closeWeeklyStatsFilterOverlay();
+      }
       const queryState = buildCurrentScheduleFilterQueryState(latestPayload);
       isScheduleFilterOverlayOpen = true;
       scheduleFilterDraftState = {
@@ -3520,6 +3768,185 @@ __HELP_DOCS_OVERLAY__
       });
     }
 
+    function getWeeklyStatsFilterTriggerButtons() {
+      return Array.from(document.querySelectorAll('button[data-action="open-weekly-stats-filter"]'));
+    }
+
+    function getWeeklyStatsFilterTriggerButton() {
+      if (activeWeeklyStatsFilterTriggerEl && activeWeeklyStatsFilterTriggerEl.isConnected) {
+        return activeWeeklyStatsFilterTriggerEl;
+      }
+      return getWeeklyStatsFilterTriggerButtons().find((button) => !button.hidden) || null;
+    }
+
+    function syncWeeklyStatsFilterTriggerButtonState() {
+      getWeeklyStatsFilterTriggerButtons().forEach((button) => {
+        button.setAttribute('aria-expanded', isWeeklyStatsFilterOverlayOpen ? 'true' : 'false');
+      });
+    }
+
+    function scheduleWeeklyStatsFilterOverlayPosition() {
+      if (weeklyStatsFilterPositionFrameId) {
+        window.cancelAnimationFrame(weeklyStatsFilterPositionFrameId);
+      }
+      weeklyStatsFilterPositionFrameId = window.requestAnimationFrame(() => {
+        weeklyStatsFilterPositionFrameId = 0;
+        positionWeeklyStatsFilterOverlay();
+      });
+    }
+
+    function positionWeeklyStatsFilterOverlay() {
+      if (!isWeeklyStatsFilterOverlayOpen || weeklyStatsFilterOverlay.hidden) {
+        return;
+      }
+      const triggerButton = getWeeklyStatsFilterTriggerButton();
+      if (!triggerButton) {
+        return;
+      }
+      const viewportPadding = 12;
+      const desiredWidth = Math.min(320, Math.max(220, window.innerWidth - viewportPadding * 2));
+      weeklyStatsFilterOverlay.style.width = `${desiredWidth}px`;
+      weeklyStatsFilterOverlay.style.visibility = 'hidden';
+      weeklyStatsFilterOverlay.style.left = `${viewportPadding}px`;
+      weeklyStatsFilterOverlay.style.top = `${viewportPadding}px`;
+      const triggerRect = triggerButton.getBoundingClientRect();
+      const menuRect = weeklyStatsFilterOverlay.getBoundingClientRect();
+      let left = triggerRect.right - menuRect.width;
+      left = Math.max(viewportPadding, Math.min(left, window.innerWidth - menuRect.width - viewportPadding));
+      let top = triggerRect.bottom + 10;
+      if (top + menuRect.height > window.innerHeight - viewportPadding) {
+        const aboveTop = triggerRect.top - menuRect.height - 10;
+        top = aboveTop >= viewportPadding
+          ? aboveTop
+          : Math.max(viewportPadding, window.innerHeight - menuRect.height - viewportPadding);
+      }
+      weeklyStatsFilterOverlay.style.left = `${Math.round(left)}px`;
+      weeklyStatsFilterOverlay.style.top = `${Math.round(top)}px`;
+      weeklyStatsFilterOverlay.style.visibility = '';
+    }
+
+    function getWeeklyStatsFilterOptionItems(groupName, payload = latestPayload) {
+      if (groupName === 'departments') {
+        return normalizeScheduleFilterOptionItems(getAvailableWeeklyStatsDepartmentFilters(payload));
+      }
+      if (groupName === 'positions') {
+        return normalizeScheduleFilterOptionItems(getAvailableWeeklyStatsPositionFilters(payload));
+      }
+      if (groupName === 'users') {
+        return normalizeScheduleFilterOptionItems(getAvailableWeeklyStatsUserFilterOptions(payload));
+      }
+      return [];
+    }
+
+    function renderWeeklyStatsFilterOverlay(payload = latestPayload) {
+      const departmentOptions = getAvailableWeeklyStatsDepartmentFilters(payload);
+      const positionOptions = getAvailableWeeklyStatsPositionFilters(payload);
+      const userOptions = getAvailableWeeklyStatsUserFilterOptions(payload);
+      const selectedDepartments = normalizeSelectionValues(weeklyStatsFilterDraftState.departments, departmentOptions);
+      const selectedPositions = normalizeSelectionValues(weeklyStatsFilterDraftState.positions, positionOptions);
+      const selectedUsers = normalizeUserSelectionValues(weeklyStatsFilterDraftState.users, userOptions);
+      renderScheduleFilterOptionList(
+        weeklyStatsFilterDepartmentOptionsEl,
+        'departments',
+        departmentOptions,
+        selectedDepartments,
+        '当前范围内暂无可筛选部门。'
+      );
+      renderScheduleFilterOptionList(
+        weeklyStatsFilterPositionOptionsEl,
+        'positions',
+        positionOptions,
+        selectedPositions,
+        '当前范围内暂无可筛选岗位。'
+      );
+      renderScheduleFilterOptionList(
+        weeklyStatsFilterUserOptionsEl,
+        'users',
+        userOptions,
+        selectedUsers,
+        '当前范围内暂无可筛选人员。'
+      );
+    }
+
+    function openWeeklyStatsFilterOverlay() {
+      if (!latestPayload) {
+        return;
+      }
+      if (isScheduleFilterOverlayOpen) {
+        closeScheduleFilterOverlay();
+      }
+      const queryState = buildCurrentWeeklyStatsFilterQueryState(latestPayload);
+      isWeeklyStatsFilterOverlayOpen = true;
+      weeklyStatsFilterDraftState = {
+        departments: queryState.selectedDepartments,
+        positions: queryState.selectedPositions,
+        users: queryState.selectedUsers,
+      };
+      renderWeeklyStatsFilterOverlay(latestPayload);
+      weeklyStatsFilterOverlay.hidden = false;
+      syncWeeklyStatsFilterTriggerButtonState();
+      scheduleWeeklyStatsFilterOverlayPosition();
+    }
+
+    function closeWeeklyStatsFilterOverlay() {
+      isWeeklyStatsFilterOverlayOpen = false;
+      weeklyStatsFilterOverlay.hidden = true;
+      if (weeklyStatsFilterPositionFrameId) {
+        window.cancelAnimationFrame(weeklyStatsFilterPositionFrameId);
+        weeklyStatsFilterPositionFrameId = 0;
+      }
+      weeklyStatsFilterDraftState = { departments: [], positions: [], users: [] };
+      activeWeeklyStatsFilterTriggerEl = null;
+      syncWeeklyStatsFilterTriggerButtonState();
+    }
+
+    async function applyWeeklyStatsFilterDraft() {
+      if (!latestPayload) {
+        return;
+      }
+      const departmentOptions = getAvailableWeeklyStatsDepartmentFilters(latestPayload);
+      const positionOptions = getAvailableWeeklyStatsPositionFilters(latestPayload);
+      const userOptions = getAvailableWeeklyStatsUserFilterOptions(latestPayload);
+      const selectedDepartments = normalizeSelectionValues(weeklyStatsFilterDraftState.departments, departmentOptions);
+      const selectedPositions = normalizeSelectionValues(weeklyStatsFilterDraftState.positions, positionOptions);
+      const selectedUsers = normalizeUserSelectionValues(weeklyStatsFilterDraftState.users, userOptions);
+      requestedWeeklyStatsFilterState = {
+        departments: selectedDepartments,
+        positions: selectedPositions,
+        users: selectedUsers,
+      };
+      await loadDepartmentSchedule({ silent: true });
+    }
+
+    function toggleWeeklyStatsFilterOption(groupName, rawValue) {
+      if (!latestPayload) {
+        return;
+      }
+      const normalizedGroupName = String(groupName || '').trim();
+      const normalizedValue = String(rawValue || '').trim();
+      if (!normalizedGroupName || !normalizedValue) {
+        return;
+      }
+      const optionItems = getWeeklyStatsFilterOptionItems(normalizedGroupName, latestPayload);
+      const currentSelectedValues = normalizeScheduleFilterGroupValues(
+        normalizedGroupName,
+        weeklyStatsFilterDraftState[normalizedGroupName],
+        optionItems
+      );
+      const isSelected = currentSelectedValues.some((item) => item.toLowerCase() === normalizedValue.toLowerCase());
+      const nextSelectedValues = isSelected
+        ? currentSelectedValues.filter((item) => item.toLowerCase() !== normalizedValue.toLowerCase())
+        : currentSelectedValues.concat([normalizedValue]);
+      weeklyStatsFilterDraftState = {
+        ...weeklyStatsFilterDraftState,
+        [normalizedGroupName]: normalizeScheduleFilterGroupValues(normalizedGroupName, nextSelectedValues, optionItems),
+      };
+      renderWeeklyStatsFilterOverlay(latestPayload);
+      applyWeeklyStatsFilterDraft().catch((error) => {
+        setStatus(error.message || '筛选失败，请稍后重试。', true);
+      });
+    }
+
     function showStateCard(title, message, showAdminButton = true, showLoginButton = false) {
       if (isEditLogOverlayOpen) {
         closeEditLogOverlay();
@@ -3550,6 +3977,10 @@ __HELP_DOCS_OVERLAY__
       return Array.isArray(latestPayload && latestPayload.members) ? latestPayload.members : [];
     }
 
+    function getWeeklyStatsMembers() {
+      return Array.isArray(latestPayload && latestPayload.weekly_stats_members) ? latestPayload.weekly_stats_members : [];
+    }
+
     function getMemberUserId(member) {
       return String(member && member.user && member.user.user_id || "").trim();
     }
@@ -3557,6 +3988,11 @@ __HELP_DOCS_OVERLAY__
     function getMemberDisplayName(member) {
       const userId = getMemberUserId(member);
       return String(member && member.user && (member.user.display_name || userId) || userId || "未命名用户").trim() || "未命名用户";
+    }
+
+    function getWeeklyStatsMemberDisplayName(member) {
+      const userId = String(member && member.user_id || '').trim();
+      return String(member && (member.display_name || userId) || userId || '未命名用户').trim() || '未命名用户';
     }
 
     function formatDateTimeLabel(value) {
@@ -3810,6 +4246,9 @@ __HELP_DOCS_OVERLAY__
       const canShowWeeklyStats = Boolean(payload && payload.show_weekly_stats);
       const canShowDailySection = Boolean(payload && payload.show_daily_section);
       const canShowAdminButton = Boolean(payload && payload.show_admin_button);
+      if (!canShowWeeklyStats && isWeeklyStatsFilterOverlayOpen) {
+        closeWeeklyStatsFilterOverlay();
+      }
       weeklyStatsSectionEl.hidden = !canShowWeeklyStats;
       dailySectionEl.hidden = !canShowDailySection;
       backAdminPageButton.hidden = !canShowAdminButton;
@@ -4228,7 +4667,7 @@ __HELP_DOCS_OVERLAY__
     }
 
     function renderWeeklyStatsFilterSummary(payload) {
-      const members = getMembers();
+      const members = getWeeklyStatsMembers();
       if (!members.length) {
         weeklyStatsMemberScopeEl.innerHTML = `
           <div class="weekly-stats-member-scope-head">
@@ -4239,35 +4678,41 @@ __HELP_DOCS_OVERLAY__
             <button
               type="button"
               class="secondary plan-filter-button weekly-stats-filter-action"
-              data-action="open-schedule-filter"
+              data-action="open-weekly-stats-filter"
               aria-haspopup="menu"
-              aria-controls="schedule-filter-overlay"
-              aria-expanded="${isScheduleFilterOverlayOpen ? 'true' : 'false'}"
+              aria-controls="weekly-stats-filter-overlay"
+              aria-expanded="${isWeeklyStatsFilterOverlayOpen ? 'true' : 'false'}"
             >调整筛选</button>
           </div>
           <div class="weekly-stats-member-empty">当前筛选条件下暂无用户可统计，请调整部门、岗位或人员范围。</div>
         `;
+        if (isWeeklyStatsFilterOverlayOpen) {
+          scheduleWeeklyStatsFilterOverlayPosition();
+        }
         return;
       }
       weeklyStatsMemberScopeEl.innerHTML = `
         <div class="weekly-stats-member-scope-head">
-          <div>
-            <div class="weekly-stats-member-scope-title">当前统计用户</div>
-            <div class="weekly-stats-member-scope-inline">
+            <div>
+              <div class="weekly-stats-member-scope-title">当前统计用户</div>
+              <div class="weekly-stats-member-scope-inline">
               <div class="weekly-stats-member-scope-summary">${escapeHtml(String(members.length))} 人</div>
-              <div class="chip-row">${members.map((member) => renderChip(getMemberDisplayName(member))).join('')}</div>
+              <div class="chip-row">${members.map((member) => renderChip(getWeeklyStatsMemberDisplayName(member))).join('')}</div>
             </div>
           </div>
           <button
             type="button"
             class="secondary plan-filter-button weekly-stats-filter-action"
-            data-action="open-schedule-filter"
+            data-action="open-weekly-stats-filter"
             aria-haspopup="menu"
-            aria-controls="schedule-filter-overlay"
-            aria-expanded="${isScheduleFilterOverlayOpen ? 'true' : 'false'}"
+            aria-controls="weekly-stats-filter-overlay"
+            aria-expanded="${isWeeklyStatsFilterOverlayOpen ? 'true' : 'false'}"
           >调整筛选</button>
         </div>
       `;
+      if (isWeeklyStatsFilterOverlayOpen) {
+        scheduleWeeklyStatsFilterOverlayPosition();
+      }
     }
 
     function renderWeeklyStatsMemberHoursPanel(stats) {
@@ -4799,7 +5244,13 @@ __HELP_DOCS_OVERLAY__
         positions: getSelectedPositionFilters(payload),
         users: getSelectedUserFilters(payload),
       };
+      requestedWeeklyStatsFilterState = {
+        departments: getSelectedWeeklyStatsDepartmentFilters(payload),
+        positions: getSelectedWeeklyStatsPositionFilters(payload),
+        users: getSelectedWeeklyStatsUserFilters(payload),
+      };
       writeStoredScheduleFilterState(requestedScheduleFilterState);
+      writeStoredWeeklyStatsFilterState(requestedWeeklyStatsFilterState);
       clearAllPlanAutoSaveTimers();
       resetDepartmentPlanMemberDragState();
       hideStateCard();
@@ -4813,6 +5264,14 @@ __HELP_DOCS_OVERLAY__
           users: getSelectedUserFilters(payload),
         };
         renderScheduleFilterOverlay(payload);
+      }
+      if (isWeeklyStatsFilterOverlayOpen) {
+        weeklyStatsFilterDraftState = {
+          departments: getSelectedWeeklyStatsDepartmentFilters(payload),
+          positions: getSelectedWeeklyStatsPositionFilters(payload),
+          users: getSelectedWeeklyStatsUserFilters(payload),
+        };
+        renderWeeklyStatsFilterOverlay(payload);
       }
       renderDepartmentPlanTable(payload);
       renderWeeklyWorkStats(payload);
@@ -4838,6 +5297,7 @@ __HELP_DOCS_OVERLAY__
       const params = new URLSearchParams();
       params.set('date', String(dateInput.value || '__INITIAL_DATE__').trim() || '__INITIAL_DATE__');
       appendCurrentScheduleFilterParams(params);
+      appendCurrentWeeklyStatsFilterParams(params);
       try {
         const response = await fetch(`/api/department-schedule?${params.toString()}`);
         const payload = await response.json();
@@ -4848,20 +5308,36 @@ __HELP_DOCS_OVERLAY__
       } catch (error) {
         const statusCode = Number(error && error.status || 0);
         const message = String(error && error.message || '加载失败，请稍后重试。');
+        const isWeeklyStatsFilterError = /^本周工统计筛选：/.test(message);
         if (
           options.allowFilterReset !== false
-          && requestedScheduleFilterState
           && statusCode === 400
-          && /所选(?:部门|岗位|人员)不存在/.test(message)
+          && (isWeeklyStatsFilterError || /所选(?:部门|岗位|人员)不存在/.test(message))
         ) {
-          requestedScheduleFilterState = null;
-          clearStoredScheduleFilterState();
-          return loadDepartmentSchedule({
-            ...options,
-            flushPending: false,
-            silent: true,
-            allowFilterReset: false,
-          });
+          if (
+            isWeeklyStatsFilterError
+            && requestedWeeklyStatsFilterState
+            && options.allowWeeklyStatsFilterReset !== false
+          ) {
+            requestedWeeklyStatsFilterState = null;
+            clearStoredWeeklyStatsFilterState();
+            return loadDepartmentSchedule({
+              ...options,
+              flushPending: false,
+              silent: true,
+              allowWeeklyStatsFilterReset: false,
+            });
+          }
+          if (!isWeeklyStatsFilterError && requestedScheduleFilterState && options.allowScheduleFilterReset !== false) {
+            requestedScheduleFilterState = null;
+            clearStoredScheduleFilterState();
+            return loadDepartmentSchedule({
+              ...options,
+              flushPending: false,
+              silent: true,
+              allowScheduleFilterReset: false,
+            });
+          }
         }
         if (statusCode === 401) {
           setAuthState(null);
@@ -4931,6 +5407,16 @@ __HELP_DOCS_OVERLAY__
         return;
       }
       toggleScheduleFilterOption(
+        optionInput.getAttribute('data-filter-group') || '',
+        optionInput.getAttribute('data-filter-value') || '',
+      );
+    });
+    weeklyStatsFilterOverlay.addEventListener('change', (event) => {
+      const optionInput = event.target.closest('input[data-filter-group][data-filter-value]');
+      if (!optionInput || !latestPayload) {
+        return;
+      }
+      toggleWeeklyStatsFilterOption(
         optionInput.getAttribute('data-filter-group') || '',
         optionInput.getAttribute('data-filter-value') || '',
       );
@@ -5018,6 +5504,14 @@ __HELP_DOCS_OVERLAY__
       ) {
         closeScheduleFilterOverlay();
       }
+      const weeklyStatsFilterTriggerButton = getWeeklyStatsFilterTriggerButton();
+      if (
+        isWeeklyStatsFilterOverlayOpen
+        && !weeklyStatsFilterOverlay.contains(event.target)
+        && !(weeklyStatsFilterTriggerButton && weeklyStatsFilterTriggerButton.contains(event.target))
+      ) {
+        closeWeeklyStatsFilterOverlay();
+      }
     });
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -5037,6 +5531,9 @@ __HELP_DOCS_OVERLAY__
         if (isScheduleFilterOverlayOpen) {
           closeScheduleFilterOverlay();
         }
+        if (isWeeklyStatsFilterOverlayOpen) {
+          closeWeeklyStatsFilterOverlay();
+        }
       }
     });
     window.addEventListener('resize', () => {
@@ -5044,10 +5541,16 @@ __HELP_DOCS_OVERLAY__
       if (isScheduleFilterOverlayOpen) {
         scheduleScheduleFilterOverlayPosition();
       }
+      if (isWeeklyStatsFilterOverlayOpen) {
+        scheduleWeeklyStatsFilterOverlayPosition();
+      }
     });
     window.addEventListener('scroll', () => {
       if (isScheduleFilterOverlayOpen) {
         scheduleScheduleFilterOverlayPosition();
+      }
+      if (isWeeklyStatsFilterOverlayOpen) {
+        scheduleWeeklyStatsFilterOverlayPosition();
       }
     }, true);
     document.getElementById('reload-schedule-button').addEventListener('click', () => {
@@ -5092,8 +5595,20 @@ __HELP_DOCS_OVERLAY__
         openScheduleFilterOverlay();
       }
     }
+    function handleWeeklyStatsFilterTriggerClick(event) {
+      const button = event.target.closest('button[data-action="open-weekly-stats-filter"]');
+      if (!button) {
+        return;
+      }
+      activeWeeklyStatsFilterTriggerEl = button;
+      if (isWeeklyStatsFilterOverlayOpen) {
+        closeWeeklyStatsFilterOverlay();
+      } else {
+        openWeeklyStatsFilterOverlay();
+      }
+    }
     planWeekMetaEl.addEventListener('click', handleScheduleFilterTriggerClick);
-    weeklyStatsSectionEl.addEventListener('click', handleScheduleFilterTriggerClick);
+    weeklyStatsSectionEl.addEventListener('click', handleWeeklyStatsFilterTriggerClick);
     memberUserSelect.addEventListener('change', () => {
       selectedMemberUserId = String(memberUserSelect.value || '').trim();
       renderSelectedMemberDailyItems();
@@ -5121,6 +5636,7 @@ __HELP_DOCS_OVERLAY__
     applyVisualSettings(currentUiSettings);
     scheduleAutoThemeRefresh();
     requestedScheduleFilterState = readStoredScheduleFilterState();
+    requestedWeeklyStatsFilterState = readStoredWeeklyStatsFilterState();
     syncAuthControls();
     refreshAuthState().catch(() => {});
     loadDepartmentSchedule();
