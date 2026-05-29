@@ -10539,7 +10539,7 @@ def build_department_weekly_work_stats(members: list[dict] | None) -> dict[str, 
             "onsite_hours": format_hours(total_onsite_hours),
             "remote_hours": format_hours(total_remote_hours),
             "total_hours": format_hours(total_hours),
-            "average_hours_per_member": format_hours(average_hours),
+            "average_hours_per_member": format_hours_display(average_hours),
         },
         "by_position": by_position,
         "by_member": by_member,
@@ -12221,6 +12221,18 @@ def format_hours(value: object) -> str:
     if number.is_integer():
         return str(int(number))
     return (f"{number:.2f}").rstrip("0").rstrip(".")
+
+
+def format_hours_display(value: object, decimals: int = 2) -> str:
+    if value in (None, ""):
+        return ""
+    number = float(value)
+    if number < 0:
+        raise ValueError("工时不能小于 0。")
+    precision = max(0, int(decimals or 0))
+    if precision == 0:
+        return str(int(round(number)))
+    return (f"{number:.{precision}f}").rstrip("0").rstrip(".")
 
 
 def parse_items(items_json: str, fallback_row: sqlite3.Row | None = None) -> list[dict]:
