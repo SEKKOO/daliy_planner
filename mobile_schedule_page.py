@@ -94,7 +94,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
 
     .section-text {
       margin: 0 0 12px;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
       line-height: 1.55;
     }
@@ -615,15 +615,15 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
   <main class="shell">
     <section class="card login-card" id="mobile-login-card">
       <h2 class="section-title">登录</h2>
-      <p class="section-text">登录后查看并维护当前可访问范围内的日程管理内容。</p>
+      <p class="section-text">登录后查看并维护当前可访问范围内的日程管理内容。账号为拼音全拼，密码默认为拼音全拼@123。</p>
       <div class="stack">
         <label class="field">
           <span class="field-label">用户名</span>
-          <input id="mobile-login-username" type="text" autocomplete="username" placeholder="请输入用户名">
+          <input id="mobile-login-username" type="text" autocomplete="username" placeholder="zhangsan">
         </label>
         <label class="field">
           <span class="field-label">密码</span>
-          <input id="mobile-login-password" type="password" autocomplete="current-password" placeholder="请输入密码">
+          <input id="mobile-login-password" type="password" autocomplete="current-password" placeholder="zhangsan@123">
         </label>
       </div>
       <div class="status" id="mobile-login-status" aria-live="polite"></div>

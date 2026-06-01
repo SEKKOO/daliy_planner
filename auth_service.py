@@ -2251,7 +2251,9 @@ def get_user_by_session(session_token: str | None) -> dict[str, Any] | None:
     normalized_token = str(session_token or "").strip()
     if not normalized_token:
         return None
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now()
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    refreshed_expires_at = (now + timedelta(days=SESSION_DURATION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as connection:
         row = connection.execute(
             """
@@ -2266,6 +2268,14 @@ def get_user_by_session(session_token: str | None) -> dict[str, Any] | None:
         if str(row["expires_at"] or "") <= timestamp:
             connection.execute("DELETE FROM user_sessions WHERE session_token = ?", (normalized_token,))
             return None
+        connection.execute(
+            """
+            UPDATE user_sessions
+            SET expires_at = ?, updated_at = ?
+            WHERE session_token = ?
+            """,
+            (refreshed_expires_at, timestamp, normalized_token),
+        )
     return get_user_by_id(str(row["user_id"] or ""))
 
 

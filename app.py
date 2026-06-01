@@ -73,8 +73,8 @@ DINGTALK_WEEKLY_REPORT_SEND_CONFIG_SETTING_KEY = "dingtalk_weekly_report_send_co
 DINGTALK_USER_MCP_CONFIG_SETTING_KEY = "dingtalk_user_mcp_config_json"
 DINGTALK_LOG_MCP_REQUIRED_ERROR = "当前用户未配置日志发送 MCP，请先在右上角“钉钉MCP”中配置。"
 DINGTALK_DIRECTORY_MCP_REQUIRED_ERROR = "当前用户未配置通讯录查询 MCP，请先在右上角“钉钉MCP”中配置。"
-DINGTALK_DAILY_TEMPLATE_REQUIRED_ERROR = "当前用户未选择日报模板，请先在右上角“钉钉MCP”中读取并选择。"
-DINGTALK_WEEKLY_TEMPLATE_REQUIRED_ERROR = "当前用户未选择周报模板，请先在右上角“钉钉MCP”中读取并选择。"
+DINGTALK_DAILY_TEMPLATE_REQUIRED_ERROR = "请先点击钉钉MCP保存日志模版，保存后再发送"
+DINGTALK_WEEKLY_TEMPLATE_REQUIRED_ERROR = "请先点击钉钉MCP保存日志模版，保存后再发送"
 DINGTALK_SCHEDULED_LOG_STATUS_PENDING = "pending"
 DINGTALK_SCHEDULED_LOG_STATUS_SENT = "sent"
 DINGTALK_SCHEDULED_LOG_STATUS_FAILED = "failed"
@@ -4039,6 +4039,7 @@ __HELP_DOCS_OVERLAY__
     const WEEKLY_PLAN_AUTOSAVE_DELAY_MS = 800;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+    const DINGTALK_LOG_TEMPLATE_REQUIRED_PROMPT = "请先点击钉钉MCP保存日志模版，保存后再发送";
     let currentWeeklyPlanWeekStart = "";
     let weeklyPlanAutosaveTimer = null;
     let visualSettingsAutosaveTimer = null;
@@ -6881,13 +6882,8 @@ __HELP_DOCS_OVERLAY__
           && dailyLogEditorState.kind === "weekly_report"
           && dailyLogEditorState.savedFilename
       );
-      const missingTemplateSelection = Boolean(
-        canSendDailyLog
-          && dailyLogEditorState
-          && dailyLogEditorState.templateConfigured === false
-      );
       previewSendLogButton.hidden = !canSendDailyLog;
-      previewSendLogButton.disabled = !canSendDailyLog || isSendingDailyLog || missingTemplateSelection;
+      previewSendLogButton.disabled = !canSendDailyLog || isSendingDailyLog;
       previewSendLogButton.textContent = isSendingDailyLog ? "发送中..." : "发送日志";
       previewDownloadLogButton.hidden = !canDownloadWeeklyReport;
       previewDownloadLogButton.disabled = !canDownloadWeeklyReport;
@@ -6926,6 +6922,44 @@ __HELP_DOCS_OVERLAY__
         sendResultToast.hidden = true;
         sendResultToastTimer = null;
       }, 2600);
+    }
+
+    function showDingtalkLogTemplateRequiredPrompt() {
+      setStatus(DINGTALK_LOG_TEMPLATE_REQUIRED_PROMPT, "warning");
+      window.alert(DINGTALK_LOG_TEMPLATE_REQUIRED_PROMPT);
+    }
+
+    async function refreshUserDingtalkMcpConfigForSending() {
+      const response = await fetch("/api/user-dingtalk-mcp", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "读取钉钉 MCP 配置失败");
+      }
+      const normalizedConfig = normalizeUserDingtalkMcpEditorConfig(payload.config || {});
+      userDingtalkMcpState.config = normalizedConfig;
+      userDingtalkMcpState.savedConfig = cloneUserDingtalkMcpEditorConfig(normalizedConfig);
+      userDingtalkMcpState.loaded = true;
+      if (isUserDingtalkMcpOverlayOpen) {
+        renderUserDingtalkMcpEditor();
+      }
+      return normalizedConfig;
+    }
+
+    async function ensureDingtalkLogTemplateSaved(reportKind) {
+      try {
+        const config = await refreshUserDingtalkMcpConfigForSending();
+        const isWeeklyReport = reportKind === "weekly";
+        const template = isWeeklyReport ? config.weekly_template : config.daily_template;
+        const templateSource = isWeeklyReport ? config.weekly_template_source : config.daily_template_source;
+        if (templateSource === "user" && !isUserDingtalkTemplateEmpty(template)) {
+          return true;
+        }
+        showDingtalkLogTemplateRequiredPrompt();
+        return false;
+      } catch (error) {
+        setStatus(error.message || "读取钉钉 MCP 配置失败。", "error");
+        return false;
+      }
     }
 
     function setDeliveryProgressLoading(isLoading, forceRefresh = false) {
@@ -7518,6 +7552,17 @@ __HELP_DOCS_OVERLAY__
         setStatus("请先生成并确认要发送的日志内容。", "warning");
         return;
       }
+      const isWeeklyReport = dailyLogEditorState.kind === "weekly_report";
+      if (!(await ensureDingtalkLogTemplateSaved(isWeeklyReport ? "weekly" : "daily"))) {
+        return;
+      }
+      const latestConfig = userDingtalkMcpState.config || {};
+      const template = isWeeklyReport ? latestConfig.weekly_template : latestConfig.daily_template;
+      dailyLogEditorState.templateConfigured = true;
+      dailyLogEditorState.templateName = isWeeklyReport
+        ? normalizeWeeklyReportTemplateDisplayName(getUserDingtalkTemplateDisplayName(template, "未选择模板"))
+        : getUserDingtalkTemplateDisplayName(template, "未选择模板");
+      renderDailyLogPreviewMeta();
       setSendConfirmOpen(true);
     }
 
@@ -7554,10 +7599,9 @@ __HELP_DOCS_OVERLAY__
         dailyLogEditorState.scheduledSendTime = scheduledSendTime;
       }
       if (dailyLogEditorState.templateConfigured === false) {
-        const templateWarning = isWeeklyReport
-          ? "当前用户还未选择周报模板，请先到右上角“钉钉MCP”里读取并选择。"
-          : "当前用户还未选择日报模板，请先到右上角“钉钉MCP”里读取并选择。";
+        const templateWarning = DINGTALK_LOG_TEMPLATE_REQUIRED_PROMPT;
         setStatus(templateWarning, "warning");
+        window.alert(templateWarning);
         showSendResultToast("无法发送", templateWarning, "error");
         return;
       }
@@ -16495,7 +16539,11 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         return str(morsel.value or "").strip()
 
     def _get_current_user(self) -> dict | None:
-        return get_user_by_session(self._get_session_token())
+        session_token = self._get_session_token()
+        user = get_user_by_session(session_token)
+        if user and session_token:
+            self._refreshed_session_token = session_token
+        return user
 
     def _resolve_user_id(self, *, query: dict | None = None, payload: dict | None = None) -> str:
         query_map = query if isinstance(query, dict) else {}
@@ -16529,6 +16577,16 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
 
     def _clear_session_cookie(self) -> str:
         return f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+
+    def _headers_with_refreshed_session(
+        self, extra_headers: dict[str, str] | None = None
+    ) -> dict[str, str]:
+        headers = dict(extra_headers or {})
+        if "Set-Cookie" not in headers:
+            session_token = str(getattr(self, "_refreshed_session_token", "") or "").strip()
+            if session_token:
+                headers["Set-Cookie"] = self._set_session_cookie(session_token)
+        return headers
 
     def _is_admin(self, user: dict | None) -> bool:
         return bool(user and str(user.get("role") or "") == "admin")
@@ -17827,7 +17885,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
-        for header_key, header_value in (extra_headers or {}).items():
+        for header_key, header_value in self._headers_with_refreshed_session(extra_headers).items():
             self.send_header(header_key, str(header_value))
         self.end_headers()
         self.wfile.write(body)
@@ -17845,7 +17903,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
-        for header_key, header_value in (extra_headers or {}).items():
+        for header_key, header_value in self._headers_with_refreshed_session(extra_headers).items():
             self.send_header(header_key, str(header_value))
         self.end_headers()
         self.wfile.write(body)
@@ -17864,7 +17922,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
-        for header_key, header_value in (extra_headers or {}).items():
+        for header_key, header_value in self._headers_with_refreshed_session(extra_headers).items():
             self.send_header(header_key, str(header_value))
         self.end_headers()
         self.wfile.write(body)
@@ -17882,7 +17940,7 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
-        for header_key, header_value in (extra_headers or {}).items():
+        for header_key, header_value in self._headers_with_refreshed_session(extra_headers).items():
             self.send_header(header_key, str(header_value))
         self.end_headers()
 
@@ -17896,6 +17954,8 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        for header_key, header_value in self._headers_with_refreshed_session().items():
+            self.send_header(header_key, str(header_value))
         self.end_headers()
         self.wfile.write(content)
 
