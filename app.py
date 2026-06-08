@@ -10901,7 +10901,7 @@ def list_department_schedule_edit_logs(
     query = f"""
         SELECT week_start, target_user_id, target_display_name, editor_user_id, editor_display_name, change_details_json, edited_at
         FROM weekly_plan_edit_logs
-        WHERE target_user_id IN ({placeholders}) AND editor_user_id != target_user_id
+        WHERE target_user_id IN ({placeholders})
         ORDER BY edited_at DESC, id DESC
     """
     with get_connection() as connection:
@@ -11349,7 +11349,7 @@ def record_weekly_plan_edit_log(
     normalized_week_start = get_week_start(week_start)
     target_user_id = normalize_user_id(str(target_user.get("user_id") or "") if isinstance(target_user, dict) else "")
     editor_user_id = normalize_user_id(str(editor_user.get("user_id") or "") if isinstance(editor_user, dict) else "")
-    if not target_user_id or not editor_user_id or target_user_id == editor_user_id:
+    if not target_user_id or not editor_user_id:
         return None
     normalized_change_details = [str(item or "").strip() for item in (change_details or []) if str(item or "").strip()]
     if not normalized_change_details:
@@ -11411,7 +11411,7 @@ def list_weekly_plan_edit_logs(
             """
             SELECT week_start, target_user_id, target_display_name, editor_user_id, editor_display_name, change_details_json, edited_at
             FROM weekly_plan_edit_logs
-            WHERE week_start = ? AND target_user_id = ? AND editor_user_id != target_user_id
+            WHERE week_start = ? AND target_user_id = ?
             ORDER BY edited_at DESC, id DESC
             LIMIT ?
             """,
@@ -11439,7 +11439,7 @@ def list_weekly_plan_edit_logs_for_targets(
     query = f"""
         SELECT week_start, target_user_id, target_display_name, editor_user_id, editor_display_name, change_details_json, edited_at
         FROM weekly_plan_edit_logs
-        WHERE week_start = ? AND target_user_id IN ({placeholders}) AND editor_user_id != target_user_id
+        WHERE week_start = ? AND target_user_id IN ({placeholders})
         ORDER BY target_user_id ASC, edited_at DESC, id DESC
     """
     grouped: dict[str, list[dict]] = {user_id: [] for user_id in normalized_user_ids}

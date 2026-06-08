@@ -682,6 +682,27 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       flex-wrap: wrap;
       align-items: center;
     }
+    .schedule-log-filter {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(42,111,214,0.12);
+      background: rgba(var(--surface-rgb), var(--shell-surface-alpha));
+      color: var(--text-soft);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+    }
+    .schedule-log-filter input {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      accent-color: var(--primary);
+    }
     .schedule-log-body {
       overflow: auto;
       display: grid;
@@ -1566,6 +1587,11 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-color: rgba(255,255,255,0.08);
       background: rgba(32, 46, 70, 0.76);
     }
+    body[data-theme="dark"] .schedule-log-filter {
+      color: var(--ink);
+      border-color: rgba(255,255,255,0.08);
+      background: rgba(41, 60, 91, 0.8);
+    }
     body[data-theme="dark"] .row-status-badge.pending {
       color: #ffd27a;
       border-color: rgba(255, 210, 122, 0.34);
@@ -2154,6 +2180,10 @@ __HELP_DOCS_OVERLAY__
             <div class="schedule-log-subtitle" id="edit-log-dialog-subtitle">正在读取日志...</div>
           </div>
           <div class="actions">
+            <label class="schedule-log-filter" title="勾选后不显示编辑本人日程的日志">
+              <input type="checkbox" id="edit-log-hide-self-edits">
+              <span>隐藏自编辑</span>
+            </label>
             <button type="button" class="secondary" id="edit-log-refresh-button">刷新</button>
             <button type="button" class="secondary" id="edit-log-overlay-close">关闭</button>
           </div>
@@ -2240,6 +2270,7 @@ __HELP_DOCS_OVERLAY__
     const editLogOverlay = document.getElementById("edit-log-overlay");
     const editLogOverlayCloseButton = document.getElementById("edit-log-overlay-close");
     const editLogRefreshButton = document.getElementById("edit-log-refresh-button");
+    const editLogHideSelfEditsInput = document.getElementById("edit-log-hide-self-edits");
     const editLogDialogSubtitle = document.getElementById("edit-log-dialog-subtitle");
     const editLogSummaryEl = document.getElementById("edit-log-summary");
     const editLogBodyEl = document.getElementById("edit-log-body");
@@ -4066,10 +4097,31 @@ __HELP_DOCS_OVERLAY__
       const entry = log && typeof log === 'object' ? log : {};
       const editorName = String(entry.editor_display_name || entry.editor_user_id || '未知用户').trim() || '未知用户';
       const targetName = String(entry.target_display_name || entry.target_user_id || '当前用户').trim() || '当前用户';
-      if (entry.is_self_edit || (entry.editor_user_id && entry.target_user_id && entry.editor_user_id === entry.target_user_id)) {
+      if (isWeeklyPlanSelfEditLog(entry)) {
         return `${editorName} 编辑了自己的日程`;
       }
       return `${editorName} 编辑了 ${targetName}`;
+    }
+
+    function isWeeklyPlanSelfEditLog(log) {
+      const entry = log && typeof log === 'object' ? log : {};
+      return Boolean(
+        entry.is_self_edit
+        || (
+          entry.editor_user_id
+          && entry.target_user_id
+          && String(entry.editor_user_id).trim() === String(entry.target_user_id).trim()
+        )
+      );
+    }
+
+    function shouldHideSelfEditLogs() {
+      return Boolean(editLogHideSelfEditsInput && editLogHideSelfEditsInput.checked);
+    }
+
+    function getVisibleEditLogs(payload) {
+      const logs = Array.isArray(payload && payload.logs) ? payload.logs : [];
+      return shouldHideSelfEditLogs() ? logs.filter((log) => !isWeeklyPlanSelfEditLog(log)) : logs;
     }
 
     function getWeeklyPlanEditChangeDetails(log) {
@@ -4089,32 +4141,37 @@ __HELP_DOCS_OVERLAY__
     function buildEditLogScopeSubtitle(payload) {
       const data = payload && typeof payload === 'object' ? payload : {};
       if (data.can_view_all) {
-        return `${buildScheduleScopeLabel(data)}的全部代编辑日志，自己编辑自己不会展示。`;
+        return `${buildScheduleScopeLabel(data)}的全部编辑日志。`;
       }
-      return `当前登录用户 ${String(data.scope_label || '本人').trim() || '本人'} 的全部代编辑日志，自己编辑自己不会展示。`;
+      return `当前登录用户 ${String(data.scope_label || '本人').trim() || '本人'} 的全部编辑日志。`;
     }
 
     function getEditLogEmptyMessage(payload) {
       const data = payload && typeof payload === 'object' ? payload : {};
-      if (data.can_view_all) {
-        return '当前范围内还没有他人代编辑日志，自己编辑自己不会展示。';
+      if (shouldHideSelfEditLogs()) {
+        return '当前过滤条件下没有非自编辑日志。';
       }
-      return '当前登录用户还没有被他人代编辑过日程，自己编辑自己不会展示。';
+      if (data.can_view_all) {
+        return '当前范围内还没有编辑日志。';
+      }
+      return '当前登录用户还没有编辑日志。';
     }
 
     function renderEditLogSummary(payload) {
       const data = payload && typeof payload === 'object' ? payload : {};
+      const visibleLogs = getVisibleEditLogs(data);
+      const totalCount = Array.isArray(data.logs) ? data.logs.length : Number(data.log_count || 0);
       const chips = [
         data.can_view_all
           ? `查看范围 ${buildScheduleScopeLabel(data)}`
           : `当前用户 ${String(data.scope_label || '本人').trim() || '本人'}`,
-        `日志 ${Number(data.log_count || 0)} 条`,
+        shouldHideSelfEditLogs() ? `已显示 ${visibleLogs.length}/${totalCount} 条` : `日志 ${visibleLogs.length} 条`,
       ];
       return chips.map(renderChip).join('');
     }
 
     function renderEditLogList(payload) {
-      const logs = Array.isArray(payload && payload.logs) ? payload.logs : [];
+      const logs = getVisibleEditLogs(payload);
       if (!logs.length) {
         return `<div class="schedule-log-empty">${escapeHtml(getEditLogEmptyMessage(payload))}</div>`;
       }
@@ -5478,6 +5535,11 @@ __HELP_DOCS_OVERLAY__
     editLogButton.addEventListener('click', openEditLogOverlay);
     editLogRefreshButton.addEventListener('click', () => {
       loadEditLogs();
+    });
+    editLogHideSelfEditsInput.addEventListener('change', () => {
+      if (latestEditLogPayload) {
+        applyEditLogPayload(latestEditLogPayload);
+      }
     });
     editLogOverlayCloseButton.addEventListener('click', closeEditLogOverlay);
     editLogOverlay.addEventListener('click', (event) => {
