@@ -17246,6 +17246,29 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                     saved_week_start,
                     user_id=target_user_id,
                 )
+                base_updated_at = str(payload.get("base_updated_at", "") or "").strip()
+                if base_updated_at != str(current_updated_at or "").strip():
+                    weekly_plan_edit_logs = list_weekly_plan_edit_logs(
+                        saved_week_start,
+                        target_user_id=target_user_id,
+                        limit=3,
+                    )
+                    self._send_json(
+                        {
+                            "error": "该员工本周安排已被其他人更新，请刷新后再保存。",
+                            "ok": False,
+                            "conflict": True,
+                            "user_id": target_user_id,
+                            "week_start": saved_week_start,
+                            "weekly_plan_rows": build_department_weekly_plan_rows(current_settings),
+                            "weekly_other_pending": str(current_settings.get("weekly_other_pending", "") or "").strip(),
+                            "updated_at": current_updated_at,
+                            "weekly_plan_last_editor": weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None,
+                            "weekly_plan_edit_logs": weekly_plan_edit_logs,
+                        },
+                        status=HTTPStatus.CONFLICT,
+                    )
+                    return
                 settings = build_department_weekly_plan_settings_from_rows(
                     payload.get("weekly_plan_rows", []),
                     weekly_other_pending=payload.get("weekly_other_pending", ""),

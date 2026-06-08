@@ -421,26 +421,11 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       flex-wrap: wrap;
     }
     .section-head-main { display: grid; gap: 6px; }
-    .plan-table-wrap {
-      overflow: auto;
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: linear-gradient(
-        180deg,
-        rgba(var(--surface-rgb), var(--shell-surface-strong-alpha)),
-        rgba(var(--surface-soft-rgb), var(--shell-surface-alpha))
-      );
-    }
     .plan-layout {
-      display: grid;
-      grid-template-columns: 128px minmax(0, 1fr);
-      gap: 8px;
-      align-items: start;
-    }
-    .plan-member-list {
-      display: grid;
-      gap: 0;
-      align-self: start;
+      --plan-member-width: 128px;
+      --plan-day-width: 188px;
+      --plan-pending-width: 220px;
+      --plan-schedule-width: calc((var(--plan-day-width) * 7) + var(--plan-pending-width));
       border: 1px solid var(--line);
       border-radius: 18px;
       overflow: hidden;
@@ -450,13 +435,75 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         rgba(var(--surface-soft-rgb), var(--shell-surface-alpha))
       );
     }
-    .plan-member-spacer {
+    .plan-grid {
+      display: grid;
+      grid-template-columns: var(--plan-member-width) minmax(0, 1fr);
+      align-items: start;
+    }
+    .plan-corner-head,
+    .plan-days-head > div {
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 10px 6px;
+      min-height: 45px;
+      padding: 12px;
       border-bottom: 1px solid var(--line);
       background: rgba(var(--table-head-rgb), var(--shell-surface-strong-alpha));
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .plan-corner-head {
+      border-right: 1px solid rgba(215,227,239,0.72);
+    }
+    .plan-days-head {
+      display: grid;
+      grid-template-columns: repeat(7, var(--plan-day-width)) var(--plan-pending-width);
+      width: var(--plan-schedule-width);
+    }
+    .plan-days-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+    }
+    .plan-days-scroll::-webkit-scrollbar {
+      display: none;
+    }
+    .plan-days-head > div {
+      border-right: 1px solid rgba(215,227,239,0.72);
+    }
+    .plan-days-head > div:last-child {
+      border-right: none;
+    }
+    .plan-body-viewport {
+      grid-column: 1 / -1;
+      max-height: max(420px, calc(100vh - 300px));
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+    }
+    .plan-body-grid {
+      display: grid;
+      grid-template-columns: var(--plan-member-width) minmax(0, 1fr);
+      align-items: start;
+    }
+    .plan-table-wrap {
+      overflow-x: auto;
+      overflow-y: hidden;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+    }
+    .plan-member-list {
+      display: grid;
+      gap: 0;
+      align-self: start;
+      border: none;
+      border-right: 1px solid rgba(215,227,239,0.72);
+      border-radius: 0;
+      overflow: hidden;
+      background: transparent;
     }
     .plan-member-row {
       display: flex;
@@ -487,10 +534,13 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       box-shadow: inset 0 -4px 0 rgba(46, 119, 208, 0.86);
     }
     .plan-table {
-      width: max(1480px, 100%);
+      width: var(--plan-schedule-width);
+      table-layout: fixed;
       border-collapse: separate;
       border-spacing: 0;
     }
+    .plan-day-col { width: var(--plan-day-width); }
+    .plan-pending-col { width: var(--plan-pending-width); }
     .plan-table th,
     .plan-table td {
       padding: 12px;
@@ -503,15 +553,6 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     .plan-table th:last-child,
     .plan-table td:last-child { border-right: none; }
     .plan-table tr:last-child td { border-bottom: none; }
-    .plan-table th {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      background: rgba(var(--table-head-rgb), var(--shell-surface-strong-alpha));
-      color: var(--text);
-      font-weight: 700;
-      white-space: nowrap;
-    }
     .member-text-wrap {
       display: flex;
       flex-direction: column;
@@ -1409,7 +1450,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .toolbar-card,
     body[data-theme="dark"] .section-card,
     body[data-theme="dark"] .state-card,
-    body[data-theme="dark"] .plan-table-wrap,
+    body[data-theme="dark"] .plan-layout,
     body[data-theme="dark"] .daily-table-wrap,
     body[data-theme="dark"] .empty-card,
     body[data-theme="dark"] .log-item,
@@ -1459,7 +1500,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] h3,
     body[data-theme="dark"] .status-text,
     body[data-theme="dark"] .chip,
-    body[data-theme="dark"] .plan-table th,
+    body[data-theme="dark"] .plan-corner-head,
+    body[data-theme="dark"] .plan-days-head > div,
     body[data-theme="dark"] .daily-week-table th,
     body[data-theme="dark"] .plan-table thead .member-cell {
       color: #f8fbff;
@@ -1470,18 +1512,11 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .member-subtext {
       color: var(--muted);
     }
-    body[data-theme="dark"] .plan-member-list {
-      border-color: rgba(255,255,255,0.08);
-      background:
-        linear-gradient(180deg, rgba(48, 69, 101, 0.54), rgba(30, 46, 71, 0.3)),
-        linear-gradient(135deg, rgba(125, 183, 255, 0.05), transparent 74%);
-    }
-    body[data-theme="dark"] .plan-member-spacer,
+    body[data-theme="dark"] .plan-corner-head,
+    body[data-theme="dark"] .plan-days-head > div,
+    body[data-theme="dark"] .plan-member-list,
     body[data-theme="dark"] .plan-member-row {
       border-color: rgba(255,255,255,0.08);
-    }
-    body[data-theme="dark"] .plan-member-spacer {
-      background: rgba(54, 77, 112, 0.92);
     }
     body[data-theme="dark"] .plan-member-row {
       background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
@@ -1492,7 +1527,8 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .member-drag-grip {
       color: var(--muted);
     }
-    body[data-theme="dark"] .plan-table th,
+    body[data-theme="dark"] .plan-corner-head,
+    body[data-theme="dark"] .plan-days-head > div,
     body[data-theme="dark"] .daily-week-table th,
     body[data-theme="dark"] .plan-table thead .member-cell {
       background: rgba(54, 77, 112, 0.92);
@@ -1918,23 +1954,40 @@ __HELP_DOCS_CSS__
         <div class="plan-week-meta" id="plan-week-meta"></div>
       </div>
       <div class="plan-layout">
-        <div class="plan-member-list" id="department-plan-members"></div>
-        <div class="plan-table-wrap">
-          <table class="plan-table">
-            <thead>
-              <tr>
-                <th>周一</th>
-                <th>周二</th>
-                <th>周三</th>
-                <th>周四</th>
-                <th>周五</th>
-                <th>周六</th>
-                <th>周日</th>
-                <th>其他待办</th>
-              </tr>
-            </thead>
-            <tbody id="department-plan-body"></tbody>
-          </table>
+        <div class="plan-grid">
+          <div class="plan-corner-head">用户</div>
+          <div class="plan-days-scroll" id="department-plan-header-scroll">
+            <div class="plan-days-head" id="department-plan-header">
+              <div>周一</div>
+              <div>周二</div>
+              <div>周三</div>
+              <div>周四</div>
+              <div>周五</div>
+              <div>周六</div>
+              <div>周日</div>
+              <div>其他待办</div>
+            </div>
+          </div>
+          <div class="plan-body-viewport">
+            <div class="plan-body-grid">
+              <div class="plan-member-list" id="department-plan-members"></div>
+              <div class="plan-table-wrap" id="department-plan-table-scroll">
+                <table class="plan-table">
+                  <colgroup>
+                    <col class="plan-day-col">
+                    <col class="plan-day-col">
+                    <col class="plan-day-col">
+                    <col class="plan-day-col">
+                    <col class="plan-day-col">
+                    <col class="plan-day-col">
+                    <col class="plan-day-col">
+                    <col class="plan-pending-col">
+                  </colgroup>
+                  <tbody id="department-plan-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -2122,6 +2175,8 @@ __HELP_DOCS_OVERLAY__
     const toolbarSummaryEl = document.getElementById("toolbar-summary");
     const planWeekMetaEl = document.getElementById("plan-week-meta");
     const editLogButton = document.getElementById("edit-log-button");
+    const departmentPlanHeaderScrollEl = document.getElementById("department-plan-header-scroll");
+    const departmentPlanTableScrollEl = document.getElementById("department-plan-table-scroll");
     const departmentPlanMembersEl = document.getElementById("department-plan-members");
     const departmentPlanBody = document.getElementById("department-plan-body");
     const selectedMemberMetaEl = document.getElementById("selected-member-meta");
@@ -2251,6 +2306,7 @@ __HELP_DOCS_OVERLAY__
     };
     const planAutoSaveTimers = new Map();
     const planSaveInFlightUsers = new Set();
+    const planConflictUsers = new Set();
     const memberOrderDragState = {
       pointerId: null,
       userId: "",
@@ -4314,6 +4370,18 @@ __HELP_DOCS_OVERLAY__
       planAutoSaveTimers.clear();
     }
 
+    let syncingDepartmentPlanHorizontalScroll = false;
+    function syncDepartmentPlanHorizontalScroll(sourceEl, targetEl) {
+      if (!sourceEl || !targetEl || syncingDepartmentPlanHorizontalScroll) {
+        return;
+      }
+      syncingDepartmentPlanHorizontalScroll = true;
+      targetEl.scrollLeft = sourceEl.scrollLeft;
+      window.requestAnimationFrame(() => {
+        syncingDepartmentPlanHorizontalScroll = false;
+      });
+    }
+
     function scheduleDepartmentPlanHeightSync() {
       if (planLayoutSyncFrameId) {
         return;
@@ -4337,10 +4405,6 @@ __HELP_DOCS_OVERLAY__
         return;
       }
       const targets = [];
-      const headerRow = departmentPlanBody.closest('table') && departmentPlanBody.closest('table').querySelector('thead tr');
-      if (headerRow) {
-        targets.push(headerRow);
-      }
       departmentPlanBody.querySelectorAll('tr[data-user-id]').forEach((row) => {
         targets.push(row);
       });
@@ -4373,11 +4437,6 @@ __HELP_DOCS_OVERLAY__
 
     function syncDepartmentPlanMemberHeights() {
       syncDepartmentPlanTextareaHeights();
-      const spacerEl = departmentPlanMembersEl.querySelector('.plan-member-spacer');
-      const headerRow = departmentPlanBody.closest('table') && departmentPlanBody.closest('table').querySelector('thead tr');
-      if (spacerEl && headerRow) {
-        spacerEl.style.height = `${Math.ceil(headerRow.getBoundingClientRect().height)}px`;
-      }
       const memberRows = Array.from(departmentPlanMembersEl.querySelectorAll('.plan-member-row[data-user-id]'));
       const tableRows = Array.from(departmentPlanBody.querySelectorAll('tr[data-user-id]'));
       memberRows.forEach((row) => {
@@ -4924,16 +4983,15 @@ __HELP_DOCS_OVERLAY__
     function renderDepartmentPlanTable(payload) {
       const members = Array.isArray(payload && payload.members) ? payload.members : [];
       const canEdit = Boolean(payload && payload.can_edit_weekly_plan !== false);
-      departmentPlanMembersEl.innerHTML = `
-        <div class="plan-member-spacer">
-          <div class="member-text">用户</div>
-        </div>
-      `;
+      departmentPlanMembersEl.innerHTML = "";
       if (!members.length) {
+        departmentPlanMembersEl.innerHTML = "";
         departmentPlanBody.innerHTML = '<tr><td colspan="8"><div class="empty-card">当前筛选条件下暂无可展示成员，请调整部门、岗位或人员筛选，或先在本地账号管理中为对应用户开启“在日程管理页展示”。</div></td></tr>';
+        observeDepartmentPlanResizeTargets();
+        scheduleDepartmentPlanHeightSync();
         return;
       }
-      departmentPlanMembersEl.innerHTML += members.map((member) => {
+      departmentPlanMembersEl.innerHTML = members.map((member) => {
         const user = member.user || {};
         const userId = String(user.user_id || "").trim();
         const userDisplayName = getMemberDisplayName(member);
@@ -5110,6 +5168,7 @@ __HELP_DOCS_OVERLAY__
       if (!member || !row) {
         return;
       }
+      planConflictUsers.delete(String(userId || '').trim());
       const timerId = planAutoSaveTimers.get(String(userId || '').trim());
       if (timerId) {
         window.clearTimeout(timerId);
@@ -5187,6 +5246,12 @@ __HELP_DOCS_OVERLAY__
         setPlanRowStatus(normalizedUserId, '没有编辑权限。', true);
         return;
       }
+      if (planConflictUsers.has(normalizedUserId)) {
+        const message = '该员工本周安排已被其他人更新，请刷新后再保存。';
+        setStatus(message, true);
+        setPlanRowStatus(normalizedUserId, message, true);
+        return;
+      }
       if (planSaveInFlightUsers.has(normalizedUserId)) {
         if (source === 'auto') {
           scheduleMemberWeeklyPlanAutosave(normalizedUserId);
@@ -5207,17 +5272,35 @@ __HELP_DOCS_OVERLAY__
           body: JSON.stringify({
             user_id: normalizedUserId,
             week_start: latestPayload.week_start,
+            base_updated_at: String(member.weekly_plan_updated_at || ''),
             weekly_plan_rows: rowPayload.weekly_plan_rows,
             weekly_other_pending: rowPayload.weekly_other_pending,
           }),
         });
         const payload = await response.json();
         if (!response.ok) {
+          if (response.status === 409) {
+            planConflictUsers.add(normalizedUserId);
+            const displayName = getMemberDisplayName(member);
+            const message = payload.error || `${displayName} 的本周安排已被其他人更新，请刷新后再保存。`;
+            member.weekly_plan_last_editor = payload.weekly_plan_last_editor && typeof payload.weekly_plan_last_editor === 'object'
+              ? payload.weekly_plan_last_editor
+              : member.weekly_plan_last_editor || null;
+            member.weekly_plan_edit_logs = Array.isArray(payload.weekly_plan_edit_logs)
+              ? payload.weekly_plan_edit_logs
+              : member.weekly_plan_edit_logs || [];
+            setStatus(message, true);
+            setPlanRowStatus(normalizedUserId, message, true);
+            window.alert(`${displayName} 的本周安排已被其他人更新。\n\n点击确定后将刷新页面，请重新确认后再编辑保存。`);
+            window.location.reload();
+            return;
+          }
           throw new Error(payload.error || '保存失败');
         }
         member.weekly_plan_rows = Array.isArray(payload.weekly_plan_rows) ? payload.weekly_plan_rows : [];
         member.weekly_other_pending = String(payload.weekly_other_pending || '');
         member.weekly_plan_updated_at = String(payload.updated_at || '');
+        planConflictUsers.delete(normalizedUserId);
         member.weekly_plan_last_editor = payload.weekly_plan_last_editor && typeof payload.weekly_plan_last_editor === 'object'
           ? payload.weekly_plan_last_editor
           : null;
@@ -5239,6 +5322,7 @@ __HELP_DOCS_OVERLAY__
     function applyPayload(payload) {
       applyStoredMemberOrder(payload);
       latestPayload = payload;
+      planConflictUsers.clear();
       requestedScheduleFilterState = {
         departments: getSelectedDepartmentFilters(payload),
         positions: getSelectedPositionFilters(payload),
@@ -5612,6 +5696,12 @@ __HELP_DOCS_OVERLAY__
     memberUserSelect.addEventListener('change', () => {
       selectedMemberUserId = String(memberUserSelect.value || '').trim();
       renderSelectedMemberDailyItems();
+    });
+    departmentPlanHeaderScrollEl.addEventListener('scroll', () => {
+      syncDepartmentPlanHorizontalScroll(departmentPlanHeaderScrollEl, departmentPlanTableScrollEl);
+    });
+    departmentPlanTableScrollEl.addEventListener('scroll', () => {
+      syncDepartmentPlanHorizontalScroll(departmentPlanTableScrollEl, departmentPlanHeaderScrollEl);
     });
     departmentPlanBody.addEventListener('input', (event) => {
       const input = event.target.closest('.plan-day-input, .pending-input');
