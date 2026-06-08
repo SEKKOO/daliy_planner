@@ -1482,6 +1482,49 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
         linear-gradient(135deg, rgba(125, 183, 255, 0.05), transparent 74%);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 28px rgba(4, 10, 22, 0.12);
     }
+    body[data-theme="dark"] .weekly-stats-member-scope,
+    body[data-theme="dark"] .weekly-stats-panel,
+    body[data-theme="dark"] .weekly-stats-table-wrap {
+      border-color: rgba(255,255,255,0.1);
+      background:
+        linear-gradient(180deg, rgba(48, 69, 101, 0.62), rgba(30, 46, 71, 0.42)),
+        linear-gradient(135deg, rgba(125, 183, 255, 0.06), transparent 74%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 12px 24px rgba(4, 10, 22, 0.12);
+    }
+    body[data-theme="dark"] .weekly-stats-panel-title,
+    body[data-theme="dark"] .weekly-stats-name,
+    body[data-theme="dark"] .weekly-stats-member-scope-summary {
+      color: #f8fbff;
+    }
+    body[data-theme="dark"] .weekly-stats-panel-note,
+    body[data-theme="dark"] .weekly-stats-subtext,
+    body[data-theme="dark"] .weekly-stats-member-scope-title,
+    body[data-theme="dark"] .weekly-stats-member-empty {
+      color: var(--muted);
+    }
+    body[data-theme="dark"] .weekly-stats-table th,
+    body[data-theme="dark"] .weekly-stats-table td {
+      border-color: rgba(255,255,255,0.08);
+    }
+    body[data-theme="dark"] .weekly-stats-table th {
+      background: rgba(54, 77, 112, 0.92);
+      color: #f8fbff;
+    }
+    body[data-theme="dark"] .weekly-stats-table td {
+      background: rgba(35, 52, 79, 0.9);
+      color: var(--ink);
+    }
+    body[data-theme="dark"] .weekly-stats-table tfoot td {
+      background: rgba(54, 77, 112, 0.78);
+      color: #f8fbff;
+    }
+    body[data-theme="dark"] .weekly-stats-inline-value,
+    body[data-theme="dark"] .weekly-stats-rank {
+      color: #f8fbff;
+    }
+    body[data-theme="dark"] .weekly-stats-rank {
+      background: rgba(125, 183, 255, 0.18);
+    }
     body[data-theme="dark"] button.secondary {
       background: linear-gradient(180deg, rgba(55, 80, 118, 0.62), rgba(36, 54, 82, 0.44));
       border-color: rgba(255,255,255,0.1);
