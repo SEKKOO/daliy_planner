@@ -3885,6 +3885,9 @@ __HELP_DOCS_OVERLAY__
         optionItems
       );
       const isSelected = currentSelectedValues.some((item) => item.toLowerCase() === normalizedValue.toLowerCase());
+      const addedUserIds = normalizedGroupName === 'users' && !isSelected
+        ? normalizeUserSelectionValues([normalizedValue], optionItems)
+        : [];
       const nextSelectedValues = isSelected
         ? currentSelectedValues.filter((item) => item.toLowerCase() !== normalizedValue.toLowerCase())
         : currentSelectedValues.concat([normalizedValue]);
@@ -3892,6 +3895,7 @@ __HELP_DOCS_OVERLAY__
         ...scheduleFilterDraftState,
         [normalizedGroupName]: normalizeScheduleFilterGroupValues(normalizedGroupName, nextSelectedValues, optionItems),
       };
+      appendScheduleFilterAddedUsersToMemberOrder(addedUserIds, latestPayload);
       renderScheduleFilterOverlay(latestPayload);
       applyScheduleFilterDraft().catch((error) => {
         setStatus(error.message || '筛选失败，请稍后重试。', true);
@@ -4350,6 +4354,37 @@ __HELP_DOCS_OVERLAY__
       }
       const allOrders = readStoredMemberOrders();
       allOrders[buildMemberOrderScopeKey(payload)] = orderedUserIds;
+      writeStoredMemberOrders(allOrders);
+    }
+
+    function appendScheduleFilterAddedUsersToMemberOrder(userIds, payload = latestPayload) {
+      const addedUserIds = normalizeUserSelectionValues(userIds || []);
+      if (!addedUserIds.length || !payload) {
+        return;
+      }
+      const nextOrder = [];
+      const seen = new Set();
+      function pushUserId(userId) {
+        const normalizedUserId = String(userId || "").trim();
+        if (!normalizedUserId) {
+          return;
+        }
+        const key = normalizedUserId.toLowerCase();
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        nextOrder.push(normalizedUserId);
+      }
+      const members = Array.isArray(payload && payload.members) ? payload.members : [];
+      members.map(getMemberUserId).forEach(pushUserId);
+      addedUserIds.forEach(pushUserId);
+      getStoredMemberOrder(payload).forEach(pushUserId);
+      if (!nextOrder.length) {
+        return;
+      }
+      const allOrders = readStoredMemberOrders();
+      allOrders[buildMemberOrderScopeKey(payload)] = nextOrder;
       writeStoredMemberOrders(allOrders);
     }
 
