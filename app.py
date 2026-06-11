@@ -697,9 +697,9 @@ INDEX_HTML = """<!DOCTYPE html>
     }
 
     .weekly-board {
-      min-width: 1280px;
+      min-width: 1040px;
       display: grid;
-      grid-template-columns: 62px repeat(5, minmax(96px, 0.8fr)) repeat(2, minmax(82px, 0.68fr)) minmax(230px, 1.2fr);
+      grid-template-columns: 62px repeat(5, minmax(96px, 1fr)) repeat(2, minmax(82px, 0.85fr));
       gap: 8px;
       align-items: stretch;
     }
@@ -741,12 +741,6 @@ INDEX_HTML = """<!DOCTYPE html>
       border-color: rgba(214, 154, 72, 0.18);
     }
 
-    .weekly-head.pending-head,
-    .weekly-pending {
-      background:
-        linear-gradient(180deg, rgba(232, 244, 255, 0.96), rgba(242, 249, 255, 0.94));
-    }
-
     .weekly-label {
       display: flex;
       align-items: center;
@@ -765,18 +759,15 @@ INDEX_HTML = """<!DOCTYPE html>
     .weekly-cell textarea,
     .weekly-pending textarea {
       min-height: 88px;
-      height: 100%;
       border-radius: 14px;
+      height: auto;
+      overflow: hidden;
+      resize: none;
     }
 
     .weekly-pending {
-      grid-column: 9;
-      grid-row: 2 / span 2;
+      grid-column: 2 / -1;
       padding: 10px;
-    }
-
-    .weekly-pending textarea {
-      min-height: 188px;
     }
 
     .metric-label {
@@ -2732,11 +2723,6 @@ INDEX_HTML = """<!DOCTYPE html>
       border-color: rgba(255, 210, 122, 0.2);
     }
 
-    body[data-theme="dark"] .weekly-head.pending-head,
-    body[data-theme="dark"] .weekly-pending {
-      background: linear-gradient(180deg, rgba(42, 64, 99, 0.92), rgba(30, 48, 77, 0.88));
-    }
-
     body[data-theme="dark"] .primary {
       background: linear-gradient(135deg, #70adff, #9bc7ff);
       border-color: rgba(222, 236, 255, 0.24);
@@ -3461,7 +3447,7 @@ __HELP_DOCS_CSS__
         <div class="weekly-plan" id="weekly-plan-box">
           <div class="weekly-plan-head">
             <div class="weekly-plan-meta">
-              <div class="weekly-plan-subtitle" id="weekly-plan-range">每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录其他待定事项。</div>
+              <div class="weekly-plan-subtitle" id="weekly-plan-range">每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录待定事项。</div>
             </div>
             <div class="weekly-plan-actions">
               <div class="weekly-plan-saved-at" id="weekly-plan-saved-at">最近保存：未保存</div>
@@ -3478,7 +3464,6 @@ __HELP_DOCS_CSS__
               <div class="weekly-head workday">周五</div>
               <div class="weekly-head weekend">周六</div>
               <div class="weekly-head weekend">周日</div>
-              <div class="weekly-head pending-head">其他待定安排</div>
 
               <div class="weekly-label">上午</div>
               <div class="weekly-cell workday"><textarea id="weekly-monday-am" placeholder="周一上午安排"></textarea></div>
@@ -3488,7 +3473,6 @@ __HELP_DOCS_CSS__
               <div class="weekly-cell workday"><textarea id="weekly-friday-am" placeholder="周五上午安排"></textarea></div>
               <div class="weekly-cell weekend"><textarea id="weekly-saturday-am" placeholder="周六上午安排"></textarea></div>
               <div class="weekly-cell weekend"><textarea id="weekly-sunday-am" placeholder="周日上午安排"></textarea></div>
-              <div class="weekly-pending"><textarea id="weekly-other-pending" placeholder="填写本周其他待定安排、临时事项或未定计划"></textarea></div>
 
               <div class="weekly-label">下午</div>
               <div class="weekly-cell workday"><textarea id="weekly-monday-pm" placeholder="周一下午安排"></textarea></div>
@@ -3498,6 +3482,9 @@ __HELP_DOCS_CSS__
               <div class="weekly-cell workday"><textarea id="weekly-friday-pm" placeholder="周五下午安排"></textarea></div>
               <div class="weekly-cell weekend"><textarea id="weekly-saturday-pm" placeholder="周六下午安排"></textarea></div>
               <div class="weekly-cell weekend"><textarea id="weekly-sunday-pm" placeholder="周日下午安排"></textarea></div>
+
+              <div class="weekly-label">待定事项</div>
+              <div class="weekly-pending"><textarea id="weekly-other-pending" placeholder="填写本周待定事项、临时事项或未定计划"></textarea></div>
             </div>
           </div>
         </div>
@@ -4137,6 +4124,18 @@ __HELP_DOCS_OVERLAY__
       weekly_sunday_pm: document.getElementById("weekly-sunday-pm"),
       weekly_other_pending: document.getElementById("weekly-other-pending")
     };
+
+    function resizeWeeklyScheduleInput(input) {
+      if (!input) {
+        return;
+      }
+      input.style.height = "auto";
+      input.style.height = `${Math.max(88, input.scrollHeight + 2)}px`;
+    }
+
+    function resizeWeeklyScheduleInputs() {
+      Object.values(weeklyScheduleInputs).forEach(resizeWeeklyScheduleInput);
+    }
 
     function initializePasswordToggleFields() {
       document.querySelectorAll('input[type="password"][data-password-toggle]').forEach((input) => {
@@ -7807,13 +7806,13 @@ __HELP_DOCS_OVERLAY__
 
     function updateWeeklyPlanRange(anchorDate) {
       if (!anchorDate) {
-        weeklyPlanRange.textContent = "每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录其他待定事项。";
+        weeklyPlanRange.textContent = "每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录待定事项。";
         return;
       }
       const monday = getMonday(parseDateString(anchorDate));
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
-      weeklyPlanRange.textContent = `每周工作安排：${formatDate(monday)} 至 ${formatDate(sunday)} · 按周维护上午、下午安排，编辑后自动保存，并记录其他待定事项。`;
+      weeklyPlanRange.textContent = `每周工作安排：${formatDate(monday)} 至 ${formatDate(sunday)} · 按周维护上午、下午安排，编辑后自动保存，并记录待定事项。`;
     }
 
     function setWeeklyPlanSavedAtText(text) {
@@ -7868,6 +7867,7 @@ __HELP_DOCS_OVERLAY__
       Object.entries(weeklyScheduleInputs).forEach(([key, input]) => {
         input.value = normalizedSettings[key] || "";
       });
+      resizeWeeklyScheduleInputs();
     }
 
     function getWeeklyPlanSnapshot(weekStart, settings) {
@@ -9529,6 +9529,7 @@ __HELP_DOCS_OVERLAY__
     listEditor.addEventListener("change", persistCurrentEntryDraft);
     Object.values(weeklyScheduleInputs).forEach((input) => {
       input.addEventListener("input", () => {
+        resizeWeeklyScheduleInput(input);
         saveWeeklyPlanDraft(currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value), getCurrentSettings());
         scheduleWeeklyPlanAutosave();
       });

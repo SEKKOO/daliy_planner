@@ -482,6 +482,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       overflow-y: auto;
       overflow-x: hidden;
       overscroll-behavior: contain;
+      overflow-anchor: none;
     }
     .plan-body-grid {
       display: grid;
@@ -491,6 +492,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     .plan-table-wrap {
       overflow-x: auto;
       overflow-y: hidden;
+      overflow-anchor: none;
       border: none;
       border-radius: 0;
       background: transparent;
@@ -620,6 +622,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-radius: 10px;
       font-size: 12px;
       line-height: 1.5;
+      height: auto;
       resize: none;
       overflow: hidden;
     }
@@ -629,6 +632,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       min-height: 132px;
       font-size: 12px;
       line-height: 1.6;
+      height: auto;
       resize: none;
       overflow: hidden;
     }
@@ -2372,6 +2376,7 @@ __HELP_DOCS_OVERLAY__
     let dingtalkScanPollTimer = null;
     let planLayoutResizeObserver = null;
     let planLayoutSyncFrameId = 0;
+    let planLayoutTextareaSyncScope = null;
     const CURRENT_HELP_PAGE_KEY = "department";
     const HELP_SECTION_META = {
       user: { label: "用户页面" },
@@ -4517,13 +4522,20 @@ __HELP_DOCS_OVERLAY__
       });
     }
 
-    function scheduleDepartmentPlanHeightSync() {
+    function scheduleDepartmentPlanHeightSync(textarea = null) {
+      if (textarea instanceof HTMLTextAreaElement) {
+        planLayoutTextareaSyncScope = textarea;
+      } else if (!planLayoutSyncFrameId) {
+        planLayoutTextareaSyncScope = null;
+      }
       if (planLayoutSyncFrameId) {
         return;
       }
       planLayoutSyncFrameId = window.requestAnimationFrame(() => {
+        const textareaScope = planLayoutTextareaSyncScope;
+        planLayoutTextareaSyncScope = null;
         planLayoutSyncFrameId = 0;
-        syncDepartmentPlanMemberHeights();
+        syncDepartmentPlanMemberHeights(textareaScope);
       });
     }
 
@@ -4554,24 +4566,63 @@ __HELP_DOCS_OVERLAY__
       });
     }
 
+    function getPlanBodyViewportEl() {
+      return departmentPlanBody ? departmentPlanBody.closest('.plan-body-viewport') : null;
+    }
+
+    function captureDepartmentPlanScrollState() {
+      return {
+        windowScrollX: window.scrollX,
+        windowScrollY: window.scrollY,
+        bodyViewport: getPlanBodyViewportEl(),
+        bodyScrollTop: getPlanBodyViewportEl() ? getPlanBodyViewportEl().scrollTop : 0,
+        tableScrollLeft: departmentPlanTableScrollEl ? departmentPlanTableScrollEl.scrollLeft : 0,
+      };
+    }
+
+    function restoreDepartmentPlanScrollState(scrollState) {
+      if (!scrollState) {
+        return;
+      }
+      if (scrollState.bodyViewport) {
+        scrollState.bodyViewport.scrollTop = scrollState.bodyScrollTop;
+      }
+      if (departmentPlanTableScrollEl) {
+        departmentPlanTableScrollEl.scrollLeft = scrollState.tableScrollLeft;
+      }
+      if (window.scrollX !== scrollState.windowScrollX || window.scrollY !== scrollState.windowScrollY) {
+        window.scrollTo(scrollState.windowScrollX, scrollState.windowScrollY);
+      }
+    }
+
     function syncDepartmentPlanTextareaHeight(textarea) {
       if (!(textarea instanceof HTMLTextAreaElement)) {
         return;
       }
+      const previousHeight = textarea.offsetHeight;
       textarea.style.height = 'auto';
       const computedStyle = window.getComputedStyle(textarea);
       const minHeight = Number.parseFloat(computedStyle.minHeight) || 0;
-      textarea.style.height = `${Math.max(minHeight, textarea.scrollHeight)}px`;
+      const nextHeight = Math.max(minHeight, textarea.scrollHeight);
+      if (Math.abs(previousHeight - nextHeight) < 1) {
+        textarea.style.height = `${previousHeight}px`;
+        return;
+      }
+      textarea.style.height = `${nextHeight}px`;
     }
 
-    function syncDepartmentPlanTextareaHeights() {
-      departmentPlanBody.querySelectorAll('.plan-day-input, .pending-input').forEach((textarea) => {
+    function syncDepartmentPlanTextareaHeights(textareaScope = null) {
+      const textareas = textareaScope instanceof HTMLTextAreaElement
+        ? [textareaScope]
+        : Array.from(departmentPlanBody.querySelectorAll('.plan-day-input, .pending-input'));
+      textareas.forEach((textarea) => {
         syncDepartmentPlanTextareaHeight(textarea);
       });
     }
 
-    function syncDepartmentPlanMemberHeights() {
-      syncDepartmentPlanTextareaHeights();
+    function syncDepartmentPlanMemberHeights(textareaScope = null) {
+      const scrollState = captureDepartmentPlanScrollState();
+      syncDepartmentPlanTextareaHeights(textareaScope);
       const memberRows = Array.from(departmentPlanMembersEl.querySelectorAll('.plan-member-row[data-user-id]'));
       const tableRows = Array.from(departmentPlanBody.querySelectorAll('tr[data-user-id]'));
       memberRows.forEach((row) => {
@@ -4584,6 +4635,7 @@ __HELP_DOCS_OVERLAY__
         }
         row.style.height = `${Math.ceil(tableRow.getBoundingClientRect().height)}px`;
       });
+      restoreDepartmentPlanScrollState(scrollState);
     }
 
     function syncPlanDraftValuesIntoMembers() {
@@ -5848,7 +5900,7 @@ __HELP_DOCS_OVERLAY__
       if (!input || !canEditDepartmentWeeklyPlan()) {
         return;
       }
-      scheduleDepartmentPlanHeightSync();
+      scheduleDepartmentPlanHeightSync(input);
       scheduleMemberWeeklyPlanAutosave(input.getAttribute('data-user-id') || '');
     });
     departmentPlanMembersEl.addEventListener('pointerdown', handleDepartmentPlanMemberPointerDown);
