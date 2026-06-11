@@ -1162,7 +1162,10 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         payload = {};
       }
       if (!response.ok) {
-        throw new Error(payload.error || "请求失败");
+        const requestError = new Error(payload.error || "请求失败");
+        requestError.status = response.status;
+        requestError.payload = payload;
+        throw requestError;
       }
       return payload;
     }
@@ -1209,6 +1212,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
           body: JSON.stringify({
             user_id: String(userId || "").trim(),
             week_start: String(pagePayload && pagePayload.week_start || anchorDateEl.value || "").trim(),
+            base_updated_at: String(member.weekly_plan_updated_at || ""),
             weekly_plan_rows: Array.isArray(member.weekly_plan_rows) ? member.weekly_plan_rows : [],
             weekly_other_pending: String(member.weekly_other_pending || ""),
           }),
@@ -1219,6 +1223,16 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         member.weekly_plan_last_editor = payload.weekly_plan_last_editor || member.weekly_plan_last_editor || null;
         setStatus(pageStatusEl, "安排已保存。", false);
       } catch (error) {
+        if (Number(error && error.status || 0) === 409) {
+          const displayName = getMemberName(member);
+          const payload = error && error.payload && typeof error.payload === "object" ? error.payload : {};
+          const message = payload.error || `${displayName} 的本周安排已被其他人更新，请刷新后再保存。`;
+          member.weekly_plan_last_editor = payload.weekly_plan_last_editor || member.weekly_plan_last_editor || null;
+          setStatus(pageStatusEl, message, true);
+          window.alert(`${displayName} 的本周安排已被其他人更新。\n\n点击确定后将刷新页面，请重新确认后再编辑保存。`);
+          window.location.reload();
+          return;
+        }
         setStatus(pageStatusEl, error.message || "保存安排失败。", true);
       } finally {
         savingUserIds.delete(userId);
