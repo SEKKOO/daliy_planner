@@ -13625,8 +13625,8 @@ def build_word_table_xml(headers: list[str], rows: list[list[str]], column_width
     return f"""
 <w:tbl>
   <w:tblPr>
-    <w:tblW w:w="10800" w:type="dxa"/>
-    <w:tblLayout w:type="fixed"/>
+    <w:tblW w:w="5000" w:type="pct"/>
+    <w:tblLayout w:type="autofit"/>
     <w:tblBorders>
       <w:top w:val="single" w:sz="8" w:space="0" w:color="B7C9DA"/>
       <w:left w:val="single" w:sz="8" w:space="0" w:color="B7C9DA"/>
@@ -13724,8 +13724,8 @@ def build_weekly_report_word_table_xml(context: dict, project_notes: dict[str, s
     return f"""
 <w:tbl>
   <w:tblPr>
-    <w:tblW w:w="10800" w:type="dxa"/>
-    <w:tblLayout w:type="fixed"/>
+    <w:tblW w:w="5000" w:type="pct"/>
+    <w:tblLayout w:type="autofit"/>
     <w:tblBorders>
       <w:top w:val="single" w:sz="8" w:space="0" w:color="B7C9DA"/>
       <w:left w:val="single" w:sz="8" w:space="0" w:color="B7C9DA"/>
@@ -14123,10 +14123,15 @@ def parse_weekly_report_text_sections(raw_text: str) -> dict[str, str]:
     current_key = ""
     for raw_line in str(raw_text or "").splitlines():
         stripped = raw_line.strip()
-        matched = re.match(r"^【(.+?)】$", stripped)
+        matched = re.match(r"^【(.+?)】\s*(.*)$", stripped)
         if matched:
             normalized_key = normalize_weekly_report_section_title(matched.group(1))
             current_key = normalized_key if normalized_key in collected_lines else ""
+            trailing_text = matched.group(2).strip()
+            if trailing_text.lower() == "mm":
+                trailing_text = ""
+            if current_key and trailing_text:
+                collected_lines[current_key].append(trailing_text)
             continue
         if current_key:
             collected_lines[current_key].append(raw_line.rstrip())
@@ -14163,9 +14168,9 @@ def parse_weekly_report_project_notes(section_text: str) -> dict[str, str]:
             current_project_name = matched_project.group(1).strip()
             current_lines = []
             continue
-        matched_note = re.match(r"^\[工作和Todo\]\s*(.*)$", stripped)
+        matched_note = re.match(r"^\[(工作和Todo|工作|Todo|tode)\]\s*(.*)$", stripped, flags=re.IGNORECASE)
         if matched_note:
-            note_text = matched_note.group(1).strip()
+            note_text = matched_note.group(2).strip()
             if note_text:
                 current_lines.append(note_text)
             continue
