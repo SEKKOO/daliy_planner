@@ -4817,16 +4817,20 @@ __HELP_DOCS_OVERLAY__
       renderPromptEditor();
       setInlineStatus(promptTemplateStatus, "正在保存提示词...", false);
       try {
+        const pendingPrompts = promptEditorState.prompts
+          .filter((prompt) => String(prompt.content || "") !== String(prompt.saved_content || ""))
+          .map((prompt) => ({
+            id: prompt.id,
+            filename: prompt.filename,
+            content: prompt.content,
+          }));
+        const requestBody = pendingPrompts.length === 1
+          ? pendingPrompts[0]
+          : { prompts: pendingPrompts };
         const response = await fetch("/api/user-prompts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompts: promptEditorState.prompts.map((prompt) => ({
-              id: prompt.id,
-              filename: prompt.filename,
-              content: prompt.content,
-            })),
-          }),
+          body: JSON.stringify(requestBody),
         });
         const payload = await response.json();
         if (!response.ok) {
