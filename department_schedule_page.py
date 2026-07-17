@@ -620,7 +620,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       min-height: 60px;
       padding: 8px 10px;
       border-radius: 10px;
-      font-size: 12px;
+      font-size: 15px;
       line-height: 1.5;
       height: auto;
       resize: none;
@@ -630,7 +630,7 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     .pending-cell-content { display: grid; gap: 10px; }
     .pending-input {
       min-height: 132px;
-      font-size: 12px;
+      font-size: 15px;
       line-height: 1.6;
       height: auto;
       resize: none;
