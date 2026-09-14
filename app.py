@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -12,6 +13,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -71,6 +73,11 @@ DINGTALK_REPORT_RECIPIENTS: tuple[dict[str, str], ...] = tuple(
 DINGTALK_SEND_CONFIG_SETTING_KEY = "dingtalk_daily_log_send_config_json"
 DINGTALK_WEEKLY_REPORT_SEND_CONFIG_SETTING_KEY = "dingtalk_weekly_report_send_config_json"
 DINGTALK_USER_MCP_CONFIG_SETTING_KEY = "dingtalk_user_mcp_config_json"
+DINGTALK_REPORT_TEMPLATE_CACHE_SETTING_KEY = "dingtalk_report_template_cache_json"
+DINGTALK_REPORT_TEMPLATE_CACHE_TTL_SECONDS = 3600
+DINGTALK_MCP_REQUEST_TIMEOUT_SECONDS = 15
+DINGTALK_MCP_TEMPLATE_DETAIL_WORKERS = 6
+DINGTALK_MCP_TEMPLATE_DETAIL_ATTEMPTS = 2
 DINGTALK_LOG_MCP_REQUIRED_ERROR = "当前用户未配置日志发送 MCP，请先在右上角“钉钉MCP”中配置。"
 DINGTALK_DIRECTORY_MCP_REQUIRED_ERROR = "当前用户未配置通讯录查询 MCP，请先在右上角“钉钉MCP”中配置。"
 DINGTALK_DAILY_TEMPLATE_REQUIRED_ERROR = "请先点击钉钉MCP保存日志模版，保存后再发送"
@@ -1995,6 +2002,14 @@ INDEX_HTML = """<!DOCTYPE html>
       margin: 0;
       color: var(--muted);
       font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .daily-log-fallback-notice {
+      margin: 0 0 6px;
+      color: var(--warn);
+      font-size: 12px;
+      font-weight: 600;
       line-height: 1.5;
     }
 
@@ -5216,8 +5231,13 @@ __HELP_DOCS_OVERLAY__
       userDingtalkMcpState.templatesLoading = true;
       renderUserDingtalkMcpEditor();
       setInlineStatus(userDingtalkMcpStatus, "正在读取当前用户可见的钉钉日志模板...", false);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 100000);
       try {
-        const response = await fetch("/api/user-dingtalk-report-templates");
+        const response = await fetch("/api/user-dingtalk-report-templates", {
+          cache: "no-store",
+          signal: controller.signal
+        });
         const payload = await response.json();
         if (!response.ok) {
           throw new Error(payload.error || "读取日志模板失败");
@@ -5235,8 +5255,12 @@ __HELP_DOCS_OVERLAY__
           false
         );
       } catch (error) {
-        setInlineStatus(userDingtalkMcpStatus, error.message || "读取日志模板失败。", true);
+        const errorMessage = error && error.name === "AbortError"
+          ? "读取日志模板超时，请检查钉钉 MCP 地址或稍后重试。"
+          : (error.message || "读取日志模板失败。");
+        setInlineStatus(userDingtalkMcpStatus, errorMessage, true);
       } finally {
+        window.clearTimeout(timeoutId);
         userDingtalkMcpState.templatesLoading = false;
         renderUserDingtalkMcpEditor();
       }
@@ -7082,6 +7106,9 @@ __HELP_DOCS_OVERLAY__
         return;
       }
 
+      const progressAnchorDate = String(payload.anchor_date || dateInput.value || "").replace(/-/g, "").trim();
+      const progressNameSuffix = progressAnchorDate ? `${progressAnchorDate}周进展` : "";
+
       deliveryProgressList.innerHTML = reports.map((report) => {
         const statusClass = normalizeDeliveryStatusClass(report.overall_status);
         const serviceModes = Array.isArray(report.service_modes) && report.service_modes.length
@@ -7094,7 +7121,7 @@ __HELP_DOCS_OVERLAY__
           <article class="delivery-report-card">
             <div class="delivery-report-head">
               <div>
-                <h3 class="delivery-report-name">${escapeHtml(report.project_name || "未命名项目")}</h3>
+                <h3 class="delivery-report-name">${escapeHtml(`${report.project_name || "未命名项目"}${progressNameSuffix}`)}</h3>
                 <div class="delivery-report-badges">
                   <span>${escapeHtml(serviceModes)}</span>
                   <span>${escapeHtml(String(report.total_hours || "0"))} 小时</span>
@@ -7259,8 +7286,12 @@ __HELP_DOCS_OVERLAY__
         `;
       }).join("");
 
+      const fallbackNotice = dailyLogEditorState.usedGeneratedFallback && dailyLogEditorState.generationNotice
+        ? `<p class="daily-log-fallback-notice">${escapeHtml(dailyLogEditorState.generationNotice)}</p>`
+        : "";
       previewContent.innerHTML = `
         <section class="preview-card daily-log-intro-card">
+          ${fallbackNotice}
           <p class="daily-log-intro-text">已生成 ${escapeHtml(dailyLogEditorState.work_date || "")} 的售后日报草稿，可直接在下方修改四个固定小节，底部同步预览发送内容。</p>
         </section>
         <div class="daily-log-editor">${sectionCards}</div>
@@ -7278,6 +7309,8 @@ __HELP_DOCS_OVERLAY__
         work_date: payload.work_date || "",
         sections: parseDailyLogSections(payload.content || ""),
         rawContent: String(payload.content || ""),
+        usedGeneratedFallback: Boolean(payload.used_generated_fallback),
+        generationNotice: String(payload.generation_notice || "").trim(),
         savedFilename: payload.saved_filename || "",
         savedPath: payload.saved_path || "",
         templateName: payload.send_config && payload.send_config.template_name || "未选择模板",
@@ -7298,7 +7331,16 @@ __HELP_DOCS_OVERLAY__
           : [],
       };
       previewTitle.textContent = payload.title || "发送售后日报";
-      previewSubtitle.textContent = `${payload.work_date || ""} 的售后日报已生成，可在弹窗内增删和修改内容；原始 Word 文件已保存到 logs/用户名/daily_logs 目录。${dailyLogEditorState.templateConfigured ? "" : " 当前用户尚未选择日报模板，暂时无法发送。"}`;
+      const subtitleParts = [
+        `${payload.work_date || ""} 的售后日报已生成，可在弹窗内增删和修改内容；原始 Word 文件已保存到 logs/用户名/daily_logs 目录。`,
+      ];
+      if (dailyLogEditorState.generationNotice) {
+        subtitleParts.push(dailyLogEditorState.generationNotice);
+      }
+      if (!dailyLogEditorState.templateConfigured) {
+        subtitleParts.push("当前用户尚未选择日报模板，暂时无法发送。");
+      }
+      previewSubtitle.textContent = subtitleParts.join("");
       renderDailyLogPreviewMeta();
       syncPreviewActionButtons();
       renderDailyLogEditor();
@@ -7453,7 +7495,7 @@ __HELP_DOCS_OVERLAY__
       previewTitle.textContent = "发送售后日报";
       previewSubtitle.textContent = `${targetDate} 的售后日报正在生成，请稍候。`;
       renderPreviewMeta([]);
-      previewContent.innerHTML = '<div class="empty">Codex 正在生成售后日报草稿，并保存 Word 文件到 logs/用户名/daily_logs 目录，请稍候...</div>';
+      previewContent.innerHTML = '<div class="empty">正在生成售后日报草稿，并保存 Word 文件到 logs/用户名/daily_logs 目录，请稍候...</div>';
       try {
         const response = await fetch(`/api/preview-log?date=${encodeURIComponent(targetDate)}`);
         const payload = await response.json();
@@ -7464,7 +7506,11 @@ __HELP_DOCS_OVERLAY__
           return;
         }
         renderDailyLogPreview(payload, previewSession.previewSessionId);
-        setStatus(`已打开 ${targetDate} 的售后日报，可继续在弹窗内编辑内容。`, "success");
+        const successMessages = [`已打开 ${targetDate} 的售后日报，可继续在弹窗内编辑内容。`];
+        if (payload.generation_notice) {
+          successMessages.push(String(payload.generation_notice || "").trim());
+        }
+        setStatus(successMessages.join(" "), "success");
       } catch (error) {
         if (!isPreviewSessionActive(previewSession.previewSessionId, previewSession.scopeMarker)) {
           return;
@@ -10976,6 +11022,10 @@ ensure_default_admin_account_credentials = auth_service.ensure_default_admin_acc
 create_user_session = auth_service.create_user_session
 delete_user_session = auth_service.delete_user_session
 get_user_by_session = auth_service.get_user_by_session
+create_api_key = auth_service.create_api_key
+authenticate_api_key = auth_service.authenticate_api_key
+list_api_keys = auth_service.list_api_keys
+revoke_api_key = auth_service.revoke_api_key
 
 
 def init_db() -> None:
@@ -11992,7 +12042,8 @@ def save_user_dingtalk_mcp_config(user_id: str | None, payload: dict | None) -> 
     setting_key = build_user_dingtalk_mcp_setting_key(normalized_user_id)
     existing_config = get_user_dingtalk_mcp_config(normalized_user_id)
     config = normalize_user_dingtalk_mcp_config(payload)
-    if str(config.get("log_mcp_url") or "").strip() != str(existing_config.get("log_mcp_url") or "").strip():
+    log_mcp_changed = str(config.get("log_mcp_url") or "").strip() != str(existing_config.get("log_mcp_url") or "").strip()
+    if log_mcp_changed:
         config["daily_template"] = {}
         config["weekly_template"] = {}
     if has_dingtalk_template_selection(config["daily_template"]):
@@ -12018,6 +12069,11 @@ def save_user_dingtalk_mcp_config(user_id: str | None, payload: dict | None) -> 
             )
         else:
             connection.execute("DELETE FROM app_settings WHERE setting_key = ?", (setting_key,))
+        if log_mcp_changed:
+            connection.execute(
+                "DELETE FROM app_settings WHERE setting_key = ?",
+                (f"user:{normalized_user_id}:{DINGTALK_REPORT_TEMPLATE_CACHE_SETTING_KEY}",),
+            )
     return get_user_dingtalk_mcp_config_summary(normalized_user_id)
 
 
@@ -12206,31 +12262,238 @@ def build_dingtalk_report_template_list_prompt() -> str:
     )
 
 
-def list_user_available_dingtalk_report_templates(user_id: str | None = None) -> list[dict]:
-    result = parse_codex_json_output(
-        run_codex_action_prompt(
-            build_dingtalk_report_template_list_prompt(),
-            extra_config=build_dingtalk_mcp_extra_config(user_id=user_id, include_log=True),
-        )
+def build_user_dingtalk_report_template_cache_setting_key(user_id: str) -> str:
+    return f"user:{normalize_user_id(user_id)}:{DINGTALK_REPORT_TEMPLATE_CACHE_SETTING_KEY}"
+
+
+def build_dingtalk_mcp_url_fingerprint(mcp_url: str) -> str:
+    return hashlib.sha256(str(mcp_url or "").strip().encode("utf-8")).hexdigest()
+
+
+def call_dingtalk_mcp_tool(
+    mcp_url: str,
+    tool_name: str,
+    arguments: dict | None = None,
+) -> object:
+    normalized_url = str(mcp_url or "").strip()
+    parsed_url = urlparse(normalized_url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise RuntimeError("钉钉 MCP 地址格式无效，请检查后重新保存。")
+
+    request_payload = {
+        "jsonrpc": "2.0",
+        "id": secrets.token_hex(8),
+        "method": "tools/call",
+        "params": {
+            "name": str(tool_name or "").strip(),
+            "arguments": arguments if isinstance(arguments, dict) else {},
+        },
+    }
+    request = Request(
+        normalized_url,
+        data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
-    if result.get("ok") is False or result.get("success") is False:
-        raise RuntimeError(str(result.get("error") or result.get("message") or "读取钉钉日志模板失败。"))
+    try:
+        with urlopen(request, timeout=DINGTALK_MCP_REQUEST_TIMEOUT_SECONDS) as response:
+            response_body = response.read().decode("utf-8")
+    except HTTPError as error:
+        raise RuntimeError(f"钉钉 MCP 返回 HTTP {error.code}。") from error
+    except (TimeoutError, URLError, OSError) as error:
+        reason = getattr(error, "reason", None)
+        reason_text = str(reason or error.__class__.__name__).strip()
+        raise RuntimeError(f"连接钉钉 MCP 失败：{reason_text}") from error
+
+    try:
+        rpc_payload = json.loads(response_body)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("钉钉 MCP 返回了无法解析的响应。") from error
+    if not isinstance(rpc_payload, dict):
+        raise RuntimeError("钉钉 MCP 返回格式无效。")
+    rpc_error = rpc_payload.get("error")
+    if isinstance(rpc_error, dict):
+        raise RuntimeError(str(rpc_error.get("message") or "钉钉 MCP 工具调用失败。"))
+    rpc_result = rpc_payload.get("result")
+    if not isinstance(rpc_result, dict):
+        raise RuntimeError("钉钉 MCP 未返回工具执行结果。")
+
+    text_payload = ""
+    for item in rpc_result.get("content", []):
+        if isinstance(item, dict) and item.get("type") == "text":
+            text_payload = str(item.get("text") or "").strip()
+            if text_payload:
+                break
+    if rpc_result.get("isError"):
+        raise RuntimeError(text_payload or "钉钉 MCP 工具调用失败。")
+    if text_payload:
+        try:
+            return json.loads(text_payload)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("钉钉 MCP 工具结果不是有效 JSON。") from error
+    structured_payload = rpc_result.get("structuredContent")
+    if structured_payload is not None:
+        return structured_payload
+    raise RuntimeError("钉钉 MCP 工具没有返回内容。")
+
+
+def call_dingtalk_mcp_template_detail_with_retry(
+    mcp_url: str,
+    template_name: str,
+) -> object:
+    last_error: RuntimeError | None = None
+    for attempt in range(DINGTALK_MCP_TEMPLATE_DETAIL_ATTEMPTS):
+        try:
+            return call_dingtalk_mcp_tool(
+                mcp_url,
+                "get_template_details_by_name",
+                {"report_template_name": template_name},
+            )
+        except RuntimeError as error:
+            last_error = error
+            if attempt + 1 < DINGTALK_MCP_TEMPLATE_DETAIL_ATTEMPTS:
+                time.sleep(0.2 * (attempt + 1))
+    raise last_error or RuntimeError("读取钉钉模板详情失败。")
+
+
+def normalize_dingtalk_mcp_template_detail(
+    payload: object,
+    fallback_template: dict,
+) -> dict:
+    response = payload if isinstance(payload, dict) else {}
+    if response.get("success") is False or response.get("ok") is False:
+        raise RuntimeError(str(response.get("errorMsg") or response.get("error") or "读取模板详情失败。"))
+    source = response.get("result") if isinstance(response.get("result"), dict) else response
+    return {
+        "template_id": str(
+            source.get("report_template_id")
+            or source.get("template_id")
+            or fallback_template.get("report_template_id")
+            or ""
+        ).strip(),
+        "template_name": str(
+            source.get("report_template_name")
+            or source.get("template_name")
+            or fallback_template.get("report_template_name")
+            or ""
+        ).strip(),
+        "fields": source.get("report_template_fields", source.get("fields", [])),
+    }
+
+
+def get_cached_user_dingtalk_report_templates(
+    user_id: str,
+    mcp_url: str,
+) -> list[dict] | None:
+    setting_key = build_user_dingtalk_report_template_cache_setting_key(user_id)
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT setting_value, updated_at FROM app_settings WHERE setting_key = ?",
+            (setting_key,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        updated_at = datetime.strptime(str(row["updated_at"] or ""), "%Y-%m-%d %H:%M:%S")
+        age_seconds = (datetime.now() - updated_at).total_seconds()
+        payload = json.loads(row["setting_value"] or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not 0 <= age_seconds <= DINGTALK_REPORT_TEMPLATE_CACHE_TTL_SECONDS:
+        return None
+    if not isinstance(payload, dict) or not secrets.compare_digest(
+        str(payload.get("mcp_fingerprint") or ""),
+        build_dingtalk_mcp_url_fingerprint(mcp_url),
+    ):
+        return None
+    templates = payload.get("templates")
+    if not isinstance(templates, list):
+        return None
+    return [
+        annotate_dingtalk_template_support(item)
+        for item in templates
+        if isinstance(item, dict)
+    ]
+
+
+def save_user_dingtalk_report_template_cache(
+    user_id: str,
+    mcp_url: str,
+    templates: list[dict],
+) -> None:
+    setting_key = build_user_dingtalk_report_template_cache_setting_key(user_id)
+    payload = {
+        "mcp_fingerprint": build_dingtalk_mcp_url_fingerprint(mcp_url),
+        "templates": [
+            normalize_dingtalk_template_config(template)
+            for template in templates
+        ],
+    }
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO app_settings (setting_key, setting_value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                setting_value = excluded.setting_value,
+                updated_at = excluded.updated_at
+            """,
+            (setting_key, json.dumps(payload, ensure_ascii=False), timestamp),
+        )
+
+
+def list_user_available_dingtalk_report_templates(user_id: str | None = None) -> list[dict]:
+    normalized_user_id = normalize_user_id(user_id)
+    effective_config = require_dingtalk_mcp_config(user_id=normalized_user_id, include_log=True)
+    mcp_url = str(effective_config.get("log_mcp_url") or "").strip()
+    cached_templates = get_cached_user_dingtalk_report_templates(normalized_user_id, mcp_url)
+    if cached_templates is not None:
+        return cached_templates
+
+    available_payload = call_dingtalk_mcp_tool(mcp_url, "get_available_report_templates")
+    if isinstance(available_payload, dict):
+        available_payload = available_payload.get("templates", available_payload.get("result", []))
+    if not isinstance(available_payload, list):
+        raise RuntimeError("钉钉 MCP 返回的模板列表格式无效。")
+    available_templates = [
+        item
+        for item in available_payload
+        if isinstance(item, dict) and str(item.get("report_template_name") or "").strip()
+    ]
 
     templates: list[dict] = []
-    seen: set[str] = set()
-    for item in result.get("templates", []):
-        normalized = annotate_dingtalk_template_support(item)
-        identity = str(normalized.get("template_id") or normalized.get("template_name") or "").strip()
-        if not identity or identity in seen:
-            continue
-        seen.add(identity)
-        templates.append(normalized)
-    templates.sort(
-        key=lambda item: (
-            0 if item.get("daily_supported") or item.get("weekly_supported") else 1,
-            str(item.get("template_name") or item.get("template_id") or ""),
+    detail_errors: list[str] = []
+    worker_count = max(1, min(DINGTALK_MCP_TEMPLATE_DETAIL_WORKERS, len(available_templates) or 1))
+    with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="dingtalk-template") as executor:
+        future_templates = {
+            executor.submit(
+                call_dingtalk_mcp_template_detail_with_retry,
+                mcp_url,
+                str(item.get("report_template_name") or ""),
+            ): item
+            for item in available_templates
+        }
+        for future in as_completed(future_templates):
+            item = future_templates[future]
+            try:
+                template = normalize_dingtalk_mcp_template_detail(future.result(), item)
+                annotated = annotate_dingtalk_template_support(template)
+                if annotated["daily_supported"] or annotated["weekly_supported"]:
+                    templates.append(annotated)
+            except (RuntimeError, ValueError) as error:
+                template_name = str(item.get("report_template_name") or "未命名模板").strip()
+                detail_errors.append(f"{template_name}：{error}")
+
+    if detail_errors:
+        raise RuntimeError(
+            f"有 {len(detail_errors)} 个钉钉模板详情读取失败，请稍后重试。"
         )
-    )
+    templates.sort(key=lambda item: str(item.get("template_name") or item.get("template_id") or ""))
+    save_user_dingtalk_report_template_cache(normalized_user_id, mcp_url, templates)
     return templates
 
 
@@ -13763,8 +14026,12 @@ def build_weekly_report_word_document(context: dict, sections: list[dict], proje
 
 def generate_daily_log_via_codex(work_date: str, user_id: str | None = None) -> bytes:
     context = build_daily_log_context(work_date, user_id=user_id)
-    prompt = build_codex_log_prompt(context, user_id=user_id)
-    return generate_codex_document(prompt, f"{work_date} 工作日志")
+    try:
+        prompt = build_codex_log_prompt(context, user_id=user_id)
+        return generate_codex_document(prompt, f"{work_date} 工作日志")
+    except RuntimeError:
+        content = build_fallback_daily_log_content(context)
+        return build_word_document(content, f"{work_date} 工作日志")
 
 
 def generate_weekly_strength_report_spreadsheet(work_date: str, user_id: str | None = None) -> bytes:
@@ -14439,11 +14706,85 @@ def generate_weekly_report_preview(work_date: str, user_id: str | None = None) -
     }
 
 
+def build_fallback_daily_log_content(context: dict) -> str:
+    today = context.get("today") or {}
+    items = today.get("items") or []
+
+    def split_content_parts(raw_text: str) -> list[str]:
+        parts: list[str] = []
+        for raw_part in re.split(r"[\n；;。]+", raw_text):
+            part = strip_work_item_marker(raw_part).strip(" ，,;；。")
+            if part:
+                parts.append(part)
+        return parts
+
+    def format_label(item: dict) -> str:
+        label = str(item.get("service_type_label", "")).strip()
+        label = label.replace("客户", "").replace("类工作", "").rstrip("类")
+        customer = str(item.get("customer_name", "")).strip()
+        prefix = f"{customer}{label}".strip(" ，,;；。")
+        return prefix or "未命名客户"
+
+    work_lines: list[str] = []
+    risk_lines: list[str] = []
+    for item in items:
+        for part in split_content_parts(str(item.get("work_content", ""))):
+            work_lines.append(f"{format_label(item)}：{part}")
+        for key_name in ("risk", "pending_issues"):
+            for part in split_content_parts(str(item.get(key_name, ""))):
+                risk_lines.append(f"{format_label(item)}：{part}")
+
+    plan_lines: list[str] = []
+    seen_lines: set[str] = set()
+    tomorrow = context.get("tomorrow") or {}
+    for item in tomorrow.get("items") or []:
+        for part in split_content_parts(str(item.get("work_content", ""))):
+            line = f"{format_label(item)}：{part}"
+            if line not in seen_lines:
+                seen_lines.add(line)
+                plan_lines.append(line)
+    weekly_plan = context.get("tomorrow_weekly_plan") or {}
+    for key_name in ("am", "pm", "other_pending"):
+        for part in split_content_parts(str(weekly_plan.get(key_name, ""))):
+            if part not in seen_lines:
+                seen_lines.add(part)
+                plan_lines.append(part)
+    if not plan_lines:
+        for item in items:
+            for part in split_content_parts(str(item.get("pending_issues", ""))):
+                line = f"跟进遗留事项：{part}"
+                if line not in seen_lines:
+                    seen_lines.add(line)
+                    plan_lines.append(line)
+
+    extra_lines: list[str] = []
+    for part in split_content_parts(str(today.get("notes", ""))):
+        extra_lines.append(part)
+
+    sections = [
+        ("1、今日工作：", work_lines),
+        ("2、明日计划：", plan_lines),
+        ("3、风险和需要协助：", risk_lines),
+        ("4、思考和其他：", extra_lines),
+    ]
+    blocks = []
+    for title, lines in sections:
+        numbered = "\n".join(f"{index}. {line}" for index, line in enumerate(lines or ["暂无"], start=1))
+        blocks.append(f"{title}\n{numbered}")
+    return "\n\n".join(blocks)
+
+
 def generate_daily_log_preview(work_date: str, user_id: str | None = None) -> dict:
     validated_date = validate_date(work_date)
-    content = run_codex_prompt(
-        build_codex_log_prompt(build_daily_log_context(validated_date, user_id=user_id), user_id=user_id)
-    )
+    context = build_daily_log_context(validated_date, user_id=user_id)
+    generation_notice = ""
+    used_generated_fallback = False
+    try:
+        content = run_codex_prompt(build_codex_log_prompt(context, user_id=user_id))
+    except RuntimeError:
+        content = build_fallback_daily_log_content(context)
+        generation_notice = "智能日报生成失败，已由系统默认生成。"
+        used_generated_fallback = True
     filename = build_daily_log_docx_filename(validated_date)
     saved_path = save_generated_file_to_logs(
         filename,
@@ -14456,6 +14797,8 @@ def generate_daily_log_preview(work_date: str, user_id: str | None = None) -> di
         "title": f"{validated_date} 发送售后日报",
         "work_date": validated_date,
         "content": content,
+        "generation_notice": generation_notice,
+        "used_generated_fallback": used_generated_fallback,
         "saved_filename": saved_path.name,
         "saved_path": str(saved_path),
         "send_config": get_dingtalk_daily_log_send_config(user_id=user_id),
@@ -15537,6 +15880,22 @@ def merge_dingtalk_send_recipients(recipients: object | None = None) -> tuple[li
     return merged_recipients, normalized_last_recipients
 
 
+def send_dingtalk_report_via_mcp(
+    mcp_url: str,
+    payload: dict,
+    *,
+    failure_message: str,
+) -> dict:
+    result = call_dingtalk_mcp_tool(mcp_url, "create_report", payload)
+    if not isinstance(result, dict):
+        raise RuntimeError("钉钉日志 MCP 返回格式无效。")
+    if result.get("ok") is False or result.get("success") is False:
+        raise RuntimeError(
+            str(result.get("message") or result.get("errorMessage") or failure_message)
+        )
+    return result
+
+
 def build_dingtalk_daily_log_send_prompt(
     work_date: str,
     contents: list[dict],
@@ -15583,22 +15942,14 @@ def send_daily_log_to_dingtalk(
     contents = build_dingtalk_daily_log_contents(sections, template_config)
     send_to_chat = DINGTALK_REPORT_TO_CHAT_DEFAULT if to_chat is None else bool(to_chat)
     merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(recipients)
-    result = parse_codex_json_output(
-        run_codex_action_prompt(
-            build_dingtalk_daily_log_send_prompt(
-                validated_date,
-                contents,
-                send_to_chat,
-                merged_recipients,
-                user_id=user_id,
-                template_config=template_config,
-            ),
-            extra_config=build_dingtalk_mcp_extra_config(user_id=user_id, include_log=True),
-        )
+    effective_mcp_config = require_dingtalk_mcp_config(user_id=user_id, include_log=True)
+    result = send_dingtalk_report_via_mcp(
+        str(effective_mcp_config.get("log_mcp_url") or "").strip(),
+        build_dingtalk_daily_log_send_payload(
+            contents, send_to_chat, merged_recipients, template_config
+        ),
+        failure_message="钉钉日志发送失败。",
     )
-
-    if result.get("ok") is False or result.get("success") is False:
-        raise RuntimeError(str(result.get("message") or "钉钉日志发送失败。"))
 
     saved_config, saved_updated_at = save_dingtalk_daily_log_send_config(
         send_to_chat, normalized_last_recipients, user_id=user_id
@@ -15714,23 +16065,14 @@ def send_weekly_report_to_dingtalk(
     contents = build_dingtalk_weekly_report_contents(sections, template_config)
     send_to_chat = DINGTALK_REPORT_TO_CHAT_DEFAULT if to_chat is None else bool(to_chat)
     merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(recipients)
-    result = parse_codex_json_output(
-        run_codex_action_prompt(
-            build_dingtalk_weekly_report_send_prompt(
-                week_start,
-                week_end,
-                contents,
-                send_to_chat,
-                merged_recipients,
-                user_id=user_id,
-                template_config=template_config,
-            ),
-            extra_config=build_dingtalk_mcp_extra_config(user_id=user_id, include_log=True),
-        )
+    effective_mcp_config = require_dingtalk_mcp_config(user_id=user_id, include_log=True)
+    result = send_dingtalk_report_via_mcp(
+        str(effective_mcp_config.get("log_mcp_url") or "").strip(),
+        build_dingtalk_weekly_report_send_payload(
+            contents, send_to_chat, merged_recipients, template_config
+        ),
+        failure_message="钉钉周报发送失败。",
     )
-
-    if result.get("ok") is False or result.get("success") is False:
-        raise RuntimeError(str(result.get("message") or "钉钉周报发送失败。"))
 
     saved_config, saved_updated_at = save_dingtalk_weekly_report_send_config(
         send_to_chat, normalized_last_recipients, user_id=user_id
@@ -15762,21 +16104,13 @@ def send_scheduled_daily_log_job(job: dict | sqlite3.Row) -> dict[str, Any]:
     contents = build_dingtalk_daily_log_contents(payload.get("sections", []), template_config)
     send_to_chat = bool(payload.get("to_chat"))
     merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(payload.get("recipients", []))
-    result = parse_codex_json_output(
-        run_codex_action_prompt(
-            build_dingtalk_daily_log_send_prompt(
-                validated_date,
-                contents,
-                send_to_chat,
-                merged_recipients,
-                user_id=row["user_id"],
-                template_config=template_config,
-            ),
-            extra_config=build_dingtalk_log_extra_config_from_url(str(payload.get("log_mcp_url") or "").strip()),
-        )
+    result = send_dingtalk_report_via_mcp(
+        str(payload.get("log_mcp_url") or "").strip(),
+        build_dingtalk_daily_log_send_payload(
+            contents, send_to_chat, merged_recipients, template_config
+        ),
+        failure_message="钉钉日志发送失败。",
     )
-    if result.get("ok") is False or result.get("success") is False:
-        raise RuntimeError(str(result.get("message") or "钉钉日志发送失败。"))
     saved_config, saved_updated_at = save_dingtalk_daily_log_send_config(
         send_to_chat,
         normalized_last_recipients,
@@ -15808,22 +16142,13 @@ def send_scheduled_weekly_report_job(job: dict | sqlite3.Row) -> dict[str, Any]:
     contents = build_dingtalk_weekly_report_contents(payload.get("sections", []), template_config)
     send_to_chat = bool(payload.get("to_chat"))
     merged_recipients, normalized_last_recipients = merge_dingtalk_send_recipients(payload.get("recipients", []))
-    result = parse_codex_json_output(
-        run_codex_action_prompt(
-            build_dingtalk_weekly_report_send_prompt(
-                week_start,
-                week_end,
-                contents,
-                send_to_chat,
-                merged_recipients,
-                user_id=row["user_id"],
-                template_config=template_config,
-            ),
-            extra_config=build_dingtalk_log_extra_config_from_url(str(payload.get("log_mcp_url") or "").strip()),
-        )
+    result = send_dingtalk_report_via_mcp(
+        str(payload.get("log_mcp_url") or "").strip(),
+        build_dingtalk_weekly_report_send_payload(
+            contents, send_to_chat, merged_recipients, template_config
+        ),
+        failure_message="钉钉周报发送失败。",
     )
-    if result.get("ok") is False or result.get("success") is False:
-        raise RuntimeError(str(result.get("message") or "钉钉周报发送失败。"))
     saved_config, saved_updated_at = save_dingtalk_weekly_report_send_config(
         send_to_chat,
         normalized_last_recipients,
@@ -16601,6 +16926,32 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
     def _is_admin(self, user: dict | None) -> bool:
         return bool(user and str(user.get("role") or "") == "admin")
 
+    def _get_api_key(self) -> str:
+        header_value = str(self.headers.get("X-API-Key", "") or "").strip()
+        if header_value:
+            return header_value
+        authorization = str(self.headers.get("Authorization", "") or "").strip()
+        if authorization.lower().startswith("bearer "):
+            return authorization[7:].strip()
+        return ""
+
+    def _database_export_payload(self) -> dict:
+        tables = []
+        with get_connection() as connection:
+            table_rows = connection.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
+            for table_row in table_rows:
+                table_name = str(table_row["name"])
+                columns = [dict(row) for row in connection.execute(f'PRAGMA table_info("{table_name.replace(chr(34), chr(34) + chr(34))}")').fetchall()]
+                rows = []
+                for row in connection.execute(f'SELECT * FROM "{table_name.replace(chr(34), chr(34) + chr(34))}"').fetchall():
+                    item = dict(row)
+                    for column in list(item):
+                        if column in {"password_hash", "salt_hex", "key_hash"}:
+                            item[column] = "[REDACTED]"
+                    rows.append(item)
+                tables.append({"name": table_name, "schema": table_row["sql"], "columns": columns, "rows": rows})
+        return {"exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "database": str(DB_PATH), "tables": tables}
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -16624,6 +16975,14 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/department-schedule":
             self._send_html(render_department_schedule_html(current_user, mobile_view=mobile_schedule_view))
+            return
+
+        if parsed.path == "/api/database/export":
+            api_key = authenticate_api_key(self._get_api_key())
+            if not api_key:
+                self._send_json({"error": "需要提供有效的 API key。"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            self._send_json({"ok": True, "key": {"key_id": api_key["key_id"], "created_by": api_key["created_by"]}, "data": self._database_export_payload()})
             return
 
         if parsed.path == "/api/auth/me":
@@ -16884,6 +17243,13 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(error)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
+        if parsed.path == "/api/admin/api-keys":
+            if not self._is_admin(current_user):
+                self._send_json({"error": "仅管理员可访问。"}, status=HTTPStatus.FORBIDDEN)
+                return
+            self._send_json({"keys": list_api_keys()})
+            return
+
         if parsed.path == "/api/admin/users":
             if not self._is_admin(current_user):
                 self._send_json({"error": "仅管理员可访问。"}, status=HTTPStatus.FORBIDDEN)
@@ -16905,6 +17271,21 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             self._send_json({"username": get_admin_account_public_info()["username"]})
             return
 
+        if parsed.path == "/api/admin/api-keys":
+            current_user = self._get_current_user()
+            if not self._is_admin(current_user):
+                self._send_json({"error": "仅管理员可吊销 API key。"}, status=HTTPStatus.FORBIDDEN)
+                return
+            query = parse_qs(parsed.query)
+            try:
+                revoked = revoke_api_key(int(query.get("key_id", [""])[0]))
+            except (TypeError, ValueError):
+                revoked = False
+            if not revoked:
+                self._send_json({"error": "API key 不存在或已经吊销。"}, status=HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True})
+            return
         if parsed.path == "/api/admin/local-accounts":
             if not self._is_admin(current_user):
                 self._send_json({"error": "仅管理员可访问。"}, status=HTTPStatus.FORBIDDEN)
@@ -17585,6 +17966,14 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(error)}, status=HTTPStatus.NOT_FOUND)
             except json.JSONDecodeError:
                 self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        if self.path == "/api/admin/api-keys":
+            current_user = self._get_current_user()
+            if not self._is_admin(current_user):
+                self._send_json({"error": "仅管理员可生成 API key。"}, status=HTTPStatus.FORBIDDEN)
+                return
+            self._send_json({"ok": True, "api_key": create_api_key(str(current_user["user_id"]))}, status=HTTPStatus.CREATED)
             return
 
         if self.path == "/api/auth/logout":

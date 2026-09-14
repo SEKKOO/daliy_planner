@@ -607,7 +607,43 @@ ADMIN_HELP_MARKDOWN = """
 
 统一代配很容易串权限、串可见范围。
 
-## 8. 最近识别到的钉钉用户有什么用
+## 8. 数据库 API 密钥和全量导出
+
+系统管理员可以生成用于程序访问的 API key。密钥只在生成接口的响应中显示一次，请立即保存；后台只保存不可逆哈希。
+
+### 生成密钥
+
+管理员登录后调用：
+
+```http
+POST /api/admin/api-keys
+Cookie: planner_session=<管理员登录会话>
+```
+
+响应中的 `api_key.key` 就是明文密钥。普通用户、未登录用户和非管理员会收到 `403`。
+
+### 导出全部数据库信息
+
+```http
+GET /api/database/export
+X-API-Key: dp_...
+```
+
+也支持 `Authorization: Bearer dp_...`。成功响应包含 `tables`，每张表包含表名、建表语句、字段和全部行。`password_hash`、`salt_hex`、`key_hash` 会固定返回 `[REDACTED]`，以免导出结果成为凭据泄露源。
+
+### 吊销密钥
+
+管理员可查看和吊销密钥：
+
+```http
+GET /api/admin/api-keys
+DELETE /api/admin/api-keys?key_id=1
+Cookie: planner_session=<管理员登录会话>
+```
+
+请将 API key 放在服务端环境变量或密钥管理系统中，不要写入前端代码、日志、聊天记录或公开仓库。导出接口包含业务全量数据，应仅通过受信网络调用。
+
+## 9. 最近识别到的钉钉用户有什么用
 
 扫码登录成功后，后台会缓存识别到的钉钉身份信息。
 

@@ -684,6 +684,19 @@ def init_auth_storage() -> None:
             connection.execute("DELETE FROM user_sessions WHERE expires_at <= ?", (timestamp,))
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                key_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_hash TEXT NOT NULL UNIQUE,
+                key_prefix TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                revoked_at TEXT
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(revoked_at)")
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS local_accounts (
                 username TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL UNIQUE,
@@ -2277,6 +2290,41 @@ def get_user_by_session(session_token: str | None) -> dict[str, Any] | None:
             (refreshed_expires_at, timestamp, normalized_token),
         )
     return get_user_by_id(str(row["user_id"] or ""))
+
+
+def create_api_key(created_by: str) -> dict[str, Any]:
+    token = "dp_" + secrets.token_urlsafe(32)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    normalized_user_id = normalize_user_id(created_by)
+    with get_connection() as connection:
+        cursor = connection.execute(
+            "INSERT INTO api_keys (key_hash, key_prefix, created_by, created_at) VALUES (?, ?, ?, ?)",
+            (hashlib.sha256(token.encode("utf-8")).hexdigest(), token[:12], normalized_user_id, timestamp),
+        )
+    return {"key_id": cursor.lastrowid, "key": token, "key_prefix": token[:12], "created_by": normalized_user_id, "created_at": timestamp}
+
+
+def authenticate_api_key(token: str | None) -> dict[str, Any] | None:
+    normalized = str(token or "").strip()
+    if not normalized:
+        return None
+    key_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    with get_connection() as connection:
+        row = connection.execute("SELECT key_id, key_prefix, created_by, created_at FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL", (key_hash,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_api_keys() -> list[dict[str, Any]]:
+    with get_connection() as connection:
+        rows = connection.execute("SELECT key_id, key_prefix, created_by, created_at, revoked_at FROM api_keys ORDER BY key_id DESC").fetchall()
+    return [dict(row) for row in rows]
+
+
+def revoke_api_key(key_id: int) -> bool:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_connection() as connection:
+        cursor = connection.execute("UPDATE api_keys SET revoked_at = ? WHERE key_id = ? AND revoked_at IS NULL", (timestamp, int(key_id)))
+    return cursor.rowcount > 0
 
 
 def normalize_external_base_url(value: object) -> str:
