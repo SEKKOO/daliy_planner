@@ -44,6 +44,19 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       --shell-surface-strong-alpha: 0.9;
       --shell-surface-soft-alpha: 0.72;
       --shell-surface-subtle-alpha: 0.54;
+      --department-plan-shell-alpha: 0.86;
+      --department-plan-shell-soft-alpha: 0.74;
+      --department-plan-head-alpha: 0.72;
+      --department-plan-cell-alpha: 0.66;
+      --department-plan-cell-hover-alpha: 0.74;
+      --department-plan-card-alpha: 0.58;
+      --department-plan-card-soft-alpha: 0.42;
+      --department-plan-control-alpha: 0.5;
+      --department-plan-control-soft-alpha: 0.34;
+      --department-plan-empty-alpha: 0.24;
+      --department-plan-date-alpha: 0.52;
+      --department-plan-weekend-alpha: 0.72;
+      --department-plan-weekend-soft-alpha: 0.58;
       --card-shadow: 0 18px 42px rgba(38, 86, 150, 0.09);
       --button-shadow: 0 14px 28px rgba(38, 86, 150, 0.12);
       --inner-shadow: inset 0 1px 0 rgba(255,255,255,0.42);
@@ -422,18 +435,21 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     }
     .section-head-main { display: grid; gap: 6px; }
     .plan-layout {
-      --plan-member-width: 128px;
-      --plan-day-width: 188px;
-      --plan-pending-width: 220px;
+      --plan-member-width: 168px;
+      --plan-day-width: 216px;
+      --plan-pending-width: 240px;
       --plan-schedule-width: calc((var(--plan-day-width) * 7) + var(--plan-pending-width));
-      border: 1px solid var(--line);
-      border-radius: 18px;
+      --plan-grid-line: rgba(49, 102, 173, 0.14);
+      --plan-grid-line-soft: rgba(49, 102, 173, 0.08);
+      border: 1px solid rgba(255,255,255,0.28);
+      border-radius: 22px;
       overflow: hidden;
-      background: linear-gradient(
-        180deg,
-        rgba(var(--surface-rgb), var(--shell-surface-strong-alpha)),
-        rgba(var(--surface-soft-rgb), var(--shell-surface-alpha))
-      );
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-shell-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-shell-soft-alpha))),
+        linear-gradient(135deg, rgba(46,119,208,0.035), transparent 76%);
+      box-shadow: 0 18px 42px rgba(38, 86, 150, 0.06), inset 0 1px 0 rgba(255,255,255,0.3);
+      backdrop-filter: blur(18px) saturate(120%);
+      -webkit-backdrop-filter: blur(18px) saturate(120%);
     }
     .plan-grid {
       display: grid;
@@ -445,17 +461,91 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 45px;
-      padding: 12px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(var(--table-head-rgb), var(--shell-surface-strong-alpha));
+      min-height: 56px;
+      padding: 10px 13px;
+      border-bottom: 1px solid var(--plan-grid-line);
+      background:
+        linear-gradient(180deg, rgba(var(--table-head-rgb), var(--department-plan-head-alpha)), rgba(var(--surface-rgb), 0.36));
       color: var(--text);
       font-size: 13px;
       font-weight: 700;
       white-space: nowrap;
     }
     .plan-corner-head {
-      border-right: 1px solid rgba(215,227,239,0.72);
+      align-items: flex-start;
+      justify-content: flex-start;
+      border-right: 1px solid var(--plan-grid-line);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .plan-day-head {
+      flex-direction: column;
+      align-items: flex-start !important;
+      gap: 4px;
+      text-align: left;
+    }
+    .plan-day-head-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      gap: 8px;
+    }
+    .plan-day-head-name {
+      color: var(--primary-deep);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .plan-day-head-date {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      min-width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 50%;
+      background: linear-gradient(180deg, rgba(46,119,208,0.74), rgba(30,88,160,0.62));
+      border: 1px solid rgba(255,255,255,0.32);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.26);
+    }
+    .plan-day-head.today .plan-day-head-date {
+      background: var(--danger);
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 8px 16px rgba(192, 60, 71, 0.18);
+    }
+    .plan-day-head.weekend {
+      background:
+        linear-gradient(180deg, rgba(var(--table-head-rgb), var(--department-plan-head-alpha)), rgba(var(--surface-rgb), 0.36));
+      border-color: var(--plan-grid-line);
+      box-shadow: none;
+    }
+    .plan-day-head.weekend .plan-day-head-name {
+      color: var(--primary-deep);
+    }
+    .plan-day-head.weekend .plan-day-head-sub {
+      color: var(--text-soft);
+    }
+    .plan-day-head-sub {
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    .plan-pending-head {
+      align-items: flex-start !important;
+      justify-content: center !important;
+      flex-direction: column;
+      gap: 4px;
+      text-align: left;
     }
     .plan-days-head {
       display: grid;
@@ -466,12 +556,15 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       overflow-x: auto;
       overflow-y: hidden;
       scrollbar-width: none;
+      overscroll-behavior-x: contain;
+      -webkit-overflow-scrolling: touch;
+      will-change: scroll-position;
     }
     .plan-days-scroll::-webkit-scrollbar {
       display: none;
     }
     .plan-days-head > div {
-      border-right: 1px solid rgba(215,227,239,0.72);
+      border-right: 1px solid var(--plan-grid-line);
     }
     .plan-days-head > div:last-child {
       border-right: none;
@@ -493,35 +586,47 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       overflow-x: auto;
       overflow-y: hidden;
       overflow-anchor: none;
+      overscroll-behavior-x: contain;
+      -webkit-overflow-scrolling: touch;
+      will-change: scroll-position;
       border: none;
       border-radius: 0;
       background: transparent;
+      transform: translateZ(0);
     }
     .plan-member-list {
       display: grid;
       gap: 0;
       align-self: start;
       border: none;
-      border-right: 1px solid rgba(215,227,239,0.72);
+      border-right: 1px solid var(--plan-grid-line);
       border-radius: 0;
       overflow: hidden;
       background: transparent;
     }
     .plan-member-row {
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 10px 6px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
+      align-items: flex-start;
+      justify-content: flex-start;
+      gap: 9px;
+      padding: 8px 12px 12px;
+      min-height: 160px;
+      border-bottom: 1px solid var(--plan-grid-line-soft);
+      background:
+        linear-gradient(180deg, rgba(var(--table-cell-rgb), var(--department-plan-cell-alpha)), rgba(var(--surface-soft-rgb), 0.4));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
       cursor: grab;
       user-select: none;
       touch-action: none;
-      transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, opacity 0.16s ease;
+      transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
     }
     .plan-member-row:last-child { border-bottom: none; }
+    .plan-member-row:nth-child(even) {
+      background:
+        linear-gradient(180deg, rgba(var(--table-cell-alt-rgb), var(--department-plan-cell-alpha)), rgba(var(--surface-rgb), 0.34));
+    }
     .plan-member-row:hover {
-      background: rgba(var(--table-head-rgb), var(--shell-surface-alpha));
+      box-shadow: inset 3px 0 0 rgba(46,119,208,0.34), inset 0 1px 0 rgba(255,255,255,0.26);
     }
     .plan-member-row.is-dragging {
       opacity: 0.72;
@@ -540,37 +645,45 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       table-layout: fixed;
       border-collapse: separate;
       border-spacing: 0;
+      transform: translateZ(0);
     }
     .plan-day-col { width: var(--plan-day-width); }
     .plan-pending-col { width: var(--plan-pending-width); }
     .plan-table th,
     .plan-table td {
-      padding: 12px;
+      padding: 10px;
+      min-height: 160px;
       font-size: 13px;
       vertical-align: top;
-      border-bottom: 1px solid var(--line);
-      border-right: 1px solid rgba(215,227,239,0.72);
-      background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
+      border-bottom: 1px solid var(--plan-grid-line-soft);
+      border-right: 1px solid var(--plan-grid-line-soft);
+      background:
+        linear-gradient(180deg, rgba(var(--table-cell-rgb), var(--department-plan-cell-alpha)), rgba(var(--surface-soft-rgb), 0.34));
+      box-shadow: inset 1px 0 0 rgba(255,255,255,0.11);
     }
     .plan-table th:last-child,
     .plan-table td:last-child { border-right: none; }
     .plan-table tr:last-child td { border-bottom: none; }
+    .plan-table tr:nth-child(even) td {
+      background:
+        linear-gradient(180deg, rgba(var(--table-cell-alt-rgb), var(--department-plan-cell-alpha)), rgba(var(--surface-rgb), 0.3));
+    }
     .member-text-wrap {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
+      display: grid;
+      align-content: start;
+      gap: 6px;
       min-height: 100%;
+      min-width: 0;
+      padding-top: 0;
     }
     .member-text {
       display: block;
       max-width: 100%;
       color: var(--text);
-      font-size: 13px;
-      font-weight: 600;
-      line-height: 1.5;
-      text-align: center;
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.35;
+      text-align: left;
       white-space: normal;
       word-break: break-word;
       overflow-wrap: anywhere;
@@ -579,35 +692,101 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       display: block;
       max-width: 100%;
       color: var(--text-soft);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
-      line-height: 1.45;
-      text-align: center;
+      line-height: 1.35;
+      text-align: left;
       white-space: normal;
       word-break: break-word;
       overflow-wrap: anywhere;
     }
+    .member-plan-summary {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .member-plan-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 20px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(42,111,214,0.1);
+      background: rgba(var(--surface-rgb), 0.42);
+      color: var(--primary-deep);
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .member-plan-pill.warning {
+      color: #8a5a12;
+      border-color: rgba(190, 126, 43, 0.24);
+      background: rgba(190, 126, 43, 0.1);
+    }
+    .member-plan-pill.danger {
+      color: var(--danger);
+      border-color: rgba(192, 60, 71, 0.24);
+      background: rgba(192, 60, 71, 0.1);
+    }
     .member-drag-grip {
       flex: 0 0 auto;
-      color: var(--text-soft);
-      font-size: 12px;
+      color: rgba(64, 93, 123, 0.5);
+      font-size: 11px;
       letter-spacing: 0.12em;
       line-height: 1;
     }
-    .plan-day-cell { min-width: 188px; }
-    .plan-day-editor { display: grid; gap: 8px; }
+    .plan-day-cell { min-width: var(--plan-day-width); }
+    .plan-day-editor {
+      display: grid;
+      align-content: start;
+      gap: 7px;
+      min-height: 100%;
+    }
     .plan-day-field {
       display: grid;
+      grid-template-columns: 3px minmax(0, 1fr);
+      gap: 0;
+      padding: 0;
+      overflow: hidden;
+      border-radius: 11px;
+      border: 1px solid rgba(49,102,173,0.12);
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-card-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-card-soft-alpha))),
+        linear-gradient(135deg, rgba(46,119,208,0.055), rgba(46,119,208,0.012));
+      box-shadow: 0 7px 16px rgba(38, 86, 150, 0.055), inset 0 1px 0 rgba(255,255,255,0.38);
+      contain: paint;
+    }
+    .plan-day-field.is-legacy {
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-control-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-control-soft-alpha))),
+        linear-gradient(135deg, rgba(92, 117, 146, 0.08), rgba(92, 117, 146, 0.02));
+      border-style: dashed;
+    }
+    .plan-item-accent {
+      grid-row: 1 / -1;
+      background: linear-gradient(180deg, rgba(46,119,208,0.28), rgba(92,117,146,0.14));
+    }
+    .plan-item-content {
+      display: grid;
+      grid-template-rows: minmax(44px, 1fr) auto;
+      gap: 5px;
+      min-width: 0;
+      padding: 7px;
+    }
+    .plan-item-upper {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: start;
+      gap: 4px 6px;
+      min-width: 0;
+      min-height: 44px;
+    }
+    .plan-item-title-shell {
+      display: grid;
       gap: 4px;
-      padding: 8px;
-      border-radius: 14px;
-      border: 1px solid rgba(42,111,214,0.12);
-      background: linear-gradient(
-        180deg,
-        rgba(var(--surface-rgb), var(--shell-surface-strong-alpha)),
-        rgba(var(--surface-soft-rgb), var(--shell-surface-alpha))
-      );
-      box-shadow: var(--inner-shadow);
+      min-width: 0;
     }
     .plan-day-label {
       font-size: 11px;
@@ -616,25 +795,330 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       color: var(--primary-deep);
       text-transform: uppercase;
     }
-    .plan-day-input {
-      min-height: 60px;
-      padding: 8px 10px;
+    .plan-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .plan-item-title-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      min-width: 0;
+    }
+    .plan-item-time-row {
+      display: grid;
+      grid-template-columns: 42px 1px minmax(0, 1fr) 20px;
+      align-items: center;
+      gap: 5px;
+      min-height: 30px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(49,102,173,0.08);
+    }
+    .plan-item-time-stack {
+      min-width: 0;
+      display: grid;
+      gap: 0;
+      align-content: center;
+      min-height: 28px;
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      border: 0;
+    }
+    .plan-item-time {
+      width: 100%;
+      min-width: 0;
+      height: 15px;
+      min-height: 15px;
+      padding: 0 2px;
+      border: 0;
+      border-radius: 4px;
+      background: rgba(var(--surface-rgb), 0.38);
+      box-shadow: none;
+      color: var(--primary-deep);
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1;
+      text-align: center;
+    }
+    .plan-item-time.is-invalid,
+    .plan-item-create-input.is-invalid {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 2px rgba(192, 60, 71, 0.12);
+    }
+    .plan-item-time-separator {
+      color: var(--primary-deep);
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .plan-item-meta-divider {
+      width: 1px;
+      min-height: 28px;
+      border-radius: 999px;
+      background: rgba(49,102,173,0.12);
+    }
+    .plan-item-title {
+      min-height: 40px;
+      resize: vertical;
+      padding: 6px 7px;
+      border-radius: 9px;
+      background: rgba(var(--surface-rgb), 0.38);
+      border-color: rgba(49,102,173,0.1);
+      box-shadow: none;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+    .plan-item-location {
+      min-height: 22px;
+      padding: 2px 7px;
+      border-radius: 8px;
+      background: rgba(var(--surface-rgb), 0.38);
+      border-color: rgba(49,102,173,0.1);
+      box-shadow: none;
+      font-size: 11px;
+    }
+    .plan-item-delete,
+    .plan-item-add {
+      min-height: 28px;
+      padding: 5px 7px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .plan-item-delete {
+      min-width: 20px;
+      min-height: 20px;
+      align-self: start;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 50%;
+      background: rgba(192, 60, 71, 0.08);
+      border-color: rgba(192, 60, 71, 0.12);
+      color: var(--danger);
+      font-size: 14px;
+      line-height: 1;
+      white-space: normal;
+      box-shadow: none;
+      opacity: 0.82;
+    }
+    .plan-item-delete:hover {
+      opacity: 1;
+    }
+    .plan-item-delete span {
+      display: block;
+    }
+    .calendar-sync-badge {
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      min-height: 16px;
+      padding: 1px 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(var(--surface-rgb), var(--department-plan-control-alpha));
+      color: var(--text-soft);
+      font-size: 10px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .calendar-sync-caption {
+      color: var(--text-soft);
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.35;
+      white-space: normal;
+    }
+    .calendar-sync-inline {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text-soft);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .calendar-sync-state.success { color: var(--success); }
+    .calendar-sync-state.pending { color: var(--primary-deep); }
+    .calendar-sync-state.warning { color: #9a6412; }
+    .calendar-sync-state.danger { color: var(--danger); }
+    .calendar-sync-state.muted,
+    .calendar-sync-state.neutral { color: var(--text-soft); }
+    body[data-theme="dark"] .calendar-sync-state.warning { color: #ffd27a; }
+    .plan-item-sync-row {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 4px;
+      flex-wrap: wrap;
+      min-height: 12px;
+    }
+    .plan-item-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 6px;
+      min-width: 0;
+    }
+    .plan-item-upper .plan-item-bottom {
+      justify-content: flex-end;
+      max-width: 76px;
+      overflow: hidden;
+    }
+    .plan-item-location-wrap {
+      display: flex;
+      align-items: flex-start;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .plan-item-add {
+      width: 100%;
+      min-height: 26px;
+      padding: 4px 7px;
+      border: 1px dashed rgba(49,102,173,0.16);
+      background: rgba(var(--surface-rgb), 0.24);
+      color: var(--primary-deep);
+      border-radius: 9px;
+      box-shadow: none;
+      opacity: 0.78;
+    }
+    .plan-day-editor:hover .plan-item-add,
+    .plan-item-add:focus-visible {
+      opacity: 1;
+      background: rgba(var(--surface-rgb), 0.38);
+    }
+    .plan-item-create-form {
+      display: grid;
+      gap: 7px;
+      padding: 8px;
+      border: 1px solid rgba(42,111,214,0.16);
+      border-radius: 12px;
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-card-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-card-soft-alpha)));
+      box-shadow: 0 7px 16px rgba(38,86,150,0.05), inset 0 1px 0 rgba(255,255,255,0.3);
+    }
+    .plan-item-create-form label {
+      display: grid;
+      gap: 4px;
+      color: var(--text-soft);
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .plan-item-create-input {
+      width: 100%;
+      min-width: 0;
+      padding: 6px 7px;
+      font-size: 12px;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+    .plan-item-create-time-row .plan-item-create-input {
+      height: 22px;
+      min-height: 22px;
+      padding: 1px 6px;
+      border-radius: 7px;
+      font-size: 11px;
+      line-height: 1;
+    }
+    .plan-item-create-title {
+      min-height: 52px;
+      resize: vertical;
+    }
+    .plan-item-create-time-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 5px;
+    }
+    .plan-item-create-error {
+      min-height: 16px;
+      color: var(--danger);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .plan-item-create-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px;
+    }
+    .plan-item-create-actions button {
+      min-height: 28px;
+      padding: 5px 7px;
+      font-size: 11px;
+    }
+    .plan-day-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 7px 8px;
+      border: 1px dashed rgba(49,102,173,0.1);
       border-radius: 10px;
-      font-size: 15px;
+      background: rgba(var(--surface-soft-rgb), var(--department-plan-empty-alpha));
+      color: var(--text-soft);
+      font-size: 11px;
+      opacity: 0.72;
+    }
+    .plan-day-input {
+      min-height: 44px;
+      padding: 7px 8px;
+      border-radius: 10px;
+      font-size: 13px;
       line-height: 1.5;
       height: auto;
       resize: none;
       overflow: hidden;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+    .plan-item-time.plan-day-input {
+      width: 100%;
+      height: 15px;
+      min-height: 15px;
+      padding: 0 2px;
+      border-radius: 4px;
+      font-size: 10px;
+      line-height: 1;
+    }
+    .plan-item-location.plan-day-input {
+      height: 22px;
+      min-height: 22px;
+      padding: 2px 7px;
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.25;
     }
     .pending-cell { min-width: 220px; }
     .pending-cell-content { display: grid; gap: 10px; }
     .pending-input {
-      min-height: 132px;
-      font-size: 15px;
+      min-height: 118px;
+      padding: 9px 10px;
+      border-radius: 12px;
+      background: rgba(var(--surface-rgb), 0.34);
+      border-color: rgba(49,102,173,0.1);
+      box-shadow: none;
+      font-size: 13px;
       line-height: 1.6;
       height: auto;
       resize: none;
       overflow: hidden;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+    .plan-layout.is-horizontal-scrolling .plan-table td,
+    .plan-layout.is-horizontal-scrolling .plan-member-row,
+    .plan-layout.is-horizontal-scrolling .plan-day-field {
+      box-shadow: none;
+    }
+    .plan-layout.is-horizontal-scrolling .plan-member-row {
+      transition: none;
     }
     .schedule-log-overlay[hidden] { display: none; }
     .schedule-log-overlay {
@@ -1475,14 +1959,19 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .toolbar-card,
     body[data-theme="dark"] .section-card,
     body[data-theme="dark"] .state-card,
-    body[data-theme="dark"] .plan-layout,
     body[data-theme="dark"] .daily-table-wrap,
     body[data-theme="dark"] .empty-card,
-    body[data-theme="dark"] .log-item,
-    body[data-theme="dark"] .plan-day-field {
+    body[data-theme="dark"] .log-item {
       border-color: rgba(255,255,255,0.08);
       background:
         linear-gradient(180deg, rgba(48, 69, 101, 0.54), rgba(30, 46, 71, 0.3)),
+        linear-gradient(135deg, rgba(125, 183, 255, 0.05), transparent 74%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 28px rgba(4, 10, 22, 0.12);
+    }
+    body[data-theme="dark"] .plan-layout {
+      border-color: rgba(255,255,255,0.08);
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-shell-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-shell-soft-alpha))),
         linear-gradient(135deg, rgba(125, 183, 255, 0.05), transparent 74%);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 28px rgba(4, 10, 22, 0.12);
     }
@@ -1587,10 +2076,10 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
       border-color: rgba(255,255,255,0.08);
     }
     body[data-theme="dark"] .plan-member-row {
-      background: rgba(var(--table-cell-rgb), var(--shell-surface-strong-alpha));
+      background: rgba(var(--table-cell-rgb), var(--department-plan-cell-alpha));
     }
     body[data-theme="dark"] .plan-member-row:hover {
-      background: rgba(54, 77, 112, 0.78);
+      background: rgba(var(--table-head-rgb), var(--department-plan-cell-hover-alpha));
     }
     body[data-theme="dark"] .member-drag-grip {
       color: var(--muted);
@@ -1599,12 +2088,93 @@ DEPARTMENT_SCHEDULE_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .plan-days-head > div,
     body[data-theme="dark"] .daily-week-table th,
     body[data-theme="dark"] .plan-table thead .member-cell {
-      background: rgba(54, 77, 112, 0.92);
+      background: rgba(var(--table-head-rgb), var(--department-plan-head-alpha));
+    }
+    body[data-theme="dark"] .plan-day-head-date {
+      background: rgba(125, 183, 255, var(--department-plan-date-alpha));
+      color: #fff;
+      border-color: rgba(225, 235, 248, 0.18);
+    }
+    body[data-theme="dark"] .plan-day-head.weekend {
+      background:
+        linear-gradient(180deg, rgba(196, 126, 38, var(--department-plan-weekend-alpha)), rgba(128, 82, 28, var(--department-plan-weekend-soft-alpha))),
+        rgba(var(--surface-rgb), var(--department-plan-head-alpha));
+    }
+    body[data-theme="dark"] .plan-day-head.weekend .plan-day-head-name {
+      color: #fff7df;
+    }
+    body[data-theme="dark"] .plan-day-head.weekend .plan-day-head-sub {
+      color: rgba(255, 247, 223, 0.9);
+    }
+    body[data-theme="dark"] .plan-day-field {
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-card-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-card-soft-alpha))),
+        linear-gradient(135deg, rgba(125,183,255,0.12), rgba(125,183,255,0.02));
+      border-color: rgba(159, 191, 236, 0.18);
+      box-shadow: 0 14px 28px rgba(4, 10, 22, 0.22), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    body[data-theme="dark"] .plan-day-field.is-legacy {
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-control-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-control-soft-alpha))),
+        linear-gradient(135deg, rgba(159, 191, 236, 0.08), rgba(159, 191, 236, 0.02));
+    }
+    body[data-theme="dark"] .plan-item-accent {
+      background: linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.28));
+    }
+    body[data-theme="dark"] .plan-item-time-row {
+      border-top-color: rgba(159, 191, 236, 0.14);
+    }
+    body[data-theme="dark"] .plan-item-meta-divider {
+      background: rgba(255, 255, 255, 0.42);
+    }
+    body[data-theme="dark"] .plan-item-time {
+      background: rgba(var(--surface-soft-rgb), var(--department-plan-control-soft-alpha));
+      color: #f8fbff;
+      -webkit-text-fill-color: #f8fbff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    body[data-theme="dark"] .member-plan-pill,
+    body[data-theme="dark"] .plan-day-empty,
+    body[data-theme="dark"] .plan-item-title,
+    body[data-theme="dark"] .plan-item-location,
+    body[data-theme="dark"] .pending-input {
+      background: rgba(var(--surface-soft-rgb), var(--department-plan-control-soft-alpha));
+      border-color: rgba(159, 191, 236, 0.14);
+      color: #f8fbff;
+      -webkit-text-fill-color: #f8fbff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    body[data-theme="dark"] .plan-day-field,
+    body[data-theme="dark"] .plan-day-field input,
+    body[data-theme="dark"] .plan-day-field textarea,
+    body[data-theme="dark"] .plan-day-label,
+    body[data-theme="dark"] .plan-item-time-separator,
+    body[data-theme="dark"] .calendar-sync-inline {
+      color: #f8fbff;
+    }
+    body[data-theme="dark"] .plan-day-field input::placeholder,
+    body[data-theme="dark"] .plan-day-field textarea::placeholder {
+      color: rgba(225, 235, 248, 0.66);
+      -webkit-text-fill-color: rgba(225, 235, 248, 0.66);
+    }
+    body[data-theme="dark"] .plan-item-create-form {
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-card-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-card-soft-alpha)));
+      border-color: rgba(159, 191, 236, 0.18);
+    }
+    body[data-theme="dark"] .plan-item-create-form label,
+    body[data-theme="dark"] .plan-item-create-input {
+      color: #f8fbff;
+      -webkit-text-fill-color: #f8fbff;
+    }
+    body[data-theme="dark"] .plan-item-create-input::placeholder {
+      color: rgba(225, 235, 248, 0.66);
+      -webkit-text-fill-color: rgba(225, 235, 248, 0.66);
     }
     body[data-theme="dark"] input,
     body[data-theme="dark"] select,
     body[data-theme="dark"] textarea {
-      background: linear-gradient(180deg, rgba(36, 53, 82, 0.76), rgba(25, 39, 61, 0.62));
+      background: linear-gradient(180deg, rgba(var(--surface-rgb), var(--department-plan-control-alpha)), rgba(var(--surface-soft-rgb), var(--department-plan-control-soft-alpha)));
       border-color: rgba(255,255,255,0.1);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
     }
@@ -1831,16 +2401,10 @@ __HELP_DOCS_CSS__
       };
       const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
       const readStoredThemePreference = () => {
-        try {
-          const value = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
-          return value === "dark" || value === "light" ? value : "";
-        } catch (error) {
-          return "";
-        }
+        return "light";
       };
       const getAutoTheme = (currentDate = new Date()) => {
-        const hour = currentDate.getHours();
-        return hour >= 6 && hour < 19 ? "light" : "dark";
+        return "light";
       };
       const buildBodyBackgroundImage = (theme, backgroundImage) => {
         const baseLayers = theme === "dark"
@@ -1916,10 +2480,16 @@ __HELP_DOCS_CSS__
       };
       return function applyShellVisualSettings(settings) {
         const normalized = normalizeUiSettings(settings);
-        const theme = readStoredThemePreference() || getAutoTheme();
+        const theme = "light";
         document.body.dataset.theme = theme;
         const root = document.documentElement;
         const backgroundLayerStyle = buildBackgroundLayerStyle(normalized.background_image, normalized.background_mode);
+        const shellOpacity = Math.max(0.3, Math.min(0.96, normalized.region_opacity - 0.02));
+        const cellOpacity = Math.max(0.24, Math.min(0.82, normalized.region_opacity - 0.16));
+        const cardOpacity = Math.max(0.2, Math.min(0.78, normalized.region_opacity * 0.68));
+        const controlOpacity = Math.max(0.14, Math.min(0.72, normalized.region_opacity * 0.54));
+        const headOpacity = Math.max(0.24, Math.min(0.82, normalized.region_opacity - 0.18));
+        const weekendOpacity = Math.max(0.26, Math.min(0.72, normalized.region_opacity * 0.62));
         root.style.setProperty("--boot-page-background-color", theme === "dark" ? "#101a29" : "#e2edfb");
         root.style.setProperty("--boot-viewport-background", buildViewportFallback(theme));
         root.style.setProperty("--boot-page-background-image", buildBodyBackgroundImage(theme, normalized.background_image));
@@ -1944,6 +2514,19 @@ __HELP_DOCS_CSS__
           "--shell-surface-subtle-alpha",
           String(Math.max(0.12, Math.min(0.86, normalized.region_opacity - 0.2)))
         );
+        root.style.setProperty("--department-plan-shell-alpha", String(shellOpacity));
+        root.style.setProperty("--department-plan-shell-soft-alpha", String(Math.max(0.18, shellOpacity - 0.12)));
+        root.style.setProperty("--department-plan-head-alpha", String(headOpacity));
+        root.style.setProperty("--department-plan-cell-alpha", String(cellOpacity));
+        root.style.setProperty("--department-plan-cell-hover-alpha", String(Math.min(0.9, cellOpacity + 0.08)));
+        root.style.setProperty("--department-plan-card-alpha", String(cardOpacity));
+        root.style.setProperty("--department-plan-card-soft-alpha", String(Math.max(0.12, cardOpacity - 0.16)));
+        root.style.setProperty("--department-plan-control-alpha", String(controlOpacity));
+        root.style.setProperty("--department-plan-control-soft-alpha", String(Math.max(0.1, controlOpacity - 0.14)));
+        root.style.setProperty("--department-plan-empty-alpha", String(Math.max(0.08, controlOpacity - 0.2)));
+        root.style.setProperty("--department-plan-date-alpha", String(Math.max(0.34, Math.min(0.76, normalized.region_opacity * 0.56))));
+        root.style.setProperty("--department-plan-weekend-alpha", String(weekendOpacity));
+        root.style.setProperty("--department-plan-weekend-soft-alpha", String(Math.max(0.18, weekendOpacity - 0.16)));
         return normalized;
       };
     })();
@@ -1957,7 +2540,6 @@ __HELP_DOCS_CSS__
       <button type="button" class="theme-toggle tiny-btn" id="password-button" hidden>修改密码</button>
       <button type="button" class="theme-toggle tiny-btn" id="back-user-page">用户页面</button>
       <button type="button" class="theme-toggle tiny-btn" id="back-admin-page" hidden>管理后台</button>
-      <button type="button" class="theme-toggle tiny-btn" id="theme-toggle">黑夜模式</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="background-settings-button" aria-expanded="false" aria-controls="background-settings-menu">背景设置</button>
       <button type="button" class="theme-toggle tiny-btn" id="help-docs-button">帮助文档</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="edit-log-button" hidden>编辑日志</button>
@@ -2009,6 +2591,7 @@ __HELP_DOCS_CSS__
         <div class="toolbar-actions">
           <button type="button" class="secondary" id="prev-week-button">上周</button>
           <button type="button" class="secondary" id="next-week-button">下周</button>
+          <button type="button" class="secondary" id="sync-dingtalk-calendar-button">同步钉钉</button>
           <button type="button" id="reload-schedule-button">刷新</button>
         </div>
       </div>
@@ -2252,7 +2835,9 @@ __HELP_DOCS_OVERLAY__
     const toolbarSummaryEl = document.getElementById("toolbar-summary");
     const planWeekMetaEl = document.getElementById("plan-week-meta");
     const editLogButton = document.getElementById("edit-log-button");
+    const syncDingtalkCalendarButton = document.getElementById("sync-dingtalk-calendar-button");
     const departmentPlanHeaderScrollEl = document.getElementById("department-plan-header-scroll");
+    const departmentPlanHeaderEl = document.getElementById("department-plan-header");
     const departmentPlanTableScrollEl = document.getElementById("department-plan-table-scroll");
     const departmentPlanMembersEl = document.getElementById("department-plan-members");
     const departmentPlanBody = document.getElementById("department-plan-body");
@@ -2273,7 +2858,6 @@ __HELP_DOCS_OVERLAY__
     const logoutPageButton = document.getElementById("logout-page");
     const passwordButton = document.getElementById("password-button");
     const helpDocsButton = document.getElementById("help-docs-button");
-    const themeToggleButton = document.getElementById("theme-toggle");
     const backgroundSettingsButton = document.getElementById("background-settings-button");
     const backgroundSettingsMenu = document.getElementById("background-settings-menu");
     const backgroundImageInput = document.getElementById("background-image-input");
@@ -2330,6 +2914,8 @@ __HELP_DOCS_OVERLAY__
     const weeklyStatsFilterPositionOptionsEl = document.getElementById("weekly-stats-filter-position-options");
     const weeklyStatsFilterUserOptionsEl = document.getElementById("weekly-stats-filter-user-options");
     const PLAN_AUTO_SAVE_DELAY_MS = 1000;
+    const DEPARTMENT_WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+    const WEEKLY_PLAN_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
     const VISUAL_SETTINGS_AUTOSAVE_DELAY_MS = 260;
     const MAX_BACKGROUND_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
     const DEFAULT_STORAGE_SCOPE_TOKEN = "default";
@@ -2361,6 +2947,7 @@ __HELP_DOCS_OVERLAY__
     let activeHelpSectionKey = "";
     let isEditLogOverlayOpen = false;
     let latestEditLogPayload = null;
+    let isCalendarSyncing = false;
     let isScheduleFilterOverlayOpen = false;
     let requestedScheduleFilterState = null;
     let scheduleFilterDraftState = { departments: [], positions: [], users: [] };
@@ -2386,6 +2973,7 @@ __HELP_DOCS_OVERLAY__
     const planAutoSaveTimers = new Map();
     const planSaveInFlightUsers = new Set();
     const planConflictUsers = new Set();
+    const planCreateFormKeys = new Set();
     const memberOrderDragState = {
       pointerId: null,
       userId: "",
@@ -2925,27 +3513,17 @@ __HELP_DOCS_OVERLAY__
       }
     }
     function readStoredThemePreference() {
-      try {
-        const value = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
-        return value === "dark" || value === "light" ? value : "";
-      } catch (error) {
-        return "";
-      }
+      return "light";
     }
     function writeStoredThemePreference(theme) {
       try {
-        if (theme === "dark" || theme === "light") {
-          window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, theme);
-        } else {
-          window.localStorage.removeItem(THEME_PREFERENCE_STORAGE_KEY);
-        }
+        window.localStorage.removeItem(THEME_PREFERENCE_STORAGE_KEY);
       } catch (error) {
         // Ignore storage failures.
       }
     }
     function getAutoTheme(currentDate = new Date()) {
-      const hour = currentDate.getHours();
-      return hour >= AUTO_THEME_DAY_START_HOUR && hour < AUTO_THEME_NIGHT_START_HOUR ? "light" : "dark";
+      return "light";
     }
     function getNextAutoThemeSwitchDelay(currentDate = new Date()) {
       const nextSwitch = new Date(currentDate);
@@ -2961,13 +3539,6 @@ __HELP_DOCS_OVERLAY__
     }
     function scheduleAutoThemeRefresh() {
       window.clearTimeout(scheduleAutoThemeRefresh.timerId);
-      if (readStoredThemePreference()) {
-        return;
-      }
-      scheduleAutoThemeRefresh.timerId = window.setTimeout(() => {
-        applyVisualSettings(currentUiSettings);
-        scheduleAutoThemeRefresh();
-      }, getNextAutoThemeSwitchDelay());
     }
     function setBackgroundSettingsOpen(isOpen) {
       isBackgroundSettingsOpen = Boolean(isOpen);
@@ -3002,9 +3573,7 @@ __HELP_DOCS_OVERLAY__
         window.__bootUiSettings = window.__applyShellVisualSettings(currentUiSettings);
         currentUiSettings = normalizeUiSettings(window.__bootUiSettings);
       }
-      const theme = document.body.dataset.theme === "dark" ? "dark" : "light";
-      themeToggleButton.textContent = theme === "dark" ? "白天模式" : "黑夜模式";
-      themeToggleButton.setAttribute("aria-label", theme === "dark" ? "切换到白天模式" : "切换到黑夜模式");
+      document.body.dataset.theme = "light";
       regionOpacityInput.value = String(Math.round(currentUiSettings.region_opacity * 100));
       regionOpacityValue.textContent = formatOpacityPercent(currentUiSettings.region_opacity);
       backgroundImageName.textContent = describeBackgroundSetting(currentUiSettings.background_image);
@@ -3227,6 +3796,13 @@ __HELP_DOCS_OVERLAY__
       return text.slice(5).replace("-", "/");
     }
 
+    function formatDateValue(dateValue) {
+      const year = dateValue.getFullYear();
+      const month = `${dateValue.getMonth() + 1}`.padStart(2, "0");
+      const day = `${dateValue.getDate()}`.padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
     function shiftDateByDays(value, days) {
       const source = String(value || "").trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(source)) {
@@ -3234,14 +3810,91 @@ __HELP_DOCS_OVERLAY__
       }
       const current = new Date(`${source}T00:00:00`);
       current.setDate(current.getDate() + days);
-      const year = current.getFullYear();
-      const month = `${current.getMonth() + 1}`.padStart(2, "0");
-      const day = `${current.getDate()}`.padStart(2, "0");
-      return `${year}-${month}-${day}`;
+      return formatDateValue(current);
     }
 
     function renderChip(text) {
       return `<span class="chip">${escapeHtml(text)}</span>`;
+    }
+
+    function normalizeCalendarSyncState(sync) {
+      const source = sync && typeof sync === "object" ? sync : {};
+      return {
+        status: String(source.status || "local_only").trim() || "local_only",
+        label: String(source.label || "本地").trim() || "本地",
+        tone: String(source.tone || "neutral").trim() || "neutral",
+        hint: String(source.hint || "").trim(),
+        event_id: String(source.event_id || "").trim(),
+        last_error: String(source.last_error || "").trim(),
+        calendar_name: String(source.calendar_name || "").trim(),
+        sync_mode: String(source.sync_mode || "").trim(),
+        total_items: Number(source.total_items || 0),
+        enabled: Boolean(source.enabled),
+        counts: source.counts && typeof source.counts === "object" ? source.counts : {},
+      };
+    }
+
+    function getCalendarSyncToneClass(state) {
+      const tone = String((state && state.tone) || "").trim();
+      if (["success", "pending", "warning", "danger", "muted", "neutral"].includes(tone)) {
+        return tone;
+      }
+      const status = String((state && state.status) || "").trim();
+      if (status === "synced") {
+        return "success";
+      }
+      if (status === "pending" || status === "syncing") {
+        return "pending";
+      }
+      if (["remote_changed", "remote_deleted", "remote_cancelled"].includes(status)) {
+        return "warning";
+      }
+      if (status === "failed" || status === "conflict") {
+        return "danger";
+      }
+      if (status === "missing" || status === "idle" || status === "deleted") {
+        return "muted";
+      }
+      return "neutral";
+    }
+
+    function renderCalendarSyncBadge(sync) {
+      const state = normalizeCalendarSyncState(sync);
+      const titleParts = [state.hint];
+      if (state.calendar_name) {
+        titleParts.push(`日历：${state.calendar_name}`);
+      }
+      if (state.event_id) {
+        titleParts.push(`eventId：${state.event_id}`);
+      }
+      return `<span class="calendar-sync-inline" title="${escapeHtml(titleParts.filter(Boolean).join(" · "))}">钉钉 · 同步状态：<span class="calendar-sync-state ${getCalendarSyncToneClass(state)}">${escapeHtml(state.label)}</span></span>`;
+    }
+
+    function renderPlanItemSyncMeta(item) {
+      const sync = item && typeof item === "object" ? item.calendar_sync : null;
+      return `<div class="plan-item-sync-row">${renderCalendarSyncBadge(sync)}</div>`;
+    }
+
+    function getCalendarSyncSummaryChips(payload) {
+      const summary = normalizeCalendarSyncState(payload && payload.calendar_sync_summary);
+      const counts = summary.counts || {};
+      if (!payload || !summary.enabled) {
+        return ["钉钉同步 未配置"];
+      }
+      const chips = [
+        `钉钉同步 ${summary.label}`,
+        `已配置 ${payload.calendar_sync_summary.enabled_member_count || 0}/${payload.calendar_sync_summary.member_count || 0} 人`,
+      ];
+      if (summary.total_items) {
+        chips.push(`日程 ${summary.total_items} 条`);
+      }
+      if (Number(counts.pending || 0) || Number(counts.syncing || 0)) {
+        chips.push(`待处理 ${Number(counts.pending || 0) + Number(counts.syncing || 0)} 人`);
+      }
+      if (Number(counts.failed || 0) || Number(counts.conflict || 0)) {
+        chips.push(`异常 ${Number(counts.failed || 0) + Number(counts.conflict || 0)} 人`);
+      }
+      return chips;
     }
 
     function normalizeSelectionValues(values, options = []) {
@@ -3643,6 +4296,25 @@ __HELP_DOCS_OVERLAY__
         queryState.selectedUsers.forEach((userId) => params.append('stats_users', userId));
       }
       return queryState;
+    }
+
+    function buildCurrentScheduleSyncPayload() {
+      const queryState = buildCurrentScheduleFilterQueryState(latestPayload);
+      return {
+        date: String(dateInput.value || "__INITIAL_DATE__").trim() || "__INITIAL_DATE__",
+        department: queryState.departmentParam || "",
+        departments: queryState.selectedDepartmentsExplicitEmpty ? ["__none__"] : queryState.selectedDepartments,
+        positions: queryState.selectedPositionsExplicitEmpty ? ["__none__"] : queryState.selectedPositions,
+        users: queryState.selectedUsersExplicitEmpty ? ["__none__"] : queryState.selectedUsers,
+      };
+    }
+
+    function syncDingtalkCalendarButtonState() {
+      if (!syncDingtalkCalendarButton) {
+        return;
+      }
+      syncDingtalkCalendarButton.disabled = isCalendarSyncing || planAutoSaveTimers.size > 0 || planSaveInFlightUsers.size > 0;
+      syncDingtalkCalendarButton.textContent = isCalendarSyncing ? "同步中..." : "同步钉钉";
     }
 
     function getScheduleFilterTriggerButtons() {
@@ -4429,6 +5101,24 @@ __HELP_DOCS_OVERLAY__
       return Boolean(latestPayload && latestPayload.can_edit_weekly_plan !== false);
     }
 
+    function getCurrentViewerUserId() {
+      return String(latestPayload && latestPayload.viewer && latestPayload.viewer.user_id || '').trim();
+    }
+
+    function isDingtalkImportedPlanItem(item) {
+      return String(item && item.source || '').trim() === 'dingtalk_calendar';
+    }
+
+    function isEditingAnotherUserSchedule(userId) {
+      const viewerUserId = getCurrentViewerUserId();
+      const targetUserId = String(userId || '').trim();
+      return Boolean(viewerUserId && targetUserId && viewerUserId !== targetUserId);
+    }
+
+    function isProtectedCrossUserDingtalkItem(userId, item) {
+      return isEditingAnotherUserSchedule(userId) && isDingtalkImportedPlanItem(item);
+    }
+
     function canViewDailySection() {
       return Boolean(latestPayload && latestPayload.show_daily_section);
     }
@@ -4510,15 +5200,49 @@ __HELP_DOCS_OVERLAY__
       planAutoSaveTimers.clear();
     }
 
-    let syncingDepartmentPlanHorizontalScroll = false;
-    function syncDepartmentPlanHorizontalScroll(sourceEl, targetEl) {
-      if (!sourceEl || !targetEl || syncingDepartmentPlanHorizontalScroll) {
+    let departmentPlanHorizontalScrollFrameId = 0;
+    let departmentPlanHorizontalScrollSourceEl = null;
+    let departmentPlanHorizontalScrollTargetEl = null;
+    let departmentPlanHorizontalScrollIdleTimerId = 0;
+    function markDepartmentPlanHorizontalScrolling() {
+      const planLayoutEl = departmentPlanTableScrollEl
+        ? departmentPlanTableScrollEl.closest('.plan-layout')
+        : null;
+      if (!planLayoutEl) {
         return;
       }
-      syncingDepartmentPlanHorizontalScroll = true;
-      targetEl.scrollLeft = sourceEl.scrollLeft;
-      window.requestAnimationFrame(() => {
-        syncingDepartmentPlanHorizontalScroll = false;
+      planLayoutEl.classList.add('is-horizontal-scrolling');
+      if (departmentPlanHorizontalScrollIdleTimerId) {
+        window.clearTimeout(departmentPlanHorizontalScrollIdleTimerId);
+      }
+      departmentPlanHorizontalScrollIdleTimerId = window.setTimeout(() => {
+        departmentPlanHorizontalScrollIdleTimerId = 0;
+        planLayoutEl.classList.remove('is-horizontal-scrolling');
+      }, 140);
+    }
+    function syncDepartmentPlanHorizontalScroll(sourceEl, targetEl) {
+      if (!sourceEl || !targetEl) {
+        return;
+      }
+      markDepartmentPlanHorizontalScrolling();
+      departmentPlanHorizontalScrollSourceEl = sourceEl;
+      departmentPlanHorizontalScrollTargetEl = targetEl;
+      if (departmentPlanHorizontalScrollFrameId) {
+        return;
+      }
+      departmentPlanHorizontalScrollFrameId = window.requestAnimationFrame(() => {
+        const pendingSourceEl = departmentPlanHorizontalScrollSourceEl;
+        const pendingTargetEl = departmentPlanHorizontalScrollTargetEl;
+        departmentPlanHorizontalScrollSourceEl = null;
+        departmentPlanHorizontalScrollTargetEl = null;
+        departmentPlanHorizontalScrollFrameId = 0;
+        if (!pendingSourceEl || !pendingTargetEl) {
+          return;
+        }
+        const nextScrollLeft = pendingSourceEl.scrollLeft;
+        if (Math.abs(pendingTargetEl.scrollLeft - nextScrollLeft) > 0.5) {
+          pendingTargetEl.scrollLeft = nextScrollLeft;
+        }
       });
     }
 
@@ -4628,12 +5352,21 @@ __HELP_DOCS_OVERLAY__
       memberRows.forEach((row) => {
         row.style.height = 'auto';
       });
+      tableRows.forEach((row) => {
+        row.style.height = 'auto';
+      });
       memberRows.forEach((row, index) => {
         const tableRow = tableRows[index];
         if (!tableRow) {
           return;
         }
-        row.style.height = `${Math.ceil(tableRow.getBoundingClientRect().height)}px`;
+        const rowHeight = Math.ceil(Math.max(
+          row.getBoundingClientRect().height,
+          tableRow.getBoundingClientRect().height
+        ));
+        const normalizedHeight = `${rowHeight}px`;
+        row.style.height = normalizedHeight;
+        tableRow.style.height = normalizedHeight;
       });
       restoreDepartmentPlanScrollState(scrollState);
     }
@@ -4645,7 +5378,7 @@ __HELP_DOCS_OVERLAY__
         if (!rowPayload) {
           return;
         }
-        member.weekly_plan_rows = Array.isArray(rowPayload.weekly_plan_rows) ? rowPayload.weekly_plan_rows : [];
+        member.weekly_plan_items = Array.isArray(rowPayload.weekly_plan_items) ? rowPayload.weekly_plan_items : [];
         member.weekly_other_pending = String(rowPayload.weekly_other_pending || "");
       });
     }
@@ -4858,6 +5591,7 @@ __HELP_DOCS_OVERLAY__
         chips.push(`本周工时 ${summary.total_hours || "0"}h`);
         chips.push(`事项 ${summary.total_items || 0} 条`);
       }
+      chips.push(...getCalendarSyncSummaryChips(payload));
       toolbarSummaryEl.innerHTML = chips.map(renderChip).join("");
       const planMetaChips = [
         `当前部门展示 ${payload && payload.selected_department_label || "全部部门"}`,
@@ -4882,6 +5616,7 @@ __HELP_DOCS_OVERLAY__
       if (isScheduleFilterOverlayOpen) {
         scheduleScheduleFilterOverlayPosition();
       }
+      syncDingtalkCalendarButtonState();
     }
 
     function formatWeeklyStatsHours(value) {
@@ -5150,19 +5885,360 @@ __HELP_DOCS_OVERLAY__
       return latestUpdatedAt;
     }
 
-    function renderPlanDayEditor(userId, dayRow, index) {
-      const row = dayRow && typeof dayRow === "object" ? dayRow : {};
-      const disabledAttr = canEditDepartmentWeeklyPlan() ? '' : ' disabled';
+    function getPlanItemSyncStatus(item) {
+      return String((item && item.calendar_sync && item.calendar_sync.status) || "").trim();
+    }
+
+    function buildMemberPlanStats(member) {
+      const items = getMemberWeeklyPlanItems(member).filter((item) => String(item && item.title || "").trim());
+      const daySet = new Set(items.map((item) => String(item.work_date || "").trim()).filter(Boolean));
+      const pendingText = String(member && member.weekly_other_pending || "").trim();
+      const pendingSyncCount = items.filter((item) => {
+        const status = getPlanItemSyncStatus(item);
+        return status === "pending" || status === "syncing" || status === "local_only";
+      }).length;
+      const problemSyncCount = items.filter((item) => {
+        const status = getPlanItemSyncStatus(item);
+        return status === "failed" || status === "conflict";
+      }).length;
+      return {
+        itemCount: items.length,
+        dayCount: daySet.size,
+        hasPendingText: Boolean(pendingText),
+        pendingSyncCount,
+        problemSyncCount,
+      };
+    }
+
+    function renderMemberPlanSummary(member) {
+      const stats = buildMemberPlanStats(member);
+      const pills = [
+        `<span class="member-plan-pill">${escapeHtml(String(stats.itemCount))} 项</span>`,
+        `<span class="member-plan-pill">${escapeHtml(String(stats.dayCount))} 天</span>`,
+      ];
+      if (stats.hasPendingText) {
+        pills.push('<span class="member-plan-pill warning">有待办</span>');
+      }
+      if (stats.pendingSyncCount) {
+        pills.push(`<span class="member-plan-pill warning">待同步 ${escapeHtml(String(stats.pendingSyncCount))}</span>`);
+      }
+      if (stats.problemSyncCount) {
+        pills.push(`<span class="member-plan-pill danger">异常 ${escapeHtml(String(stats.problemSyncCount))}</span>`);
+      }
+      if (!stats.itemCount && !stats.hasPendingText) {
+        pills.push('<span class="member-plan-pill">本周空闲</span>');
+      }
+      return `<div class="member-plan-summary">${pills.join("")}</div>`;
+    }
+
+    function renderDepartmentPlanHeader(payload) {
+      if (!departmentPlanHeaderEl) {
+        return;
+      }
+      const weekStart = String(payload && payload.week_start || "").trim();
+      const today = formatDateValue(new Date());
+      const dayHeaders = DEPARTMENT_WEEKDAY_LABELS.map((label, index) => {
+        const workDate = addDaysToDateString(weekStart, index);
+        const isWeekend = index >= 5;
+        const isToday = workDate === today;
+        const title = isToday ? "今天" : (isWeekend ? "周末" : "工作日");
+        const fullDateLabel = formatDateLabel(workDate);
+        const dayNumberLabel = fullDateLabel.includes("/")
+          ? String(Number(fullDateLabel.split("/")[1]))
+          : fullDateLabel;
+        return `
+          <div class="plan-day-head${isWeekend ? " weekend" : ""}${isToday ? " today" : ""}">
+            <div class="plan-day-head-main">
+              <span class="plan-day-head-name">${escapeHtml(label)}</span>
+              <span class="plan-day-head-date" title="${escapeHtml(fullDateLabel)}" aria-label="日期 ${escapeHtml(fullDateLabel)}">${escapeHtml(dayNumberLabel)}</span>
+            </div>
+            <div class="plan-day-head-sub">${escapeHtml(title)}</div>
+          </div>
+        `;
+      }).join("");
+      departmentPlanHeaderEl.innerHTML = `${dayHeaders}<div class="plan-pending-head"><span class="plan-day-head-name">其他待办</span><span class="plan-day-head-sub">跨天事项 / 临时补充</span></div>`;
+    }
+
+    function getMemberWeeklyPlanItems(member) {
+      const directItems = Array.isArray(member && member.weekly_plan_items) ? member.weekly_plan_items : null;
+      if (directItems) {
+        return directItems;
+      }
+      const rows = Array.isArray(member && member.weekly_plan_rows) ? member.weekly_plan_rows : [];
+      const weekStart = String(latestPayload && latestPayload.week_start || "").trim();
+      const fallback = [];
+      rows.forEach((row, dayIndex) => {
+        const source = row && typeof row === "object" ? row : {};
+        if (String(source.am || "").trim()) {
+          fallback.push({
+            id: `weekly_monday_am_${dayIndex}`,
+            work_date: addDaysToDateString(weekStart, dayIndex),
+            start_time: "09:00",
+            end_time: "12:00",
+            title: String(source.am || "").trim(),
+            location: "",
+            description: "",
+            legacy_slot_key: `weekly_${["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"][dayIndex]}_am`,
+            source: "legacy"
+          });
+        }
+        if (String(source.pm || "").trim()) {
+          fallback.push({
+            id: `weekly_monday_pm_${dayIndex}`,
+            work_date: addDaysToDateString(weekStart, dayIndex),
+            start_time: "13:30",
+            end_time: "18:00",
+            title: String(source.pm || "").trim(),
+            location: "",
+            description: "",
+            legacy_slot_key: `weekly_${["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"][dayIndex]}_pm`,
+            source: "legacy"
+          });
+        }
+      });
+      return fallback;
+    }
+
+    function addDaysToDateString(value, offset) {
+      const source = String(value || "").trim();
+      if (!source) {
+        return "";
+      }
+      const dateValue = new Date(`${source}T00:00:00`);
+      if (Number.isNaN(dateValue.getTime())) {
+        return "";
+      }
+      dateValue.setDate(dateValue.getDate() + Number(offset || 0));
+      return formatDateValue(dateValue);
+    }
+
+    function buildPlanCreateFormKey(userId, dayIndex) {
+      return `${String(userId || "").trim()}::${Number(dayIndex || 0)}`;
+    }
+
+    function sanitizeWeeklyPlanTimeInput(value) {
+      return String(value || '')
+        .trim()
+        .replace(/[０-９]/g, (character) => String(character.charCodeAt(0) - 0xfee0))
+        .replace(/[：；;]/g, ':')
+        .replace(/\s+/g, '');
+    }
+
+    function normalizeWeeklyPlanTimeInput(value) {
+      const source = sanitizeWeeklyPlanTimeInput(value);
+      if (!source) {
+        return '';
+      }
+      const hourOnlyMatch = source.match(/^(\d{1,2})$/);
+      if (hourOnlyMatch) {
+        const hour = Number(hourOnlyMatch[1]);
+        return hour >= 0 && hour <= 23 ? `${String(hour).padStart(2, '0')}:00` : source;
+      }
+      const timeMatch = source.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (!timeMatch) {
+        return source;
+      }
+      const hour = Number(timeMatch[1]);
+      const minute = Number(timeMatch[2]);
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return source;
+      }
+      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    }
+
+    function isWeeklyPlanTimeFieldName(fieldName) {
+      return fieldName === 'start_time' || fieldName === 'end_time';
+    }
+
+    function sanitizeWeeklyPlanTimeField(input) {
+      if (!(input instanceof HTMLInputElement)) {
+        return '';
+      }
+      const sanitized = sanitizeWeeklyPlanTimeInput(input.value);
+      if (sanitized !== String(input.value || '')) {
+        input.value = sanitized;
+      }
+      return sanitized;
+    }
+
+    function normalizeWeeklyPlanTimeField(input) {
+      if (!(input instanceof HTMLInputElement)) {
+        return '';
+      }
+      const normalized = normalizeWeeklyPlanTimeInput(input.value);
+      if (normalized !== String(input.value || '')) {
+        input.value = normalized;
+      }
+      return normalized;
+    }
+
+    function validateWeeklyPlanTimeRange(startTime, endTime, title = "", options = {}) {
+      const normalizedTitle = String(title || "").trim();
+      const normalizedStart = normalizeWeeklyPlanTimeInput(startTime);
+      const normalizedEnd = normalizeWeeklyPlanTimeInput(endTime);
+      const requireTitle = !options || options.requireTitle !== false;
+      if (requireTitle && !normalizedTitle) {
+        return "请填写日程安排。";
+      }
+      if (!WEEKLY_PLAN_TIME_PATTERN.test(normalizedStart)) {
+        return "开始时间必须是 HH:MM 格式，例如 09:00。";
+      }
+      if (!WEEKLY_PLAN_TIME_PATTERN.test(normalizedEnd)) {
+        return "结束时间必须是 HH:MM 格式，例如 18:00。";
+      }
+      if (normalizedStart >= normalizedEnd) {
+        return "结束时间必须晚于开始时间。";
+      }
+      return "";
+    }
+
+    function validateWeeklyPlanItemsForSave(items) {
+      const list = Array.isArray(items) ? items : [];
+      for (const item of list) {
+        const title = String(item && item.title || "").trim();
+        const legacy = Boolean(item && (item.legacy_slot_key || item.source === "legacy"));
+        if (!title && !legacy) {
+          continue;
+        }
+        const message = validateWeeklyPlanTimeRange(
+          item && item.start_time,
+          item && item.end_time,
+          title || "日程",
+          { requireTitle: false }
+        );
+        if (message) {
+          return title ? `日程“${title}”：${message}` : message;
+        }
+      }
+      return "";
+    }
+
+    function setPlanCreateFormError(form, message) {
+      if (!form) {
+        return;
+      }
+      const errorMessage = String(message || "").trim();
+      const errorEl = form.querySelector("[data-plan-create-error]");
+      if (errorEl) {
+        errorEl.textContent = errorMessage;
+      }
+      form.querySelectorAll("[data-plan-create-field]").forEach((input) => {
+        input.classList.remove("is-invalid");
+        input.removeAttribute("aria-invalid");
+      });
+      if (!errorMessage) {
+        return;
+      }
+      const fieldName = errorMessage.includes("开始时间")
+        ? "start_time"
+        : (errorMessage.includes("结束时间") ? "end_time" : "title");
+      const field = form.querySelector(`[data-plan-create-field="${fieldName}"]`);
+      if (field) {
+        field.classList.add("is-invalid");
+        field.setAttribute("aria-invalid", "true");
+      }
+    }
+
+    function readPlanCreateField(form, fieldName) {
+      const input = form ? form.querySelector(`[data-plan-create-field="${fieldName}"]`) : null;
+      if (isWeeklyPlanTimeFieldName(fieldName)) {
+        return normalizeWeeklyPlanTimeField(input);
+      }
+      return String(input && input.value || "").trim();
+    }
+
+    function getWeeklyPlanItemsForDay(member, index) {
+      const weekStart = String(latestPayload && latestPayload.week_start || "").trim();
+      const workDate = addDaysToDateString(weekStart, index);
+      return getMemberWeeklyPlanItems(member)
+        .filter((item) => String(item && item.work_date || "").trim() === workDate)
+        .sort((left, right) => String(left.start_time || "").localeCompare(String(right.start_time || "")));
+    }
+
+    function renderPlanItemCreateForm(userId, index) {
       return `
-        <div class="plan-day-editor">
-          <div class="plan-day-field">
-            <div class="plan-day-label">上午</div>
-            <textarea class="plan-day-input" data-user-id="${escapeHtml(userId)}" data-day-index="${index}" data-part="am" placeholder="上午安排"${disabledAttr}>${escapeHtml(row.am || "")}</textarea>
+        <form class="plan-item-create-form" data-plan-create-form data-user-id="${escapeHtml(userId)}" data-day-index="${index}">
+          <label>
+            <span>安排</span>
+            <textarea class="plan-item-create-input plan-item-create-title" data-plan-create-field="title" placeholder="填写日程安排" required></textarea>
+          </label>
+          <div class="plan-item-create-time-row">
+            <label>
+              <span>开始时间</span>
+              <input class="plan-item-create-input" type="text" data-plan-create-field="start_time" inputmode="numeric" maxlength="5" placeholder="09:00" required>
+            </label>
+            <label>
+              <span>结束时间</span>
+              <input class="plan-item-create-input" type="text" data-plan-create-field="end_time" inputmode="numeric" maxlength="5" placeholder="10:00" required>
+            </label>
           </div>
-          <div class="plan-day-field">
-            <div class="plan-day-label">下午</div>
-            <textarea class="plan-day-input" data-user-id="${escapeHtml(userId)}" data-day-index="${index}" data-part="pm" placeholder="下午安排"${disabledAttr}>${escapeHtml(row.pm || "")}</textarea>
+          <label>
+            <span>地点（可选）</span>
+            <input class="plan-item-create-input" type="text" data-plan-create-field="location" placeholder="填写地点">
+          </label>
+          <div class="plan-item-create-error" data-plan-create-error aria-live="polite"></div>
+          <div class="plan-item-create-actions">
+            <button type="button" class="secondary" data-action="cancel-plan-item" data-user-id="${escapeHtml(userId)}" data-day-index="${index}">取消</button>
+            <button type="submit" class="primary">新建</button>
           </div>
+        </form>
+      `;
+    }
+
+    function renderPlanDayEditor(userId, dayItems, index) {
+      const items = Array.isArray(dayItems) ? dayItems : [];
+      const disabledAttr = canEditDepartmentWeeklyPlan() ? '' : ' disabled';
+      const itemMarkup = items.length
+        ? items.map((item) => {
+            const itemId = String(item && item.id || "").trim();
+            const legacy = Boolean(item && (item.legacy_slot_key || item.source === "legacy"));
+            const protectedDingtalkItem = isProtectedCrossUserDingtalkItem(userId, item);
+            const itemDisabledAttr = protectedDingtalkItem ? " disabled" : disabledAttr;
+            const timeDisabledAttr = (legacy || protectedDingtalkItem) ? " disabled" : disabledAttr;
+            const deleteDisabledAttr = (disabledAttr || protectedDingtalkItem) ? " disabled" : "";
+            const deleteTitle = protectedDingtalkItem ? "他人的钉钉同步日程仅本人可删除" : "删除日程";
+            const legacyLabel = legacy
+              ? `<div class="plan-day-label">${String(item.legacy_slot_key || "").endsWith("_pm") ? "下午" : "上午"} · 旧数据</div>`
+              : "";
+            const protectedLabel = protectedDingtalkItem
+              ? '<div class="plan-day-label">钉钉同步 · 仅本人可改</div>'
+              : "";
+            return `
+              <div class="plan-day-field plan-item-editor${legacy ? " is-legacy" : ""}${protectedDingtalkItem ? " is-protected" : ""}" data-item-id="${escapeHtml(itemId)}" data-day-index="${index}" data-user-id="${escapeHtml(userId)}">
+                <div class="plan-item-accent"></div>
+                <div class="plan-item-content">
+                  <div class="plan-item-upper">
+                    <div class="plan-item-title-shell">
+                      ${renderPlanItemSyncMeta(item)}
+                      ${legacyLabel}
+                      ${protectedLabel}
+                      <textarea class="plan-day-input plan-item-title" data-user-id="${escapeHtml(userId)}" data-plan-field="title" placeholder="内容"${itemDisabledAttr}>${escapeHtml(item.title || "")}</textarea>
+                    </div>
+                  </div>
+                  <div class="plan-item-time-row">
+                    <div class="plan-item-time-stack">
+                      <input class="plan-item-time plan-day-input" type="text" data-user-id="${escapeHtml(userId)}" data-plan-field="start_time"${timeDisabledAttr} inputmode="numeric" maxlength="5" placeholder="09:00" value="${escapeHtml(item.start_time || "")}" aria-label="开始时间">
+                      <input class="plan-item-time plan-day-input" type="text" data-user-id="${escapeHtml(userId)}" data-plan-field="end_time"${timeDisabledAttr} inputmode="numeric" maxlength="5" placeholder="10:00" value="${escapeHtml(item.end_time || "")}" aria-label="结束时间">
+                    </div>
+                    <span class="plan-item-meta-divider" aria-hidden="true"></span>
+                    <div class="plan-item-location-wrap">
+                      <input class="plan-item-location plan-day-input" data-user-id="${escapeHtml(userId)}" data-plan-field="location" placeholder="地点"${itemDisabledAttr} value="${escapeHtml(item.location || "")}">
+                    </div>
+                    <button type="button" class="plan-item-delete danger" data-action="delete-plan-item"${deleteDisabledAttr} title="${escapeHtml(deleteTitle)}" aria-label="${escapeHtml(deleteTitle)}"><span aria-hidden="true">×</span></button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")
+        : '<div class="plan-day-empty">暂无安排</div>';
+      const createKey = buildPlanCreateFormKey(userId, index);
+      const createMarkup = planCreateFormKeys.has(createKey)
+        ? renderPlanItemCreateForm(userId, index)
+        : `<button type="button" class="plan-item-add secondary" data-action="add-plan-item" data-day-index="${index}" data-user-id="${escapeHtml(userId)}"${disabledAttr}>+ 新建日程</button>`;
+      return `
+        <div class="plan-day-editor" data-day-index="${index}">
+          ${itemMarkup}
+          ${createMarkup}
         </div>
       `;
     }
@@ -5170,6 +6246,7 @@ __HELP_DOCS_OVERLAY__
     function renderDepartmentPlanTable(payload) {
       const members = Array.isArray(payload && payload.members) ? payload.members : [];
       const canEdit = Boolean(payload && payload.can_edit_weekly_plan !== false);
+      renderDepartmentPlanHeader(payload);
       departmentPlanMembersEl.innerHTML = "";
       if (!members.length) {
         departmentPlanMembersEl.innerHTML = "";
@@ -5195,6 +6272,7 @@ __HELP_DOCS_OVERLAY__
             <div class="member-text-wrap">
               <div class="member-text" title="${escapeHtml(userMetaTitle)}">${escapeHtml(userDisplayName)}</div>
               ${userPositions ? `<div class="member-subtext">${escapeHtml(userPositions)}</div>` : ''}
+              ${renderMemberPlanSummary(member)}
             </div>
           </div>
         `;
@@ -5202,10 +6280,10 @@ __HELP_DOCS_OVERLAY__
       departmentPlanBody.innerHTML = members.map((member) => {
         const user = member.user || {};
         const userId = String(user.user_id || "").trim();
-        const weeklyRows = Array.isArray(member.weekly_plan_rows) ? member.weekly_plan_rows : [];
+        const weeklyRows = Array.from({ length: 7 }, (_, index) => getWeeklyPlanItemsForDay(member, index));
         return `
           <tr data-user-id="${escapeHtml(userId)}">
-            ${weeklyRows.map((row, index) => `<td class="plan-day-cell">${renderPlanDayEditor(userId, row, index)}</td>`).join("")}
+            ${weeklyRows.map((dayItems, index) => `<td class="plan-day-cell">${renderPlanDayEditor(userId, dayItems, index)}</td>`).join("")}
             <td class="pending-cell">
               <div class="pending-cell-content">
                 <textarea class="pending-input" data-user-id="${escapeHtml(userId)}" data-field="weekly_other_pending" placeholder="补充本周其他待办或跨天事项"${canEdit ? "" : " disabled"}>${escapeHtml(member.weekly_other_pending || "")}</textarea>
@@ -5214,9 +6292,6 @@ __HELP_DOCS_OVERLAY__
           </tr>
         `;
       }).join("");
-      departmentPlanBody.querySelectorAll('.plan-day-input').forEach((element) => {
-        element.disabled = !canEdit;
-      });
       observeDepartmentPlanResizeTargets();
       scheduleDepartmentPlanHeightSync();
     }
@@ -5334,17 +6409,43 @@ __HELP_DOCS_OVERLAY__
       if (!row) {
         return null;
       }
-      const weekly_plan_rows = Array.from({ length: 7 }, (_, index) => {
-        const amEl = row.querySelector(`[data-day-index="${index}"][data-part="am"]`);
-        const pmEl = row.querySelector(`[data-day-index="${index}"][data-part="pm"]`);
-        return {
-          am: String(amEl && amEl.value || '').trim(),
-          pm: String(pmEl && pmEl.value || '').trim(),
+      const member = getMemberByUserId(normalizedUserId);
+      const sourceItems = getMemberWeeklyPlanItems(member).map((item) => ({ ...item }));
+      const itemMap = new Map(sourceItems.map((item) => [String(item.id || '').trim(), item]));
+      row.querySelectorAll('.plan-item-editor[data-item-id]').forEach((editor) => {
+        const itemId = String(editor.getAttribute('data-item-id') || '').trim();
+        if (!itemId) {
+          return;
+        }
+        const item = itemMap.get(itemId) || {
+          id: itemId,
+          work_date: addDaysToDateString(
+            String(latestPayload && latestPayload.week_start || '').trim(),
+            Number(editor.dataset.dayIndex || 0)
+          ),
+          start_time: '',
+          end_time: '',
+          title: '',
+          description: '',
+          location: '',
+          sort_order: sourceItems.length,
+          legacy_slot_key: '',
+          source: 'new',
         };
+        editor.querySelectorAll('[data-plan-field]').forEach((input) => {
+          const fieldName = String(input.dataset.planField || '').trim();
+          item[fieldName] = isWeeklyPlanTimeFieldName(fieldName)
+            ? normalizeWeeklyPlanTimeInput(input.value)
+            : String(input.value || '').trim();
+        });
+        itemMap.set(itemId, item);
+      });
+      const weekly_plan_items = Array.from(itemMap.values()).filter((item) => {
+        return String(item.title || '').trim() || String(item.legacy_slot_key || '').trim();
       });
       const pendingEl = row.querySelector('[data-field="weekly_other_pending"]');
       return {
-        weekly_plan_rows,
+        weekly_plan_items,
         weekly_other_pending: String(pendingEl && pendingEl.value || '').trim(),
       };
     }
@@ -5361,18 +6462,10 @@ __HELP_DOCS_OVERLAY__
         window.clearTimeout(timerId);
         planAutoSaveTimers.delete(String(userId || '').trim());
       }
-      const weeklyRows = Array.isArray(member.weekly_plan_rows) ? member.weekly_plan_rows : [];
-      weeklyRows.forEach((dayRow, index) => {
-        const amEl = row.querySelector(`[data-day-index="${index}"][data-part="am"]`);
-        const pmEl = row.querySelector(`[data-day-index="${index}"][data-part="pm"]`);
-        if (amEl) {
-          amEl.value = String(dayRow && dayRow.am || '');
-        }
-        if (pmEl) {
-          pmEl.value = String(dayRow && dayRow.pm || '');
-        }
-      });
-      const pendingEl = row.querySelector('[data-field="weekly_other_pending"]');
+      member.weekly_plan_items = getMemberWeeklyPlanItems(member).map((item) => ({ ...item }));
+      renderDepartmentPlanTable(latestPayload);
+      const refreshedRow = findDepartmentPlanRow(userId);
+      const pendingEl = refreshedRow && refreshedRow.querySelector('[data-field="weekly_other_pending"]');
       if (pendingEl) {
         pendingEl.value = String(member.weekly_other_pending || '');
       }
@@ -5393,6 +6486,7 @@ __HELP_DOCS_OVERLAY__
       setPlanRowStatus(normalizedUserId, '已修改，1 秒后自动保存...');
       const timerId = window.setTimeout(() => {
         planAutoSaveTimers.delete(normalizedUserId);
+        syncDingtalkCalendarButtonState();
         if (planSaveInFlightUsers.has(normalizedUserId)) {
           scheduleMemberWeeklyPlanAutosave(normalizedUserId);
           return;
@@ -5400,6 +6494,7 @@ __HELP_DOCS_OVERLAY__
         saveMemberWeeklyPlan(normalizedUserId, { source: 'auto' });
       }, PLAN_AUTO_SAVE_DELAY_MS);
       planAutoSaveTimers.set(normalizedUserId, timerId);
+      syncDingtalkCalendarButtonState();
     }
 
     async function flushPendingPlanAutoSaves() {
@@ -5439,6 +6534,12 @@ __HELP_DOCS_OVERLAY__
         setPlanRowStatus(normalizedUserId, message, true);
         return;
       }
+      const validationMessage = validateWeeklyPlanItemsForSave(rowPayload.weekly_plan_items);
+      if (validationMessage) {
+        setStatus(validationMessage, true);
+        setPlanRowStatus(normalizedUserId, validationMessage, true);
+        return;
+      }
       if (planSaveInFlightUsers.has(normalizedUserId)) {
         if (source === 'auto') {
           scheduleMemberWeeklyPlanAutosave(normalizedUserId);
@@ -5450,7 +6551,9 @@ __HELP_DOCS_OVERLAY__
         window.clearTimeout(pendingTimer);
         planAutoSaveTimers.delete(normalizedUserId);
       }
+      syncDingtalkCalendarButtonState();
       planSaveInFlightUsers.add(normalizedUserId);
+      syncDingtalkCalendarButtonState();
       setPlanRowStatus(normalizedUserId, source === 'auto' ? '自动保存中...' : '正在保存...');
       try {
         const response = await fetch('/api/department-schedule/weekly-plan', {
@@ -5460,7 +6563,7 @@ __HELP_DOCS_OVERLAY__
             user_id: normalizedUserId,
             week_start: latestPayload.week_start,
             base_updated_at: String(member.weekly_plan_updated_at || ''),
-            weekly_plan_rows: rowPayload.weekly_plan_rows,
+            weekly_plan_items: rowPayload.weekly_plan_items,
             weekly_other_pending: rowPayload.weekly_other_pending,
           }),
         });
@@ -5484,7 +6587,10 @@ __HELP_DOCS_OVERLAY__
           }
           throw new Error(payload.error || '保存失败');
         }
-        member.weekly_plan_rows = Array.isArray(payload.weekly_plan_rows) ? payload.weekly_plan_rows : [];
+        member.weekly_plan_items = Array.isArray(payload.weekly_plan_items)
+          ? payload.weekly_plan_items
+          : member.weekly_plan_items || [];
+        member.weekly_plan_rows = Array.isArray(payload.weekly_plan_rows) ? payload.weekly_plan_rows : member.weekly_plan_rows || [];
         member.weekly_other_pending = String(payload.weekly_other_pending || '');
         member.weekly_plan_updated_at = String(payload.updated_at || '');
         planConflictUsers.delete(normalizedUserId);
@@ -5503,6 +6609,7 @@ __HELP_DOCS_OVERLAY__
         setPlanRowStatus(normalizedUserId, error.message || '保存失败，请稍后重试。', true);
       } finally {
         planSaveInFlightUsers.delete(normalizedUserId);
+        syncDingtalkCalendarButtonState();
       }
     }
 
@@ -5510,6 +6617,7 @@ __HELP_DOCS_OVERLAY__
       applyStoredMemberOrder(payload);
       latestPayload = payload;
       planConflictUsers.clear();
+      planCreateFormKeys.clear();
       requestedScheduleFilterState = {
         departments: getSelectedDepartmentFilters(payload),
         positions: getSelectedPositionFilters(payload),
@@ -5552,6 +6660,7 @@ __HELP_DOCS_OVERLAY__
         refreshEditLogsIfVisible();
       }
       setStatus(`已加载 ${payload.selected_department_label || '全部部门'} 在 ${payload.week_start || '-'} 当周的安排。`);
+      syncDingtalkCalendarButtonState();
     }
 
     async function loadDepartmentSchedule(options = {}) {
@@ -5620,6 +6729,48 @@ __HELP_DOCS_OVERLAY__
           showStateCard('读取失败', message, !backAdminPageButton.hidden, !authState.authenticated);
         }
         setStatus(message, true);
+      }
+    }
+
+    async function syncDingtalkCalendarForCurrentScope() {
+      if (isCalendarSyncing) {
+        return;
+      }
+      isCalendarSyncing = true;
+      syncDingtalkCalendarButtonState();
+      setStatus('正在同步当前范围的钉钉日程...');
+      try {
+        await flushPendingPlanAutoSaves();
+        const response = await fetch('/api/department-schedule/calendar-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildCurrentScheduleSyncPayload()),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw { status: response.status, message: payload.error || '同步钉钉失败。' };
+        }
+        if (payload && payload.payload) {
+          applyPayload(payload.payload);
+        }
+        const summary = payload && payload.summary || {};
+        const importedCount = Number(summary.imported_count || 0);
+        const queuedCount = Number(summary.queued_count || 0);
+        const extraParts = [];
+        if (importedCount) {
+          extraParts.push(`导入 ${importedCount} 条`);
+        }
+        if (queuedCount) {
+          extraParts.push(`推送 ${queuedCount} 条`);
+        }
+        const extraText = extraParts.length ? `，${extraParts.join('，')}` : '';
+        const message = `钉钉同步完成：已处理 ${summary.synced_count || 0} 人，未配置 ${summary.skipped_count || 0} 人，失败 ${summary.failed_count || 0} 人${extraText}。`;
+        setStatus(message, Number(summary.failed_count || 0) > 0);
+      } catch (error) {
+        setStatus(error.message || '同步钉钉失败，请稍后重试。', true);
+      } finally {
+        isCalendarSyncing = false;
+        syncDingtalkCalendarButtonState();
       }
     }
 
@@ -5722,12 +6873,6 @@ __HELP_DOCS_OVERLAY__
       });
     });
     passwordSubmitButton.addEventListener('click', submitPasswordUpdate);
-    themeToggleButton.addEventListener('click', () => {
-      const nextTheme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
-      writeStoredThemePreference(nextTheme);
-      applyVisualSettings(currentUiSettings);
-      scheduleAutoThemeRefresh();
-    });
     backgroundSettingsButton.addEventListener('click', (event) => {
       event.stopPropagation();
       setBackgroundSettingsOpen(!isBackgroundSettingsOpen);
@@ -5832,6 +6977,9 @@ __HELP_DOCS_OVERLAY__
     document.getElementById('reload-schedule-button').addEventListener('click', () => {
       loadDepartmentSchedule();
     });
+    syncDingtalkCalendarButton.addEventListener('click', () => {
+      syncDingtalkCalendarForCurrentScope();
+    });
     document.getElementById('prev-week-button').addEventListener('click', () => {
       dateInput.value = shiftDateByDays(dateInput.value, -7);
       loadDepartmentSchedule();
@@ -5891,17 +7039,185 @@ __HELP_DOCS_OVERLAY__
     });
     departmentPlanHeaderScrollEl.addEventListener('scroll', () => {
       syncDepartmentPlanHorizontalScroll(departmentPlanHeaderScrollEl, departmentPlanTableScrollEl);
-    });
+    }, { passive: true });
     departmentPlanTableScrollEl.addEventListener('scroll', () => {
       syncDepartmentPlanHorizontalScroll(departmentPlanTableScrollEl, departmentPlanHeaderScrollEl);
-    });
+    }, { passive: true });
     departmentPlanBody.addEventListener('input', (event) => {
+      const createInput = event.target.closest('[data-plan-create-field]');
+      if (createInput) {
+        const createForm = createInput.closest('[data-plan-create-form]');
+        setPlanCreateFormError(createForm, '');
+        if (isWeeklyPlanTimeFieldName(createInput.getAttribute('data-plan-create-field') || '')) {
+          sanitizeWeeklyPlanTimeField(createInput);
+        }
+        if (createInput instanceof HTMLTextAreaElement) {
+          scheduleDepartmentPlanHeightSync(createInput);
+        }
+        return;
+      }
       const input = event.target.closest('.plan-day-input, .pending-input');
       if (!input || !canEditDepartmentWeeklyPlan()) {
         return;
       }
+      const fieldName = String(input.getAttribute('data-plan-field') || '').trim();
+      if (isWeeklyPlanTimeFieldName(fieldName)) {
+        sanitizeWeeklyPlanTimeField(input);
+      }
       scheduleDepartmentPlanHeightSync(input);
-      scheduleMemberWeeklyPlanAutosave(input.getAttribute('data-user-id') || '');
+      const userId = String(
+        input.getAttribute('data-user-id')
+        || (input.closest('[data-user-id]') && input.closest('[data-user-id]').getAttribute('data-user-id'))
+        || ''
+      ).trim();
+      const rowPayload = getWeeklyPlanRowPayload(userId);
+      const validationMessage = validateWeeklyPlanItemsForSave(rowPayload && rowPayload.weekly_plan_items);
+      if (validationMessage) {
+        const existingTimer = planAutoSaveTimers.get(userId);
+        if (existingTimer) {
+          window.clearTimeout(existingTimer);
+          planAutoSaveTimers.delete(userId);
+        }
+        setPlanRowStatus(userId, validationMessage, true);
+        setStatus(validationMessage, true);
+        return;
+      }
+      scheduleMemberWeeklyPlanAutosave(userId);
+    });
+    departmentPlanBody.addEventListener('focusout', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const createInput = target.closest('[data-plan-create-field]');
+      if (createInput && isWeeklyPlanTimeFieldName(createInput.getAttribute('data-plan-create-field') || '')) {
+        normalizeWeeklyPlanTimeField(createInput);
+        return;
+      }
+      const input = target.closest('.plan-day-input');
+      if (!input || !canEditDepartmentWeeklyPlan()) {
+        return;
+      }
+      const fieldName = String(input.getAttribute('data-plan-field') || '').trim();
+      if (!isWeeklyPlanTimeFieldName(fieldName)) {
+        return;
+      }
+      normalizeWeeklyPlanTimeField(input);
+      const userId = String(
+        input.getAttribute('data-user-id')
+        || (input.closest('[data-user-id]') && input.closest('[data-user-id]').getAttribute('data-user-id'))
+        || ''
+      ).trim();
+      const rowPayload = getWeeklyPlanRowPayload(userId);
+      const validationMessage = validateWeeklyPlanItemsForSave(rowPayload && rowPayload.weekly_plan_items);
+      if (validationMessage) {
+        setPlanRowStatus(userId, validationMessage, true);
+        setStatus(validationMessage, true);
+        return;
+      }
+      scheduleMemberWeeklyPlanAutosave(userId);
+    });
+    departmentPlanBody.addEventListener('click', (event) => {
+      const action = event.target.closest('[data-action]');
+      if (!action || !canEditDepartmentWeeklyPlan()) {
+        return;
+      }
+      const actionName = String(action.getAttribute('data-action') || '').trim();
+      const userId = String(
+        action.getAttribute('data-user-id')
+        || (action.closest('[data-user-id]') && action.closest('[data-user-id]').getAttribute('data-user-id'))
+        || ''
+      ).trim();
+      const member = getMemberByUserId(userId);
+      if (!member) {
+        return;
+      }
+      syncPlanDraftValuesIntoMembers();
+      if (actionName === 'add-plan-item') {
+        const dayIndex = Number(action.getAttribute('data-day-index') || 0);
+        planCreateFormKeys.add(buildPlanCreateFormKey(userId, dayIndex));
+        renderDepartmentPlanTable(latestPayload);
+        const createForm = Array.from(departmentPlanBody.querySelectorAll('[data-plan-create-form]')).find((candidate) => {
+          return String(candidate.getAttribute('data-user-id') || '').trim() === userId
+            && Number(candidate.getAttribute('data-day-index') || -1) === dayIndex;
+        });
+        const titleInput = createForm && createForm.querySelector('[data-plan-create-field="title"]');
+        if (titleInput && typeof titleInput.focus === 'function') {
+          titleInput.focus();
+        }
+        return;
+      }
+      if (actionName === 'cancel-plan-item') {
+        const dayIndex = Number(action.getAttribute('data-day-index') || 0);
+        planCreateFormKeys.delete(buildPlanCreateFormKey(userId, dayIndex));
+        renderDepartmentPlanTable(latestPayload);
+        return;
+      }
+      if (actionName === 'delete-plan-item') {
+        const editor = action.closest('.plan-item-editor');
+        const itemId = String(editor && editor.getAttribute('data-item-id') || '').trim();
+        const targetItem = getMemberWeeklyPlanItems(member).find(
+          (item) => String(item && item.id || '').trim() === itemId
+        );
+        if (isProtectedCrossUserDingtalkItem(userId, targetItem)) {
+          const message = '他人从钉钉同步的日程仅本人可删除。';
+          setStatus(message, true);
+          setPlanRowStatus(userId, message, true);
+          return;
+        }
+        member.weekly_plan_items = getMemberWeeklyPlanItems(member).filter(
+          (item) => String(item && item.id || '').trim() !== itemId
+        );
+        renderDepartmentPlanTable(latestPayload);
+        scheduleMemberWeeklyPlanAutosave(userId);
+      }
+    });
+    departmentPlanBody.addEventListener('submit', (event) => {
+      const form = event.target.closest('[data-plan-create-form]');
+      if (!form) {
+        return;
+      }
+      event.preventDefault();
+      if (!canEditDepartmentWeeklyPlan()) {
+        return;
+      }
+      const userId = String(form.getAttribute('data-user-id') || '').trim();
+      const member = getMemberByUserId(userId);
+      if (!member) {
+        return;
+      }
+      const dayIndex = Number(form.getAttribute('data-day-index') || -1);
+      if (!Number.isInteger(dayIndex) || dayIndex < 0 || dayIndex >= 7) {
+        return;
+      }
+      const title = readPlanCreateField(form, 'title');
+      const startTime = readPlanCreateField(form, 'start_time');
+      const endTime = readPlanCreateField(form, 'end_time');
+      const location = readPlanCreateField(form, 'location');
+      const validationMessage = validateWeeklyPlanTimeRange(startTime, endTime, title);
+      if (validationMessage) {
+        setPlanCreateFormError(form, validationMessage);
+        return;
+      }
+      syncPlanDraftValuesIntoMembers();
+      const weekStart = String(latestPayload && latestPayload.week_start || '').trim();
+      const items = getMemberWeeklyPlanItems(member).map((item) => ({ ...item }));
+      items.push({
+        id: `weekly_item_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`,
+        work_date: addDaysToDateString(weekStart, dayIndex),
+        start_time: startTime,
+        end_time: endTime,
+        title,
+        description: '',
+        location,
+        sort_order: items.length,
+        legacy_slot_key: '',
+        source: 'new',
+      });
+      member.weekly_plan_items = items;
+      planCreateFormKeys.delete(buildPlanCreateFormKey(userId, dayIndex));
+      renderDepartmentPlanTable(latestPayload);
+      scheduleMemberWeeklyPlanAutosave(userId);
     });
     departmentPlanMembersEl.addEventListener('pointerdown', handleDepartmentPlanMemberPointerDown);
     window.addEventListener('pointermove', handleDepartmentPlanMemberPointerMove);

@@ -37,6 +37,8 @@
 - 每条事项支持：客户、项目名称、项目类型、销售、服务类型、服务方式、工时、工作内容、遗留事项、风险等字段
 - 支持最近客户名称复用
 - 支持“本周记录”展示当前所选周内所有已填写记录
+- 支持周计划按日程事项维护：每条事项选择日期、开始时间、结束时间，可添加多个事项并填写地点
+- 历史“上午 / 下午”数据继续保留，读取时分别按 `09:00-12:00`、`13:30-18:00` 展示
 - 支持周计划自动保存
 - 支持月度统计与 Excel 导出
 - 支持白天 / 黑夜模式、背景图、本地图片、Bing 每日图、区域透明度
@@ -371,9 +373,10 @@ python3 app.py
 当前行为：
 
 - 页面右上角可打开“钉钉MCP”弹窗
-- 每个用户都可以配置自己的两个地址：
+- 每个用户都可以配置自己的三个地址：
   - 日志发送 MCP
   - 通讯录查询 MCP
+  - 日历 MCP
 - 每个用户都可以用自己的“日志发送 MCP”读取当前可见的日志模板
 - 每个用户都需要分别选择：
   - 日报模板
@@ -382,12 +385,21 @@ python3 app.py
 - 留空时，发送日志 / 查询通讯录会直接失败
 - 未选择模板时，也会直接禁止发送日报 / 周报
 - 保存后仅影响当前用户
+- 日历 MCP 保存成功后会创建一个新的同步会话
+- 新同步会话只处理配置保存后发生变化、且日期不早于配置当天的周计划单元格
+- 配置前已经存在的周计划不会回补到钉钉
+- 清空日历 MCP 时会暂停同步，但不会删除已有钉钉日程
+- 更换日历 MCP 或同步日历时会冻结旧同步会话，旧会话产生的钉钉日程不会被自动删除
+- 双向同步通过后台轮询已建立映射的日程；钉钉中原来没有映射的日程不会自动导入
+- 钉钉端删除或取消已映射日程时，本地周计划内容保留，当前远程绑定会清空并记录最后一次远程事件 ID；用户后续再次修改该单元格时会创建新的钉钉日程
 
 相关接口：
 
 - `GET /api/user-dingtalk-mcp`
 - `POST /api/user-dingtalk-mcp`
 - `GET /api/user-dingtalk-report-templates`
+- `POST /api/user-dingtalk-calendar-options`
+- `POST /api/user-dingtalk-calendar-sync`
 
 ## 钉钉接入说明
 
@@ -439,9 +451,17 @@ python3 app.py
 | `local_accounts` | 本地账号、密码摘要、账号状态、管理员标记 |
 | `daily_entries` | 每日事项台账 |
 | `weekly_plans` | 按用户、按周保存的周计划 |
+| `dingtalk_calendar_sync_sessions` | 用户级日历 MCP 同步会话和启用时间边界 |
+| `schedule_items` | 配置启用后发生变化的结构化周计划事项 |
+| `dingtalk_calendar_sync_jobs` | 钉钉日程异步创建、修改、删除任务 |
+| `dingtalk_calendar_sync_conflicts` | 本地和钉钉同时修改时的冲突记录 |
 | `app_settings` | 页面设置、权限、提示词覆盖、MCP 配置、发送配置等 |
 | `dingtalk_user_identities` | 钉钉身份映射缓存 |
 | `dingtalk_scan_login_sessions` | 扫码登录短期会话 |
+
+周计划的新事项保存在 `weekly_plans.settings_json` 的 `weekly_plan_items` 数组中。旧的
+`weekly_monday_am` / `weekly_monday_pm` 等字段不会被删除，便于兼容历史数据和旧接口；
+钉钉同步时新事项使用 `weekly_item:<事项 ID>` 作为本地映射键，旧事项继续使用原来的固定槽位键。
 
 ### 输出文件说明
 

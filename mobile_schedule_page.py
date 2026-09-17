@@ -480,10 +480,241 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     }
 
     .week-row {
-      border: 1px solid var(--line);
+      border: 1px solid rgba(255, 255, 255, 0.72);
       border-radius: 10px;
-      background: #fff;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.70), rgba(247,250,255,0.42)),
+        linear-gradient(135deg, rgba(42,99,197,0.08), rgba(42,99,197,0.02));
       padding: 6px;
+      box-shadow: 0 10px 20px rgba(31, 71, 128, 0.07), inset 0 1px 0 rgba(255,255,255,0.46);
+      backdrop-filter: blur(12px) saturate(130%);
+      -webkit-backdrop-filter: blur(12px) saturate(130%);
+    }
+
+    .week-day-group {
+      display: grid;
+      gap: 5px;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--panel-soft);
+    }
+
+    .week-day-group-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      color: var(--primary-deep);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .week-day-group-head span:last-child {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .schedule-item-time-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 26px;
+      align-items: stretch;
+      gap: 2px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .schedule-item-time-stack {
+      min-width: 0;
+      display: grid;
+      gap: 1px;
+    }
+
+    .schedule-item-time-row input[type="time"] {
+      min-width: 0;
+      height: 20px;
+      min-height: 20px;
+      padding: 0 5px;
+      border-radius: 7px;
+      background: rgba(255,255,255,0.40);
+      border-color: rgba(255,255,255,0.58);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    .schedule-item-time-row input[type="text"] {
+      min-width: 0;
+      height: 20px;
+      min-height: 20px;
+      padding: 0 5px;
+      border-radius: 7px;
+      background: rgba(255,255,255,0.40);
+      border-color: rgba(255,255,255,0.58);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    .schedule-item-time-row button,
+    .schedule-item-add {
+      min-height: 27px;
+      padding: 5px 7px;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .schedule-item-delete {
+      min-width: 26px;
+      min-height: 41px;
+      align-self: stretch;
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      place-items: center;
+      padding: 0 4px;
+      line-height: 1;
+      white-space: normal;
+    }
+
+    .schedule-item-delete span {
+      display: block;
+    }
+
+    .calendar-sync-badge {
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      min-height: 15px;
+      padding: 1px 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+
+    .calendar-sync-caption {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 600;
+      line-height: 1.35;
+      white-space: normal;
+    }
+
+    .calendar-sync-inline {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .calendar-sync-state.success { color: #1e8a64; }
+    .calendar-sync-state.pending { color: var(--primary-deep); }
+    .calendar-sync-state.warning { color: #9a6412; }
+    .calendar-sync-state.danger { color: var(--danger); }
+    .calendar-sync-state.muted,
+    .calendar-sync-state.neutral { color: var(--muted); }
+
+    .schedule-item-sync-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-wrap: wrap;
+      min-height: 11px;
+      margin-bottom: 2px;
+    }
+
+    .schedule-item-editor textarea {
+      min-height: 42px;
+      background: rgba(255,255,255,0.38);
+      border-color: rgba(255,255,255,0.58);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .schedule-item-location {
+      min-height: 30px;
+      padding: 6px 7px;
+      background: rgba(255,255,255,0.34);
+      border-color: rgba(255,255,255,0.54);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.20);
+      font-size: 11px;
+    }
+
+    .schedule-item-add {
+      width: 100%;
+      border: 1px dashed var(--line);
+      background: transparent;
+      color: var(--primary-deep);
+    }
+
+    .schedule-item-create-form {
+      display: grid;
+      gap: 6px;
+      padding: 7px;
+      border: 1px solid rgba(33, 114, 207, 0.24);
+      border-radius: 10px;
+      background: rgba(238, 247, 255, 0.78);
+    }
+
+    .schedule-item-create-form label {
+      display: grid;
+      gap: 3px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .schedule-item-create-input {
+      width: 100%;
+      min-width: 0;
+      padding: 6px 7px;
+      font-size: 11px;
+    }
+    .schedule-item-create-time-row .schedule-item-create-input {
+      height: 22px;
+      min-height: 22px;
+      padding: 1px 6px;
+      border-radius: 7px;
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    .schedule-item-create-title {
+      min-height: 42px;
+      resize: vertical;
+    }
+
+    .schedule-item-create-time-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 5px;
+    }
+
+    .schedule-item-create-error {
+      min-height: 15px;
+      color: var(--danger);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .schedule-item-create-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 5px;
+    }
+
+    .schedule-item-create-actions button {
+      min-height: 27px;
+      padding: 5px 7px;
+      font-size: 10px;
     }
 
     .week-fields {
@@ -635,6 +866,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         <input id="mobile-anchor-date" type="date" value="__INITIAL_DATE__">
         <div class="toolbar-actions">
           <button type="button" class="toolbar-btn soft" id="mobile-refresh-button">刷新</button>
+          <button type="button" class="toolbar-btn soft" id="mobile-sync-dingtalk-calendar-button">同步钉钉</button>
           <label class="compact-toggle">
             <input id="mobile-compact-toggle" type="checkbox" checked>
             <span>精简显示</span>
@@ -678,6 +910,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     const pageCardEl = document.getElementById("mobile-page-card");
     const anchorDateEl = document.getElementById("mobile-anchor-date");
     const refreshButtonEl = document.getElementById("mobile-refresh-button");
+    const syncDingtalkCalendarButton = document.getElementById("mobile-sync-dingtalk-calendar-button");
     const logoutButtonEl = document.getElementById("mobile-logout-button");
     const clearFilterButtonEl = document.getElementById("mobile-clear-filter-button");
     const compactToggleEl = document.getElementById("mobile-compact-toggle");
@@ -688,16 +921,19 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     const summaryLineEl = document.getElementById("mobile-summary-line");
     const pageStatusEl = document.getElementById("mobile-page-status");
     const memberListEl = document.getElementById("mobile-member-list");
+    const WEEKLY_PLAN_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
     let authState = normalizeAuthState(bootAuthState);
     let pagePayload = null;
     let isLoggingIn = false;
     let isLoading = false;
+    let isCalendarSyncing = false;
     let savingUserIds = new Set();
     let selectedMemberIds = [];
     let selectedPositions = [];
     let openDropdown = "";
     let compactModeEnabled = true;
+    let scheduleCreateFormKeys = new Set();
 
     function normalizeAuthState(source) {
       const payload = source && typeof source === "object" ? source : {};
@@ -706,6 +942,28 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         authenticated: Boolean(payload.authenticated && user),
         user,
       };
+    }
+
+    function getCurrentViewerUserId() {
+      return String(
+        authState && authState.user && authState.user.user_id
+        || pagePayload && pagePayload.viewer && pagePayload.viewer.user_id
+        || ""
+      ).trim();
+    }
+
+    function isDingtalkImportedScheduleItem(item) {
+      return String(item && item.source || "").trim() === "dingtalk_calendar";
+    }
+
+    function isEditingAnotherUserSchedule(userId) {
+      const viewerUserId = getCurrentViewerUserId();
+      const targetUserId = String(userId || "").trim();
+      return Boolean(viewerUserId && targetUserId && viewerUserId !== targetUserId);
+    }
+
+    function isProtectedCrossUserDingtalkItem(userId, item) {
+      return isEditingAnotherUserSchedule(userId) && isDingtalkImportedScheduleItem(item);
     }
 
     function escapeHtml(value) {
@@ -720,6 +978,85 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     function setStatus(target, message, isError = false) {
       target.textContent = message || "";
       target.classList.toggle("is-error", Boolean(isError && message));
+    }
+
+    function normalizeCalendarSyncState(sync) {
+      const source = sync && typeof sync === "object" ? sync : {};
+      return {
+        status: String(source.status || "local_only").trim() || "local_only",
+        label: String(source.label || "本地").trim() || "本地",
+        tone: String(source.tone || "neutral").trim() || "neutral",
+        hint: String(source.hint || "").trim(),
+        calendar_name: String(source.calendar_name || "").trim(),
+        event_id: String(source.event_id || "").trim(),
+        enabled: Boolean(source.enabled),
+      };
+    }
+
+    function getCalendarSyncToneClass(state) {
+      const tone = String((state && state.tone) || "").trim();
+      if (["success", "pending", "warning", "danger", "muted", "neutral"].includes(tone)) {
+        return tone;
+      }
+      const status = String((state && state.status) || "").trim();
+      if (status === "synced") {
+        return "success";
+      }
+      if (status === "pending" || status === "syncing") {
+        return "pending";
+      }
+      if (["remote_changed", "remote_deleted", "remote_cancelled"].includes(status)) {
+        return "warning";
+      }
+      if (status === "failed" || status === "conflict") {
+        return "danger";
+      }
+      if (status === "missing" || status === "idle" || status === "deleted") {
+        return "muted";
+      }
+      return "neutral";
+    }
+
+    function renderCalendarSyncBadge(sync) {
+      const state = normalizeCalendarSyncState(sync);
+      const title = [state.hint, state.calendar_name ? `日历：${state.calendar_name}` : "", state.event_id ? `eventId：${state.event_id}` : ""]
+        .filter(Boolean)
+        .join(" · ");
+      return `<span class="calendar-sync-inline" title="${escapeHtml(title)}">钉钉 · 同步状态：<span class="calendar-sync-state ${getCalendarSyncToneClass(state)}">${escapeHtml(state.label)}</span></span>`;
+    }
+
+    function renderScheduleItemSyncMeta(item) {
+      return `<div class="schedule-item-sync-row">${renderCalendarSyncBadge(item && item.calendar_sync)}</div>`;
+    }
+
+    function getVisibleCalendarSyncText() {
+      const visibleMembers = getVisibleMembers();
+      if (!visibleMembers.length) {
+        return "";
+      }
+      let configured = 0;
+      let pending = 0;
+      let failed = 0;
+      visibleMembers.forEach((member) => {
+        const sync = normalizeCalendarSyncState(member && member.calendar_sync);
+        if (sync.enabled) {
+          configured += 1;
+        }
+        if (sync.status === "pending" || sync.status === "syncing") {
+          pending += 1;
+        }
+        if (sync.status === "failed" || sync.status === "conflict") {
+          failed += 1;
+        }
+      });
+      const parts = [`钉钉 ${configured}/${visibleMembers.length} 人已配置`];
+      if (pending) {
+        parts.push(`待处理 ${pending}`);
+      }
+      if (failed) {
+        parts.push(`异常 ${failed}`);
+      }
+      return parts.join(" · ");
     }
 
     function normalizeKey(value) {
@@ -847,6 +1184,229 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       return rows.filter((row) => !isWeekendLabel(row && row.weekday_label));
     }
 
+    function addDaysToDateString(value, offset) {
+      const source = String(value || "").trim();
+      if (!source) {
+        return "";
+      }
+      const dateValue = new Date(`${source}T00:00:00`);
+      if (Number.isNaN(dateValue.getTime())) {
+        return "";
+      }
+      dateValue.setDate(dateValue.getDate() + Number(offset || 0));
+      return dateValue.toISOString().slice(0, 10);
+    }
+
+    function buildScheduleCreateFormKey(userId, dayIndex) {
+      return `${String(userId || "").trim()}::${Number(dayIndex || 0)}`;
+    }
+
+    function sanitizeScheduleTimeInput(value) {
+      return String(value || "")
+        .trim()
+        .replace(/[０-９]/g, (character) => String(character.charCodeAt(0) - 0xfee0))
+        .replace(/[：；;]/g, ":")
+        .replace(/\s+/g, "");
+    }
+
+    function normalizeScheduleTimeInput(value) {
+      const source = sanitizeScheduleTimeInput(value);
+      if (!source) {
+        return "";
+      }
+      const hourOnlyMatch = source.match(/^(\d{1,2})$/);
+      if (hourOnlyMatch) {
+        const hour = Number(hourOnlyMatch[1]);
+        return hour >= 0 && hour <= 23 ? `${String(hour).padStart(2, "0")}:00` : source;
+      }
+      const timeMatch = source.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (!timeMatch) {
+        return source;
+      }
+      const hour = Number(timeMatch[1]);
+      const minute = Number(timeMatch[2]);
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return source;
+      }
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    }
+
+    function isScheduleTimeFieldName(fieldName) {
+      return fieldName === "start_time" || fieldName === "end_time";
+    }
+
+    function sanitizeScheduleTimeField(input) {
+      if (!(input instanceof HTMLInputElement)) {
+        return "";
+      }
+      const sanitized = sanitizeScheduleTimeInput(input.value);
+      if (sanitized !== String(input.value || "")) {
+        input.value = sanitized;
+      }
+      return sanitized;
+    }
+
+    function normalizeScheduleTimeField(input) {
+      if (!(input instanceof HTMLInputElement)) {
+        return "";
+      }
+      const normalized = normalizeScheduleTimeInput(input.value);
+      if (normalized !== String(input.value || "")) {
+        input.value = normalized;
+      }
+      return normalized;
+    }
+
+    function normalizeScheduleItemsForSave(items) {
+      return (Array.isArray(items) ? items : []).map((item) => {
+        const source = item && typeof item === "object" ? item : {};
+        return {
+          ...source,
+          start_time: normalizeScheduleTimeInput(source.start_time),
+          end_time: normalizeScheduleTimeInput(source.end_time),
+        };
+      });
+    }
+
+    function validateScheduleTimeRange(startTime, endTime, title = "", options = {}) {
+      const normalizedTitle = String(title || "").trim();
+      const normalizedStart = normalizeScheduleTimeInput(startTime);
+      const normalizedEnd = normalizeScheduleTimeInput(endTime);
+      const requireTitle = !options || options.requireTitle !== false;
+      if (requireTitle && !normalizedTitle) {
+        return "请填写日程安排。";
+      }
+      if (!WEEKLY_PLAN_TIME_PATTERN.test(normalizedStart)) {
+        return "开始时间必须是 HH:MM 格式，例如 09:00。";
+      }
+      if (!WEEKLY_PLAN_TIME_PATTERN.test(normalizedEnd)) {
+        return "结束时间必须是 HH:MM 格式，例如 18:00。";
+      }
+      if (normalizedStart >= normalizedEnd) {
+        return "结束时间必须晚于开始时间。";
+      }
+      return "";
+    }
+
+    function validateMemberScheduleItems(member) {
+      const items = getMemberWeeklyPlanItems(member);
+      for (const item of items) {
+        const title = String(item && item.title || "").trim();
+        const legacy = Boolean(item && (item.legacy_slot_key || item.source === "legacy"));
+        if (!title && !legacy) {
+          continue;
+        }
+        const message = validateScheduleTimeRange(
+          item && item.start_time,
+          item && item.end_time,
+          title || "日程",
+          { requireTitle: false }
+        );
+        if (message) {
+          return title ? `日程“${title}”：${message}` : message;
+        }
+      }
+      return "";
+    }
+
+    function setScheduleCreateFormError(form, message) {
+      const errorEl = form && form.querySelector("[data-schedule-create-error]");
+      if (errorEl) {
+        errorEl.textContent = String(message || "").trim();
+      }
+    }
+
+    function readScheduleCreateField(form, fieldName) {
+      const input = form ? form.querySelector(`[data-schedule-create-field="${fieldName}"]`) : null;
+      if (isScheduleTimeFieldName(fieldName)) {
+        return normalizeScheduleTimeField(input);
+      }
+      return String(input && input.value || "").trim();
+    }
+
+    function renderScheduleItemCreateForm(userId, dayIndex) {
+      return `
+        <form class="schedule-item-create-form" data-schedule-create-form data-user-id="${escapeHtml(userId)}" data-day-index="${dayIndex}">
+          <label>
+            <span>安排</span>
+            <textarea class="schedule-item-create-input schedule-item-create-title" data-schedule-create-field="title" placeholder="填写日程安排" required></textarea>
+          </label>
+          <div class="schedule-item-create-time-row">
+            <label>
+              <span>开始时间</span>
+              <input class="schedule-item-create-input" type="text" data-schedule-create-field="start_time" inputmode="numeric" maxlength="5" placeholder="09:00" required>
+            </label>
+            <label>
+              <span>结束时间</span>
+              <input class="schedule-item-create-input" type="text" data-schedule-create-field="end_time" inputmode="numeric" maxlength="5" placeholder="10:00" required>
+            </label>
+          </div>
+          <label>
+            <span>地点（可选）</span>
+            <input class="schedule-item-create-input" type="text" data-schedule-create-field="location" placeholder="填写地点">
+          </label>
+          <div class="schedule-item-create-error" data-schedule-create-error aria-live="polite"></div>
+          <div class="schedule-item-create-actions">
+            <button type="button" class="secondary" data-action="cancel-plan-item" data-user-id="${escapeHtml(userId)}" data-day-index="${dayIndex}">取消</button>
+            <button type="submit" class="primary">新建</button>
+          </div>
+        </form>
+      `;
+    }
+
+    function getMemberWeeklyPlanItems(member) {
+      if (Array.isArray(member && member.weekly_plan_items)) {
+        return member.weekly_plan_items;
+      }
+      const rows = Array.isArray(member && member.weekly_plan_rows) ? member.weekly_plan_rows : [];
+      const weekStart = String(pagePayload && pagePayload.week_start || "").trim();
+      const dayKeys = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+      const items = [];
+      rows.forEach((row, dayIndex) => {
+        const source = row && typeof row === "object" ? row : {};
+        if (String(source.am || "").trim()) {
+          items.push({
+            id: `legacy_am_${dayIndex}`,
+            work_date: addDaysToDateString(weekStart, dayIndex),
+            start_time: "09:00",
+            end_time: "12:00",
+            title: String(source.am || "").trim(),
+            location: "",
+            description: "",
+            legacy_slot_key: `weekly_${dayKeys[dayIndex]}_am`,
+            source: "legacy"
+          });
+        }
+        if (String(source.pm || "").trim()) {
+          items.push({
+            id: `legacy_pm_${dayIndex}`,
+            work_date: addDaysToDateString(weekStart, dayIndex),
+            start_time: "13:30",
+            end_time: "18:00",
+            title: String(source.pm || "").trim(),
+            location: "",
+            description: "",
+            legacy_slot_key: `weekly_${dayKeys[dayIndex]}_pm`,
+            source: "legacy"
+          });
+        }
+      });
+      return items;
+    }
+
+    function getVisibleWeeklyPlanItems(member) {
+      const items = getMemberWeeklyPlanItems(member);
+      if (!compactModeEnabled) {
+        return items;
+      }
+      const weekStart = String(pagePayload && pagePayload.week_start || "").trim();
+      return items.filter((item) => {
+        const workDate = String(item && item.work_date || "").trim();
+        const dayIndex = Math.round((new Date(`${workDate}T00:00:00`) - new Date(`${weekStart}T00:00:00`)) / 86400000);
+        return dayIndex < 5;
+      });
+    }
+
     function getVisibleMemberDays(member) {
       const days = Array.isArray(member && member.days) ? member.days : [];
       if (!compactModeEnabled) {
@@ -953,11 +1513,12 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       const totalHours = String(summary.total_hours || "0").trim() || "0";
       const totalItems = Number(summary.total_items || 0);
       const visibleMembers = getVisibleMembers();
+      const syncText = getVisibleCalendarSyncText();
       if (!hasActiveFilter()) {
         summaryLineEl.textContent = `${weekStart} 至 ${weekEnd} · 共 ${memberCount} 人 · ${totalItems} 条事项 · ${totalHours} 小时`;
         return;
       }
-      summaryLineEl.textContent = `${weekStart} 至 ${weekEnd} · ${getFilterSummaryText()} · 展示 ${visibleMembers.length} 人`;
+      summaryLineEl.textContent = `${weekStart} 至 ${weekEnd} · ${getFilterSummaryText()} · 展示 ${visibleMembers.length} 人${syncText ? ` · ${syncText}` : ""}`;
     }
 
     function syncControls() {
@@ -968,6 +1529,8 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       loginButtonEl.disabled = isLoggingIn;
       anchorDateEl.disabled = !loggedIn || isLoading;
       refreshButtonEl.disabled = !loggedIn || isLoading;
+      syncDingtalkCalendarButton.disabled = !loggedIn || isLoading || isCalendarSyncing || savingUserIds.size > 0 || !getVisibleMembers().length;
+      syncDingtalkCalendarButton.textContent = isCalendarSyncing ? "同步中..." : "同步钉钉";
       logoutButtonEl.disabled = !loggedIn || isLoading;
       clearFilterButtonEl.disabled = !loggedIn || isLoading;
       compactToggleEl.disabled = !loggedIn || isLoading;
@@ -1036,23 +1599,55 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         const name = getMemberName(member, memberIndex);
         const weekStats = member && typeof member === "object" ? member.week_stats || {} : {};
         const statText = `${String(weekStats.total_items || 0)} 条 · ${String(weekStats.total_hours || 0)}h`;
-        const rows = getVisibleWeeklyPlanRows(member);
-        const rowMarkup = rows.map((row, rowIndex) => {
-          const weekdayLabel = String(row && row.weekday_label || `第${rowIndex + 1}天`).trim();
-          const am = String(row && row.am || "");
-          const pm = String(row && row.pm || "");
+        const visibleItems = getVisibleWeeklyPlanItems(member);
+        const dayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+        const weekStart = String(pagePayload && pagePayload.week_start || "").trim();
+        const dayCount = compactModeEnabled ? 5 : 7;
+        const rowMarkup = Array.from({ length: dayCount }, (_, dayIndex) => {
+          const workDate = addDaysToDateString(weekStart, dayIndex);
+          const dayItems = visibleItems
+            .filter((item) => String(item && item.work_date || "").trim() === workDate)
+            .sort((left, right) => String(left.start_time || "").localeCompare(String(right.start_time || "")));
+          const itemMarkup = dayItems.length
+            ? dayItems.map((item) => {
+                const itemId = String(item && item.id || "").trim();
+                const legacy = Boolean(item && (item.legacy_slot_key || item.source === "legacy"));
+                const protectedDingtalkItem = isProtectedCrossUserDingtalkItem(userId, item);
+                const disabledAttr = canEdit ? "" : " disabled";
+                const itemDisabledAttr = protectedDingtalkItem ? " disabled" : disabledAttr;
+                const timeDisabledAttr = (legacy || protectedDingtalkItem) ? " disabled" : disabledAttr;
+                const deleteDisabledAttr = (disabledAttr || protectedDingtalkItem) ? " disabled" : "";
+                const deleteLabel = protectedDingtalkItem ? "他人的钉钉同步日程仅本人可删除" : "删除日程";
+                return `
+                  <div class="week-row schedule-item-editor${protectedDingtalkItem ? " is-protected" : ""}" data-user-id="${escapeHtml(userId)}" data-item-id="${escapeHtml(itemId)}" data-day-index="${dayIndex}">
+                    ${renderScheduleItemSyncMeta(item)}
+                    <div class="schedule-item-time-row">
+                      <div class="schedule-item-time-stack">
+                        <input type="text" data-plan-field="start_time"${timeDisabledAttr} inputmode="numeric" maxlength="5" placeholder="09:00" value="${escapeHtml(item.start_time || "")}" aria-label="开始时间">
+                        <input type="text" data-plan-field="end_time"${timeDisabledAttr} inputmode="numeric" maxlength="5" placeholder="10:00" value="${escapeHtml(item.end_time || "")}" aria-label="结束时间">
+                      </div>
+                      <button type="button" class="danger schedule-item-delete" data-action="delete-plan-item"${deleteDisabledAttr} title="${escapeHtml(deleteLabel)}" aria-label="${escapeHtml(deleteLabel)}"><span>删</span><span>除</span></button>
+                    </div>
+                    ${legacy ? `<div class="field-label">${String(item.legacy_slot_key || "").endsWith("_pm") ? "下午" : "上午"} · 旧数据</div>` : ""}
+                    ${protectedDingtalkItem ? '<div class="field-label">钉钉同步 · 仅本人可改</div>' : ""}
+                    <textarea data-plan-field="title" ${itemDisabledAttr} placeholder="内容">${escapeHtml(item.title || "")}</textarea>
+                    <input class="schedule-item-location" data-plan-field="location" ${itemDisabledAttr} placeholder="地点" value="${escapeHtml(item.location || "")}">
+                  </div>
+                `;
+              }).join("")
+            : '<div class="day-empty">暂无安排</div>';
+          const createKey = buildScheduleCreateFormKey(userId, dayIndex);
+          const createMarkup = scheduleCreateFormKeys.has(createKey)
+            ? renderScheduleItemCreateForm(userId, dayIndex)
+            : `<button type="button" class="secondary schedule-item-add" data-action="add-plan-item" data-user-id="${escapeHtml(userId)}" data-day-index="${dayIndex}">+ 新建日程</button>`;
           return `
-            <div class="week-row">
-              <div class="week-fields">
-                <label class="field">
-                  <span class="field-label"><span class="week-prefix">${escapeHtml(weekdayLabel)}</span>上午</span>
-                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="am" ${canEdit ? "" : "disabled"} placeholder="${escapeHtml(`${weekdayLabel}上午安排`)}">${escapeHtml(am)}</textarea>
-                </label>
-                <label class="field">
-                  <span class="field-label"><span class="week-prefix">${escapeHtml(weekdayLabel)}</span>下午</span>
-                  <textarea data-user-id="${escapeHtml(userId)}" data-row-index="${rowIndex}" data-field="pm" ${canEdit ? "" : "disabled"} placeholder="${escapeHtml(`${weekdayLabel}下午安排`)}">${escapeHtml(pm)}</textarea>
-                </label>
+            <div class="week-day-group" data-day-index="${dayIndex}">
+              <div class="week-day-group-head">
+                <span>${dayLabels[dayIndex]}</span>
+                <span>${escapeHtml(workDate)}</span>
               </div>
+              ${itemMarkup}
+              ${canEdit ? createMarkup : ""}
             </div>
           `;
         }).join("");
@@ -1187,6 +1782,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       try {
         const payload = await requestJson(`/api/department-schedule?date=${encodeURIComponent(anchorDateEl.value)}&mobile=1`);
         pagePayload = payload && typeof payload === "object" ? payload : {};
+        scheduleCreateFormKeys = new Set();
         setStatus(pageStatusEl, "", false);
       } catch (error) {
         pagePayload = { members: [] };
@@ -1197,9 +1793,75 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       }
     }
 
+    function buildMobileScheduleSyncPayload() {
+      const visibleUserIds = getVisibleMembers().map(getMemberUserId).filter(Boolean);
+      return {
+        date: String(anchorDateEl.value || "__INITIAL_DATE__").trim() || "__INITIAL_DATE__",
+        users: visibleUserIds.length ? visibleUserIds : ["__none__"],
+      };
+    }
+
+    async function syncDingtalkCalendarForVisibleMembers() {
+      if (isCalendarSyncing) {
+        return;
+      }
+      const visibleUserIds = getVisibleMembers().map(getMemberUserId).filter(Boolean);
+      if (!visibleUserIds.length) {
+        setStatus(pageStatusEl, "请先选择要展示的岗位或人员。", true);
+        return;
+      }
+      isCalendarSyncing = true;
+      renderLayout();
+      setStatus(pageStatusEl, "正在同步当前可见成员的钉钉日程...", false);
+      try {
+        for (const userId of visibleUserIds) {
+          const member = findMember(userId);
+          if (member) {
+            await saveMember(userId);
+          }
+        }
+        const payload = await requestJson("/api/department-schedule/calendar-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildMobileScheduleSyncPayload()),
+        });
+        if (payload && payload.payload) {
+          pagePayload = payload.payload;
+          scheduleCreateFormKeys = new Set();
+        }
+        const summary = payload && payload.summary || {};
+        const importedCount = Number(summary.imported_count || 0);
+        const queuedCount = Number(summary.queued_count || 0);
+        const extraParts = [];
+        if (importedCount) {
+          extraParts.push(`导入 ${importedCount} 条`);
+        }
+        if (queuedCount) {
+          extraParts.push(`推送 ${queuedCount} 条`);
+        }
+        const extraText = extraParts.length ? `，${extraParts.join("，")}` : "";
+        setStatus(
+          pageStatusEl,
+          `钉钉同步完成：已处理 ${summary.synced_count || 0} 人，未配置 ${summary.skipped_count || 0} 人，失败 ${summary.failed_count || 0} 人${extraText}。`,
+          Number(summary.failed_count || 0) > 0
+        );
+      } catch (error) {
+        setStatus(pageStatusEl, error.message || "同步钉钉失败，请稍后重试。", true);
+      } finally {
+        isCalendarSyncing = false;
+        renderLayout();
+      }
+    }
+
     async function saveMember(userId) {
       const member = findMember(userId);
       if (!member || savingUserIds.has(userId)) {
+        return;
+      }
+      member.weekly_plan_items = normalizeScheduleItemsForSave(getMemberWeeklyPlanItems(member));
+      const validationMessage = validateMemberScheduleItems(member);
+      if (validationMessage) {
+        setStatus(pageStatusEl, validationMessage, true);
         return;
       }
       savingUserIds.add(userId);
@@ -1213,10 +1875,13 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
             user_id: String(userId || "").trim(),
             week_start: String(pagePayload && pagePayload.week_start || anchorDateEl.value || "").trim(),
             base_updated_at: String(member.weekly_plan_updated_at || ""),
-            weekly_plan_rows: Array.isArray(member.weekly_plan_rows) ? member.weekly_plan_rows : [],
+            weekly_plan_items: member.weekly_plan_items,
             weekly_other_pending: String(member.weekly_other_pending || ""),
           }),
         });
+        member.weekly_plan_items = Array.isArray(payload.weekly_plan_items)
+          ? payload.weekly_plan_items
+          : member.weekly_plan_items || [];
         member.weekly_plan_rows = Array.isArray(payload.weekly_plan_rows) ? payload.weekly_plan_rows : member.weekly_plan_rows;
         member.weekly_other_pending = String(payload.weekly_other_pending || "");
         member.weekly_plan_updated_at = String(payload.updated_at || "");
@@ -1290,18 +1955,34 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       selectedMemberIds = [];
       selectedPositions = [];
       openDropdown = "";
+      scheduleCreateFormKeys = new Set();
       setStatus(pageStatusEl, "", false);
       renderLayout();
     }
 
     memberListEl.addEventListener("input", (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLTextAreaElement)) {
+      if (!(target instanceof HTMLTextAreaElement) && !(target instanceof HTMLInputElement)) {
         return;
       }
-      resizeTextarea(target);
-      const userId = String(target.dataset.userId || "").trim();
-      const field = String(target.dataset.field || "").trim();
+      const createForm = target.closest("[data-schedule-create-form]");
+      if (createForm) {
+        setScheduleCreateFormError(createForm, "");
+        if (isScheduleTimeFieldName(target.dataset.scheduleCreateField)) {
+          sanitizeScheduleTimeField(target);
+        }
+        if (target instanceof HTMLTextAreaElement) {
+          resizeTextarea(target);
+        }
+        return;
+      }
+      const editor = target.closest(".schedule-item-editor");
+      const userId = String(
+        target.dataset.userId
+        || (editor && editor.dataset.userId)
+        || ""
+      ).trim();
+      const field = String(target.dataset.field || target.dataset.planField || "").trim();
       const member = findMember(userId);
       if (!member || !field) {
         return;
@@ -1310,11 +1991,43 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
         member.weekly_other_pending = String(target.value || "");
         return;
       }
-      const rowIndex = Number.parseInt(String(target.dataset.rowIndex || ""), 10);
-      if (!Number.isInteger(rowIndex) || !Array.isArray(member.weekly_plan_rows) || !member.weekly_plan_rows[rowIndex]) {
+      const itemId = String(editor && editor.dataset.itemId || "").trim();
+      const item = getMemberWeeklyPlanItems(member).find((candidate) => String(candidate.id || "") === itemId);
+      if (!item || !field) {
         return;
       }
-      member.weekly_plan_rows[rowIndex][field] = String(target.value || "");
+      if (isScheduleTimeFieldName(field)) {
+        sanitizeScheduleTimeField(target);
+      }
+      item[field] = String(target.value || "");
+      if (target instanceof HTMLTextAreaElement) {
+        resizeTextarea(target);
+      }
+    });
+
+    memberListEl.addEventListener("focusout", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const createField = target.closest("[data-schedule-create-field]");
+      if (createField && isScheduleTimeFieldName(createField.dataset.scheduleCreateField)) {
+        normalizeScheduleTimeField(createField);
+        return;
+      }
+      const field = String(target.dataset.planField || "").trim();
+      if (!isScheduleTimeFieldName(field)) {
+        return;
+      }
+      const editor = target.closest(".schedule-item-editor");
+      const userId = String(editor && editor.dataset.userId || "").trim();
+      const member = findMember(userId);
+      const itemId = String(editor && editor.dataset.itemId || "").trim();
+      const item = getMemberWeeklyPlanItems(member).find((candidate) => String(candidate.id || "") === itemId);
+      if (!item) {
+        return;
+      }
+      item[field] = normalizeScheduleTimeField(target);
     });
 
     memberListEl.addEventListener("click", (event) => {
@@ -1322,14 +2035,102 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
       if (!(target instanceof HTMLElement)) {
         return;
       }
-      const saveButton = target.closest("[data-action='save-member']");
-      if (!saveButton) {
+      const action = target.closest("[data-action]");
+      if (!action) {
         return;
       }
-      const userId = String(saveButton.getAttribute("data-user-id") || "").trim();
-      if (userId) {
+      const actionName = String(action.getAttribute("data-action") || "").trim();
+      const userId = String(
+        action.getAttribute("data-user-id")
+        || (action.closest("[data-user-id]") && action.closest("[data-user-id]").getAttribute("data-user-id"))
+        || ""
+      ).trim();
+      const member = findMember(userId);
+      if (!member) {
+        return;
+      }
+      if (actionName === "add-plan-item") {
+        const dayIndex = Number(action.getAttribute("data-day-index") || 0);
+        scheduleCreateFormKeys.add(buildScheduleCreateFormKey(userId, dayIndex));
+        renderLayout();
+        const createForm = Array.from(memberListEl.querySelectorAll("[data-schedule-create-form]")).find((candidate) => {
+          return String(candidate.getAttribute("data-user-id") || "").trim() === userId
+            && Number(candidate.getAttribute("data-day-index") || -1) === dayIndex;
+        });
+        const titleInput = createForm && createForm.querySelector('[data-schedule-create-field="title"]');
+        if (titleInput && typeof titleInput.focus === "function") {
+          titleInput.focus();
+        }
+        return;
+      }
+      if (actionName === "cancel-plan-item") {
+        const dayIndex = Number(action.getAttribute("data-day-index") || 0);
+        scheduleCreateFormKeys.delete(buildScheduleCreateFormKey(userId, dayIndex));
+        renderLayout();
+        return;
+      }
+      if (actionName === "delete-plan-item") {
+        const editor = action.closest(".schedule-item-editor");
+        const itemId = String(editor && editor.dataset.itemId || "").trim();
+        const targetItem = getMemberWeeklyPlanItems(member).find(
+          (item) => String(item && item.id || "").trim() === itemId
+        );
+        if (isProtectedCrossUserDingtalkItem(userId, targetItem)) {
+          setStatus(pageStatusEl, "他人从钉钉同步的日程仅本人可删除。", true);
+          return;
+        }
+        member.weekly_plan_items = getMemberWeeklyPlanItems(member).filter(
+          (item) => String(item && item.id || "") !== itemId
+        );
+        renderLayout();
+        return;
+      }
+      if (actionName === "save-member" && userId) {
         saveMember(userId);
       }
+    });
+
+    memberListEl.addEventListener("submit", (event) => {
+      const form = event.target.closest("[data-schedule-create-form]");
+      if (!form) {
+        return;
+      }
+      event.preventDefault();
+      const userId = String(form.getAttribute("data-user-id") || "").trim();
+      const member = findMember(userId);
+      if (!member) {
+        return;
+      }
+      const dayIndex = Number(form.getAttribute("data-day-index") || -1);
+      if (!Number.isInteger(dayIndex) || dayIndex < 0 || dayIndex >= 7) {
+        return;
+      }
+      const title = readScheduleCreateField(form, "title");
+      const startTime = readScheduleCreateField(form, "start_time");
+      const endTime = readScheduleCreateField(form, "end_time");
+      const location = readScheduleCreateField(form, "location");
+      const validationMessage = validateScheduleTimeRange(startTime, endTime, title);
+      if (validationMessage) {
+        setScheduleCreateFormError(form, validationMessage);
+        return;
+      }
+      const weekStart = String(pagePayload && pagePayload.week_start || "").trim();
+      const items = getMemberWeeklyPlanItems(member).map((item) => ({ ...item }));
+      items.push({
+        id: `weekly_item_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`,
+        work_date: addDaysToDateString(weekStart, dayIndex),
+        start_time: startTime,
+        end_time: endTime,
+        title,
+        description: "",
+        location,
+        sort_order: items.length,
+        legacy_slot_key: "",
+        source: "new",
+      });
+      member.weekly_plan_items = items;
+      scheduleCreateFormKeys.delete(buildScheduleCreateFormKey(userId, dayIndex));
+      renderLayout();
     });
 
     function toggleDropdown(name) {
@@ -1419,6 +2220,7 @@ MOBILE_SCHEDULE_HTML = """<!DOCTYPE html>
     });
     logoutButtonEl.addEventListener("click", logout);
     refreshButtonEl.addEventListener("click", () => loadDepartmentSchedule());
+    syncDingtalkCalendarButton.addEventListener("click", syncDingtalkCalendarForVisibleMembers);
     anchorDateEl.addEventListener("change", () => loadDepartmentSchedule(false));
     clearFilterButtonEl.addEventListener("click", clearFilters);
     compactToggleEl.addEventListener("change", () => {

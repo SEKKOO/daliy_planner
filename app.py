@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import secrets
@@ -12,9 +13,10 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
@@ -34,6 +36,8 @@ from help_docs import HELP_DOCS_CSS, HELP_DOCS_OVERLAY_HTML
 from mobile_schedule_page import render_mobile_schedule_html
 from project_config import load_app_config
 
+
+LOGGER = logging.getLogger("daily_planner")
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_CONFIG = load_app_config(BASE_DIR)
@@ -78,6 +82,34 @@ DINGTALK_REPORT_TEMPLATE_CACHE_TTL_SECONDS = 3600
 DINGTALK_MCP_REQUEST_TIMEOUT_SECONDS = 15
 DINGTALK_MCP_TEMPLATE_DETAIL_WORKERS = 6
 DINGTALK_MCP_TEMPLATE_DETAIL_ATTEMPTS = 2
+DINGTALK_CALENDAR_SYNC_POLL_SECONDS = 180
+DINGTALK_CALENDAR_SYNC_DISPATCH_BATCH_SIZE = 10
+DINGTALK_CALENDAR_SYNC_MAX_ATTEMPTS = 5
+DINGTALK_CALENDAR_SYNC_RETRY_DELAY_SECONDS = 60
+DINGTALK_CALENDAR_SYNC_WINDOW_DAYS = 90
+DINGTALK_CALENDAR_TIMEZONE = "Asia/Shanghai"
+DINGTALK_CALENDAR_DEFAULT_ID = "primary"
+DINGTALK_CALENDAR_SYNC_MODE_PUSH = "push"
+DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY = "two_way"
+DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE = "active"
+DINGTALK_CALENDAR_SYNC_STATUS_PAUSED = "paused"
+DINGTALK_CALENDAR_SYNC_STATUS_FROZEN = "frozen"
+DINGTALK_CALENDAR_JOB_PENDING = "pending"
+DINGTALK_CALENDAR_JOB_RUNNING = "running"
+DINGTALK_CALENDAR_JOB_SENT = "sent"
+DINGTALK_CALENDAR_JOB_CANCELLED = "cancelled"
+DINGTALK_CALENDAR_JOB_FAILED = "failed"
+DINGTALK_CALENDAR_JOB_UNKNOWN = "unknown"
+DINGTALK_CALENDAR_ITEM_PENDING = "pending"
+DINGTALK_CALENDAR_ITEM_SYNCED = "synced"
+DINGTALK_CALENDAR_ITEM_DELETED = "deleted"
+DINGTALK_CALENDAR_ITEM_CONFLICT = "conflict"
+DINGTALK_CALENDAR_ITEM_UNKNOWN = "unknown"
+DINGTALK_CALENDAR_ITEM_REMOTE_DELETED = "remote_deleted"
+DINGTALK_CALENDAR_ITEM_REMOTE_CANCELLED = "remote_cancelled"
+DINGTALK_CALENDAR_IMPORTED_SOURCE = "dingtalk_calendar"
+DINGTALK_CALENDAR_MCP_REQUIRED_ERROR = "当前用户未配置日历 MCP，请先在右上角“钉钉MCP”中配置。"
+DINGTALK_CALENDAR_MCP_INVALID_ERROR = "日历 MCP 地址无效或无法读取日历，请检查配置后重试。"
 DINGTALK_LOG_MCP_REQUIRED_ERROR = "当前用户未配置日志发送 MCP，请先在右上角“钉钉MCP”中配置。"
 DINGTALK_DIRECTORY_MCP_REQUIRED_ERROR = "当前用户未配置通讯录查询 MCP，请先在右上角“钉钉MCP”中配置。"
 DINGTALK_DAILY_TEMPLATE_REQUIRED_ERROR = "请先点击钉钉MCP保存日志模版，保存后再发送"
@@ -129,8 +161,11 @@ DEFAULT_PAGE_SETTINGS = {
     "weekly_sunday_pm": "",
     "weekly_other_pending": "",
 }
+WEEKLY_PLAN_ITEMS_KEY = "weekly_plan_items"
 _scheduled_dingtalk_log_dispatcher_thread: threading.Thread | None = None
 _scheduled_dingtalk_log_dispatcher_lock = threading.Lock()
+_calendar_sync_dispatcher_thread: threading.Thread | None = None
+_calendar_sync_dispatcher_lock = threading.Lock()
 WEEKLY_PLAN_KEYS = tuple(DEFAULT_PAGE_SETTINGS.keys())
 WEEKLY_PLAN_FIELD_LABELS = {
     "weekly_monday_am": "周一上午",
@@ -149,6 +184,24 @@ WEEKLY_PLAN_FIELD_LABELS = {
     "weekly_sunday_pm": "周日下午",
     "weekly_other_pending": "其他待办",
 }
+WEEKLY_PLAN_SLOT_DEFINITIONS = {
+    "weekly_monday_am": (0, "am", "周一上午", "09:00", "12:00"),
+    "weekly_monday_pm": (0, "pm", "周一下午", "13:30", "18:00"),
+    "weekly_tuesday_am": (1, "am", "周二上午", "09:00", "12:00"),
+    "weekly_tuesday_pm": (1, "pm", "周二下午", "13:30", "18:00"),
+    "weekly_wednesday_am": (2, "am", "周三上午", "09:00", "12:00"),
+    "weekly_wednesday_pm": (2, "pm", "周三下午", "13:30", "18:00"),
+    "weekly_thursday_am": (3, "am", "周四上午", "09:00", "12:00"),
+    "weekly_thursday_pm": (3, "pm", "周四下午", "13:30", "18:00"),
+    "weekly_friday_am": (4, "am", "周五上午", "09:00", "12:00"),
+    "weekly_friday_pm": (4, "pm", "周五下午", "13:30", "18:00"),
+    "weekly_saturday_am": (5, "am", "周六上午", "09:00", "12:00"),
+    "weekly_saturday_pm": (5, "pm", "周六下午", "13:30", "18:00"),
+    "weekly_sunday_am": (6, "am", "周日上午", "09:00", "12:00"),
+    "weekly_sunday_pm": (6, "pm", "周日下午", "13:30", "18:00"),
+}
+WEEKLY_PLAN_LEGACY_SLOT_KEYS = tuple(WEEKLY_PLAN_SLOT_DEFINITIONS.keys())
+WEEKLY_PLAN_DAY_NAMES = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 DEFAULT_UI_SETTINGS = {
     "background_image": "",
     "background_mode": "cover",
@@ -269,6 +322,26 @@ INDEX_HTML = """<!DOCTYPE html>
       --ok: #1e8a64;
       --warn: #b17610;
       --danger: #be3c45;
+      --surface-rgb: 255, 255, 255;
+      --surface-soft-rgb: 244, 249, 255;
+      --shell-surface-alpha: 0.82;
+      --shell-surface-strong-alpha: 0.9;
+      --shell-surface-soft-alpha: 0.72;
+      --shell-surface-subtle-alpha: 0.54;
+      --shell-surface-backdrop-alpha: 0.26;
+      --shell-surface-track-alpha: 0.36;
+      --shell-surface-header-alpha: 0.46;
+      --weekly-board-surface-alpha: 0.56;
+      --weekly-board-surface-soft-alpha: 0.44;
+      --form-control-surface-alpha: 0.42;
+      --form-control-surface-soft-alpha: 0.28;
+      --editor-table-surface-alpha: 0.36;
+      --editor-table-surface-soft-alpha: 0.22;
+      --editor-table-header-alpha: 0.32;
+      --editor-table-header-soft-alpha: 0.2;
+      --editor-table-row-alpha: 0.28;
+      --editor-table-row-alt-alpha: 0.22;
+      --editor-table-row-hover-alpha: 0.38;
       --shadow: 0 18px 45px rgba(37, 90, 160, 0.12);
       --shadow-strong: 0 24px 55px rgba(30, 88, 160, 0.11), 0 6px 18px rgba(46, 119, 208, 0.06);
       --card-shadow: 0 14px 30px rgba(35, 86, 156, 0.09);
@@ -301,6 +374,8 @@ INDEX_HTML = """<!DOCTYPE html>
       --ok: #61ddb1;
       --warn: #ffd27a;
       --danger: #ff9aa4;
+      --surface-rgb: 38, 56, 84;
+      --surface-soft-rgb: 25, 39, 60;
       --shadow: 0 22px 46px rgba(4, 10, 22, 0.32);
       --shadow-strong: 0 28px 60px rgba(4, 10, 22, 0.34), 0 8px 22px rgba(125, 183, 255, 0.08);
       --card-shadow: 0 18px 34px rgba(4, 10, 22, 0.24);
@@ -375,7 +450,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .shell {
       width: min(1220px, calc(100vw - 32px));
-      margin: 0 auto;
+      margin: 74px auto 0;
       position: relative;
       z-index: 1;
     }
@@ -401,9 +476,10 @@ INDEX_HTML = """<!DOCTYPE html>
       padding: 12px 14px;
       border-radius: 20px;
       border: 1px solid rgba(49, 102, 173, 0.14);
-      background: var(--boot-region-background, linear-gradient(180deg, rgba(255,255,255,0.94), rgba(244,249,255,0.84)));
+      background: var(--boot-badge-background, var(--boot-region-background, linear-gradient(180deg, rgba(255,255,255,0.94), rgba(244,249,255,0.84))));
       box-shadow: 0 16px 36px rgba(35, 86, 156, 0.12);
       backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
     }
 
     .page-user-badge-label {
@@ -591,6 +667,10 @@ INDEX_HTML = """<!DOCTYPE html>
       background: linear-gradient(140deg, rgba(46, 119, 208, 0.16), rgba(126, 192, 255, 0.08));
     }
 
+    .hero-card.hero-side::after {
+      display: none;
+    }
+
     .eyebrow {
       display: inline-flex;
       align-items: center;
@@ -621,17 +701,10 @@ INDEX_HTML = """<!DOCTYPE html>
     .hero-side {
       display: block;
       padding: 0;
+      background: var(--boot-region-background, var(--panel));
     }
 
-    .metric,
-    .weekly-plan {
-      padding: 20px;
-      border-radius: 22px;
-      background: var(
-        --boot-region-background,
-        linear-gradient(180deg, rgba(255,255,255,0.28), rgba(244,249,255,0.14)),
-        linear-gradient(135deg, rgba(46,119,208,0.06), rgba(46,119,208,0))
-      );
+    .metric {
       border: 1px solid rgba(255,255,255,0.22);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.2),
@@ -639,26 +712,134 @@ INDEX_HTML = """<!DOCTYPE html>
       backdrop-filter: blur(18px) saturate(120%);
     }
 
+    .metric {
+      padding: 20px;
+      border-radius: 22px;
+      background: var(
+        --boot-region-background,
+        linear-gradient(180deg, rgba(255,255,255,0.28), rgba(244,249,255,0.14)),
+        linear-gradient(135deg, rgba(46,119,208,0.06), rgba(46,119,208,0))
+      );
+    }
+
+    .weekly-plan {
+      padding: 0;
+      border: 0;
+      border-radius: inherit;
+      background: transparent;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
     .weekly-plan-head {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid rgba(49, 102, 173, 0.09);
+      align-items: stretch;
+      gap: 16px;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid rgba(49, 102, 173, 0.12);
+      background: transparent;
     }
 
     .weekly-plan-meta {
       display: grid;
-      gap: 4px;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 10px 12px;
+      min-width: 0;
     }
+
+    .weekly-plan-window-dots {
+      display: inline-grid;
+      grid-template-columns: repeat(3, 10px);
+      gap: 6px;
+      align-self: start;
+      padding-top: 6px;
+    }
+
+    .weekly-plan-window-dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.06);
+    }
+
+    .weekly-plan-window-dots span:nth-child(1) { background: #ff5f57; }
+    .weekly-plan-window-dots span:nth-child(2) { background: #febc2e; }
+    .weekly-plan-window-dots span:nth-child(3) { background: #28c840; }
+
+    .weekly-plan-title-stack {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .weekly-plan-app-title {
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+
+    .weekly-plan-calendar-sync {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      grid-column: 2;
+      min-height: 17px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .calendar-sync-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 17px;
+      padding: 2px 6px;
+      border: 1px solid var(--line-soft);
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.1;
+      white-space: nowrap;
+      color: var(--muted);
+      background: rgba(92, 117, 146, 0.08);
+    }
+
+    .calendar-sync-caption {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1.35;
+      white-space: normal;
+    }
+
+    .calendar-sync-inline {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .calendar-sync-state.success { color: var(--ok); }
+    .calendar-sync-state.pending { color: var(--accent-deep); }
+    .calendar-sync-state.warning { color: var(--warn); }
+    .calendar-sync-state.danger { color: var(--danger); }
+    .calendar-sync-state.muted,
+    .calendar-sync-state.neutral { color: var(--muted); }
 
     .weekly-plan-subtitle {
       color: var(--accent-strong);
-      font-size: 15px;
-      font-weight: 700;
-      line-height: 1.5;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.35;
       max-width: 72ch;
     }
 
@@ -668,6 +849,33 @@ INDEX_HTML = """<!DOCTYPE html>
       align-items: center;
       flex-wrap: wrap;
       justify-content: flex-end;
+    }
+
+    .weekly-plan-nav {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid rgba(49, 102, 173, 0.12);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.56);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
+    }
+
+    .weekly-plan-nav button {
+      min-width: 30px;
+      min-height: 28px;
+      padding: 4px 8px;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--accent-deep);
+      box-shadow: none;
+    }
+
+    .weekly-plan-nav button:hover {
+      background: rgba(46,119,208,0.1);
+      transform: none;
+      box-shadow: none;
     }
 
     .weekly-plan-saved-at {
@@ -695,20 +903,51 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .weekly-board-scroll {
       overflow-x: auto;
-      padding-bottom: 4px;
-      border-radius: 20px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(240, 247, 255, 0.08));
-      border: 1px solid rgba(255,255,255,0.18);
-      padding: 12px;
-      backdrop-filter: blur(12px);
+      border-radius: 0 0 18px 18px;
+      background: transparent;
+      border: 0;
+      padding: 0;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .weekly-plan-overview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 0 16px;
+      padding: 10px 16px;
+      border: 1px solid rgba(49, 102, 173, 0.1);
+      border-bottom: 0;
+      border-radius: 14px 14px 0 0;
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--weekly-board-surface-alpha)), rgba(var(--surface-soft-rgb), var(--weekly-board-surface-soft-alpha))),
+        linear-gradient(135deg, rgba(46,119,208,0.06), rgba(46,119,208,0));
+      color: var(--muted);
+      font-size: 11px;
+      overflow: hidden;
+      backdrop-filter: blur(14px) saturate(118%);
+      -webkit-backdrop-filter: blur(14px) saturate(118%);
+    }
+
+    .weekly-plan-overview-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 24px;
+      padding: 4px 8px;
+      border: 1px solid rgba(49, 102, 173, 0.12);
+      border-radius: 999px;
+      background: rgba(var(--surface-rgb), var(--shell-surface-header-alpha));
+      color: var(--accent-deep);
+      font-weight: 700;
     }
 
     .weekly-board {
-      min-width: 1040px;
-      display: grid;
-      grid-template-columns: 62px repeat(5, minmax(96px, 1fr)) repeat(2, minmax(82px, 0.85fr));
-      gap: 8px;
-      align-items: stretch;
+      min-width: 1120px;
+      display: block;
+      padding: 0 0 12px;
     }
 
     .weekly-head,
@@ -772,9 +1011,386 @@ INDEX_HTML = """<!DOCTYPE html>
       resize: none;
     }
 
+    .weekly-pending textarea {
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--form-control-surface-alpha)), rgba(var(--surface-soft-rgb), var(--form-control-surface-soft-alpha)));
+    }
+
     .weekly-pending {
       grid-column: 2 / -1;
       padding: 10px;
+    }
+
+    .weekly-board {
+      min-width: 1120px;
+      display: block;
+    }
+
+    .weekly-items-board {
+      display: grid;
+      grid-template-columns: 58px repeat(7, minmax(142px, 1fr));
+      gap: 0;
+      margin: 0 16px;
+      min-height: 360px;
+      border: 1px solid rgba(49, 102, 173, 0.1);
+      border-radius: 0 0 14px 14px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--weekly-board-surface-alpha)), rgba(var(--surface-soft-rgb), var(--weekly-board-surface-soft-alpha))),
+        linear-gradient(135deg, rgba(46,119,208,0.045), rgba(46,119,208,0));
+      backdrop-filter: blur(16px) saturate(120%);
+      -webkit-backdrop-filter: blur(16px) saturate(120%);
+    }
+
+    .weekly-day-column {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto minmax(250px, 1fr) auto;
+      align-content: stretch;
+      gap: 0;
+      padding: 0;
+      border: 0;
+      border-right: 1px solid rgba(49, 102, 173, 0.1);
+      border-radius: 0;
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(49, 102, 173, 0.055) 0,
+          rgba(49, 102, 173, 0.055) 1px,
+          transparent 1px,
+          transparent 56px
+        ),
+        transparent;
+    }
+
+    .weekly-day-column.weekend {
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(214,154,72,0.075) 0,
+          rgba(214,154,72,0.075) 1px,
+          transparent 1px,
+          transparent 56px
+        ),
+        transparent;
+      border-color: rgba(214,154,72,0.16);
+    }
+
+    .weekly-day-column:last-child {
+      border-right: 0;
+    }
+
+    .weekly-day-column.today {
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(49, 102, 173, 0.075) 0,
+          rgba(49, 102, 173, 0.075) 1px,
+          transparent 1px,
+          transparent 56px
+        ),
+        transparent;
+    }
+
+    .weekly-time-rail {
+      display: grid;
+      grid-template-rows: 56px repeat(6, 56px);
+      border-right: 1px solid rgba(49, 102, 173, 0.1);
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .weekly-time-rail-spacer {
+      border-bottom: 1px solid rgba(49, 102, 173, 0.1);
+    }
+
+    .weekly-time-rail span {
+      display: flex;
+      justify-content: flex-end;
+      align-items: start;
+      padding: 7px 7px 0 0;
+      border-bottom: 1px solid rgba(49, 102, 173, 0.06);
+    }
+
+    .weekly-day-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--accent-deep);
+      font-size: 11px;
+      font-weight: 700;
+      min-height: 56px;
+      padding: 8px 9px;
+      border-bottom: 1px solid rgba(49, 102, 173, 0.1);
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .weekly-day-date {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      color: var(--ink);
+      background: rgba(var(--surface-rgb), var(--shell-surface-header-alpha));
+      font-size: 13px;
+      font-weight: 800;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    .weekly-day-column.today .weekly-day-date {
+      background: #f04438;
+      color: #fff;
+      box-shadow: 0 6px 14px rgba(240,68,56,0.22);
+    }
+
+    .weekly-day-heading {
+      display: grid;
+      gap: 2px;
+    }
+
+    .weekly-day-name {
+      color: var(--accent-deep);
+      font-size: 12px;
+    }
+
+    .weekly-day-count {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .weekly-day-items {
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      min-height: 258px;
+      padding: 8px;
+    }
+
+    .weekly-item-editor {
+      display: grid;
+      grid-template-columns: 3px minmax(0, 1fr);
+      gap: 0;
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.34);
+      border-radius: 8px;
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--shell-surface-soft-alpha)), rgba(var(--surface-soft-rgb), var(--shell-surface-subtle-alpha))),
+        linear-gradient(135deg, rgba(46,119,208,0.10), rgba(46,119,208,0.02));
+      box-shadow: 0 12px 24px rgba(35, 86, 156, 0.08), inset 0 1px 0 rgba(255,255,255,0.42);
+      backdrop-filter: blur(14px) saturate(130%);
+      -webkit-backdrop-filter: blur(14px) saturate(130%);
+    }
+
+    .weekly-item-accent {
+      grid-row: 1 / -1;
+      background: linear-gradient(180deg, rgba(255,255,255,0.58), rgba(92,117,146,0.26));
+    }
+
+    .weekly-item-main {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      padding: 6px 6px 7px;
+    }
+
+    .weekly-item-sync-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      min-height: 12px;
+    }
+
+    .weekly-item-create-form {
+      display: grid;
+      gap: 7px;
+      padding: 9px;
+      border: 1px solid rgba(42,111,214,0.24);
+      border-radius: 12px;
+      background: rgba(235,245,255,0.72);
+    }
+
+    .weekly-item-create-form label {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .weekly-item-create-form input,
+    .weekly-item-create-form textarea {
+      width: 100%;
+      min-width: 0;
+      padding: 6px 7px;
+      font-size: 11px;
+    }
+
+    .weekly-item-create-time-row input {
+      height: 19px;
+      min-height: 19px;
+      padding: 0 5px;
+      border-radius: 6px;
+      font-size: 9px;
+      line-height: 1;
+    }
+
+    .weekly-item-create-form textarea {
+      min-height: 42px;
+      resize: vertical;
+    }
+
+    .weekly-item-create-time-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px;
+    }
+
+    .weekly-item-create-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px;
+    }
+
+    .weekly-item-create-actions button {
+      min-height: 28px;
+      padding: 5px 7px;
+      font-size: 11px;
+    }
+
+    .weekly-item-create-error {
+      min-height: 15px;
+      color: var(--danger);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .weekly-item-time-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 20px;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .weekly-item-time-stack {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .weekly-item-time-separator {
+      color: var(--accent-deep);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .weekly-item-time-row input[type="time"],
+    .weekly-item-time-row input[type="text"] {
+      min-width: 0;
+      width: 46px;
+      height: 18px;
+      min-height: 18px;
+      padding: 0 4px;
+      border-radius: 5px;
+      font-size: 9px;
+      font-weight: 800;
+      line-height: 1;
+      color: var(--accent-deep);
+      background: rgba(var(--surface-rgb), var(--shell-surface-subtle-alpha));
+      border-color: rgba(255,255,255,0.32);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+    }
+
+    .weekly-item-title,
+    .weekly-item-location {
+      min-height: 27px;
+      padding: 4px 6px;
+      font-size: 10px;
+      background: rgba(var(--surface-rgb), var(--shell-surface-subtle-alpha));
+      border-color: rgba(255,255,255,0.34);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .weekly-item-title {
+      resize: vertical;
+      min-height: 34px;
+      color: var(--ink);
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .weekly-item-legacy-label {
+      color: var(--accent-deep);
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .weekly-item-delete,
+    .weekly-item-add {
+      min-height: 28px;
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+
+    .weekly-item-delete {
+      min-width: 20px;
+      min-height: 20px;
+      align-self: start;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .weekly-item-delete span {
+      display: block;
+    }
+
+    .weekly-item-add {
+      width: 100%;
+      margin: 0 8px 8px;
+      width: calc(100% - 16px);
+      border: 1px dashed rgba(46,119,208,0.28);
+      background: rgba(var(--surface-rgb), var(--shell-surface-subtle-alpha));
+      color: var(--accent-deep);
+      border-radius: 8px;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .weekly-day-empty {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.4;
+      padding: 12px 2px;
+      text-align: center;
+    }
+
+    .weekly-pending {
+      display: grid;
+      gap: 6px;
+      margin: 12px 16px 4px;
+      border-radius: 12px;
+    }
+
+    .weekly-pending-label {
+      color: var(--accent-deep);
+      font-size: var(--fs-xs);
+      font-weight: 700;
     }
 
     .metric-label {
@@ -2348,7 +2964,8 @@ INDEX_HTML = """<!DOCTYPE html>
       min-width: 0;
       border-radius: 18px;
       border: 1px solid rgba(255,255,255,0.22);
-      background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(246,250,255,0.12));
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--editor-table-surface-alpha)), rgba(var(--surface-soft-rgb), var(--editor-table-surface-soft-alpha)));
       overflow: hidden;
       box-shadow: 0 14px 28px rgba(43, 91, 158, 0.04);
       backdrop-filter: blur(18px);
@@ -2364,7 +2981,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .table-header {
       background:
-        linear-gradient(180deg, rgba(239, 246, 255, 0.28), rgba(230, 239, 251, 0.14)),
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--editor-table-header-alpha)), rgba(var(--surface-soft-rgb), var(--editor-table-header-soft-alpha))),
         linear-gradient(90deg, rgba(46,119,208,0.05), transparent);
       border-bottom: 1px solid rgba(255,255,255,0.16);
       font-size: var(--fs-xs);
@@ -2399,16 +3016,16 @@ INDEX_HTML = """<!DOCTYPE html>
 
     .item-row {
       border-bottom: 1px solid rgba(255,255,255,0.14);
-      background: rgba(255, 255, 255, 0.14);
+      background: rgba(var(--surface-rgb), var(--editor-table-row-alpha));
       transition: background 0.18s ease, box-shadow 0.18s ease;
     }
 
     .item-row:nth-child(even) {
-      background: rgba(249, 252, 255, 0.08);
+      background: rgba(var(--surface-soft-rgb), var(--editor-table-row-alt-alpha));
     }
 
     .item-row:hover {
-      background: rgba(242, 248, 255, 0.2);
+      background: rgba(var(--surface-rgb), var(--editor-table-row-hover-alpha));
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
     }
 
@@ -2422,7 +3039,8 @@ INDEX_HTML = """<!DOCTYPE html>
       min-width: 0;
       border-radius: 12px;
       padding: 10px 12px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.24), rgba(248,251,255,0.12));
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--form-control-surface-alpha)), rgba(var(--surface-soft-rgb), var(--form-control-surface-soft-alpha)));
     }
 
     .item-row textarea {
@@ -2711,8 +3329,7 @@ INDEX_HTML = """<!DOCTYPE html>
     }
 
     body[data-theme="dark"] .hero-card,
-    body[data-theme="dark"] .panel,
-    body[data-theme="dark"] .weekly-plan {
+    body[data-theme="dark"] .panel {
       border-color: rgba(255,255,255,0.1);
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.06),
@@ -2785,7 +3402,6 @@ INDEX_HTML = """<!DOCTYPE html>
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 30px rgba(4, 10, 22, 0.14);
     }
 
-    body[data-theme="dark"] .weekly-board-scroll,
     body[data-theme="dark"] .toolbar,
     body[data-theme="dark"] .month-toolbar,
     body[data-theme="dark"] .week-toolbar,
@@ -2793,13 +3409,143 @@ INDEX_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .stat-card,
     body[data-theme="dark"] .item-card,
     body[data-theme="dark"] .entry-card,
-    body[data-theme="dark"] .empty,
-    body[data-theme="dark"] .table-editor {
+    body[data-theme="dark"] .empty {
       border-color: rgba(255,255,255,0.08);
       background:
         linear-gradient(180deg, rgba(48, 69, 101, 0.54), rgba(30, 46, 71, 0.3)),
         linear-gradient(135deg, rgba(125, 183, 255, 0.05), transparent 74%);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 28px rgba(4, 10, 22, 0.12);
+    }
+
+    body[data-theme="dark"] .table-editor {
+      border-color: rgba(255,255,255,0.08);
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--editor-table-surface-alpha)), rgba(var(--surface-soft-rgb), var(--editor-table-surface-soft-alpha))),
+        linear-gradient(135deg, rgba(125, 183, 255, 0.05), transparent 74%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 28px rgba(4, 10, 22, 0.12);
+    }
+
+    body[data-theme="dark"] .weekly-board-scroll {
+      border-color: rgba(255,255,255,0.08);
+      background: transparent;
+      box-shadow: none;
+    }
+
+    body[data-theme="dark"] .weekly-day-header,
+    body[data-theme="dark"] .weekly-time-rail {
+      background: transparent;
+      border-color: rgba(255,255,255,0.08);
+    }
+
+    body[data-theme="dark"] .weekly-plan-overview,
+    body[data-theme="dark"] .weekly-items-board {
+      border-color: rgba(255,255,255,0.08);
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--weekly-board-surface-alpha)), rgba(var(--surface-soft-rgb), var(--weekly-board-surface-soft-alpha))),
+        linear-gradient(135deg, rgba(125,183,255,0.08), rgba(125,183,255,0.02));
+    }
+
+    body[data-theme="dark"] .weekly-plan-head {
+      background: transparent;
+      border-color: rgba(255,255,255,0.08);
+    }
+
+    body[data-theme="dark"] .weekly-plan-nav,
+    body[data-theme="dark"] .weekly-plan-overview-pill,
+    body[data-theme="dark"] .weekly-day-date,
+    body[data-theme="dark"] .weekly-item-add {
+      background: rgba(var(--surface-rgb), var(--shell-surface-header-alpha));
+      border-color: rgba(159, 191, 236, 0.14);
+    }
+
+    body[data-theme="dark"] .weekly-day-column {
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(159,191,236,0.075) 0,
+          rgba(159,191,236,0.075) 1px,
+          transparent 1px,
+          transparent 56px
+        ),
+        transparent;
+      border-color: rgba(255,255,255,0.08);
+    }
+
+    body[data-theme="dark"] .weekly-day-column.weekend {
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(255,210,122,0.08) 0,
+          rgba(255,210,122,0.08) 1px,
+          transparent 1px,
+          transparent 56px
+        ),
+        transparent;
+    }
+
+    body[data-theme="dark"] .weekly-day-column.today {
+      background:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(125,183,255,0.1) 0,
+          rgba(125,183,255,0.1) 1px,
+          transparent 1px,
+          transparent 56px
+        ),
+        transparent;
+    }
+
+    body[data-theme="dark"] .weekly-item-editor {
+      border-color: rgba(159, 191, 236, 0.18);
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--shell-surface-soft-alpha)), rgba(var(--surface-soft-rgb), var(--shell-surface-subtle-alpha))),
+        linear-gradient(135deg, rgba(125,183,255,0.12), rgba(125,183,255,0.02));
+      box-shadow: 0 14px 28px rgba(4, 10, 22, 0.22), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+
+    body[data-theme="dark"] .weekly-item-accent {
+      background: linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0.28));
+    }
+
+    body[data-theme="dark"] .weekly-item-title,
+    body[data-theme="dark"] .weekly-item-location,
+    body[data-theme="dark"] .weekly-item-time-row input[type="text"] {
+      background: rgba(var(--surface-soft-rgb), var(--shell-surface-subtle-alpha));
+      border-color: rgba(159, 191, 236, 0.14);
+      color: #f8fbff;
+      -webkit-text-fill-color: #f8fbff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+
+    body[data-theme="dark"] .weekly-item-add {
+      background: rgba(var(--surface-soft-rgb), var(--shell-surface-subtle-alpha));
+      border-color: rgba(159, 191, 236, 0.22);
+    }
+
+    body[data-theme="dark"] .weekly-item-time-separator,
+    body[data-theme="dark"] .weekly-item-legacy-label,
+    body[data-theme="dark"] .weekly-item-sync-row,
+    body[data-theme="dark"] .calendar-sync-inline {
+      color: #f8fbff;
+    }
+
+    body[data-theme="dark"] .weekly-item-title::placeholder,
+    body[data-theme="dark"] .weekly-item-location::placeholder,
+    body[data-theme="dark"] .weekly-item-time-row input[type="text"]::placeholder {
+      color: rgba(225, 235, 248, 0.66);
+      -webkit-text-fill-color: rgba(225, 235, 248, 0.66);
+    }
+
+    body[data-theme="dark"] .weekly-item-create-form {
+      background: rgba(var(--surface-soft-rgb), var(--shell-surface-subtle-alpha));
+      border-color: rgba(159, 191, 236, 0.18);
+    }
+
+    body[data-theme="dark"] .weekly-item-create-form label,
+    body[data-theme="dark"] .weekly-item-create-form input,
+    body[data-theme="dark"] .weekly-item-create-form textarea {
+      color: #f8fbff;
+      -webkit-text-fill-color: #f8fbff;
     }
 
     body[data-theme="dark"] input,
@@ -2834,7 +3580,7 @@ INDEX_HTML = """<!DOCTYPE html>
     body[data-theme="dark"] .item-row textarea,
     body[data-theme="dark"] .weekly-cell textarea,
     body[data-theme="dark"] .weekly-pending textarea {
-      background: linear-gradient(180deg, rgba(34, 50, 76, 0.82), rgba(23, 35, 55, 0.68));
+      background: linear-gradient(180deg, rgba(var(--surface-rgb), var(--form-control-surface-alpha)), rgba(var(--surface-soft-rgb), var(--form-control-surface-soft-alpha)));
       border-color: rgba(255,255,255,0.08);
     }
 
@@ -2916,19 +3662,21 @@ INDEX_HTML = """<!DOCTYPE html>
     }
 
     body[data-theme="dark"] .table-header {
-      background: linear-gradient(180deg, rgba(56, 81, 119, 0.9), rgba(39, 58, 88, 0.86));
+      background:
+        linear-gradient(180deg, rgba(var(--surface-rgb), var(--editor-table-header-alpha)), rgba(var(--surface-soft-rgb), var(--editor-table-header-soft-alpha))),
+        linear-gradient(90deg, rgba(125,183,255,0.06), transparent);
     }
 
     body[data-theme="dark"] .item-row {
-      background: rgba(35, 51, 77, 0.72);
+      background: rgba(var(--surface-rgb), var(--editor-table-row-alpha));
     }
 
     body[data-theme="dark"] .item-row:nth-child(even) {
-      background: rgba(29, 43, 66, 0.8);
+      background: rgba(var(--surface-soft-rgb), var(--editor-table-row-alt-alpha));
     }
 
     body[data-theme="dark"] .item-row:hover {
-      background: rgba(49, 71, 106, 0.74);
+      background: rgba(var(--surface-rgb), var(--editor-table-row-hover-alpha));
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
     }
 
@@ -3133,6 +3881,10 @@ INDEX_HTML = """<!DOCTYPE html>
         max-width: none;
       }
 
+      .shell {
+        margin-top: 0;
+      }
+
       .version-badge {
         right: 12px;
         bottom: 12px;
@@ -3306,18 +4058,12 @@ __HELP_DOCS_CSS__
       };
       const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
       const readStoredThemePreference = () => {
-        try {
-          const value = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
-          return value === "dark" || value === "light" ? value : "";
-        } catch (error) {
-          return "";
-        }
+        return "light";
       };
       const getAutoTheme = (currentDate = new Date()) => {
-        const hour = currentDate.getHours();
-        return hour >= 6 && hour < 19 ? "light" : "dark";
+        return "light";
       };
-      const theme = readStoredThemePreference() || getAutoTheme();
+      const theme = "light";
       const buildBodyBackgroundImage = (currentTheme, backgroundImage) => {
         const baseLayers = currentTheme === "dark"
           ? [
@@ -3394,6 +4140,12 @@ __HELP_DOCS_CSS__
       document.body.dataset.theme = theme;
       const root = document.documentElement;
       const backgroundLayerStyle = buildBackgroundLayerStyle(uiSettings.background_image, uiSettings.background_mode);
+      const badgeOpacity = Math.min(0.98, Math.max(0.62, uiSettings.region_opacity + 0.16));
+      const boardOpacity = Math.min(0.72, Math.max(0.38, uiSettings.region_opacity + 0.18));
+      const controlOpacity = Math.max(0.16, Math.min(0.78, uiSettings.region_opacity * 0.62));
+      const tableSurfaceOpacity = Math.max(0.14, Math.min(0.68, uiSettings.region_opacity * 0.5));
+      const tableHeaderOpacity = Math.max(0.14, Math.min(0.68, uiSettings.region_opacity * 0.52));
+      const tableRowOpacity = Math.max(0.1, Math.min(0.58, uiSettings.region_opacity * 0.44));
       root.style.setProperty("--boot-page-background-color", theme === "dark" ? "#101a29" : "#e2edfb");
       root.style.setProperty("--boot-viewport-background", buildViewportFallback(theme));
       root.style.setProperty("--boot-page-background-image", buildBodyBackgroundImage(theme, uiSettings.background_image));
@@ -3402,6 +4154,25 @@ __HELP_DOCS_CSS__
       root.style.setProperty("--boot-page-background-repeat", backgroundLayerStyle.repeat);
       root.style.setProperty("--boot-panel-background", buildRegionSurface(theme, Math.max(0.18, uiSettings.region_opacity - 0.04)));
       root.style.setProperty("--boot-region-background", buildRegionSurface(theme, uiSettings.region_opacity));
+      root.style.setProperty("--boot-badge-background", buildRegionSurface(theme, badgeOpacity));
+      root.style.setProperty("--shell-surface-strong-alpha", String(Math.max(0.28, Math.min(0.98, uiSettings.region_opacity))));
+      root.style.setProperty("--shell-surface-alpha", String(Math.max(0.22, Math.min(0.94, uiSettings.region_opacity - 0.04))));
+      root.style.setProperty("--shell-surface-soft-alpha", String(Math.max(0.16, Math.min(0.9, uiSettings.region_opacity - 0.12))));
+      root.style.setProperty("--shell-surface-subtle-alpha", String(Math.max(0.12, Math.min(0.86, uiSettings.region_opacity - 0.2))));
+      root.style.setProperty("--shell-surface-backdrop-alpha", String(Math.max(0.08, Math.min(0.36, uiSettings.region_opacity * 0.28))));
+      root.style.setProperty("--shell-surface-track-alpha", String(Math.max(0.1, Math.min(0.48, uiSettings.region_opacity * 0.38))));
+      root.style.setProperty("--shell-surface-header-alpha", String(Math.max(0.14, Math.min(0.58, uiSettings.region_opacity * 0.5))));
+      root.style.setProperty("--weekly-board-surface-alpha", String(boardOpacity));
+      root.style.setProperty("--weekly-board-surface-soft-alpha", String(Math.max(0.26, boardOpacity - 0.12)));
+      root.style.setProperty("--form-control-surface-alpha", String(controlOpacity));
+      root.style.setProperty("--form-control-surface-soft-alpha", String(Math.max(0.1, controlOpacity - 0.14)));
+      root.style.setProperty("--editor-table-surface-alpha", String(tableSurfaceOpacity));
+      root.style.setProperty("--editor-table-surface-soft-alpha", String(Math.max(0.08, tableSurfaceOpacity - 0.16)));
+      root.style.setProperty("--editor-table-header-alpha", String(tableHeaderOpacity));
+      root.style.setProperty("--editor-table-header-soft-alpha", String(Math.max(0.08, tableHeaderOpacity - 0.14)));
+      root.style.setProperty("--editor-table-row-alpha", String(tableRowOpacity));
+      root.style.setProperty("--editor-table-row-alt-alpha", String(Math.max(0.08, tableRowOpacity - 0.08)));
+      root.style.setProperty("--editor-table-row-hover-alpha", String(Math.min(0.72, tableRowOpacity + 0.1)));
     })();
   </script>
   <div class="page-background" id="page-background" aria-hidden="true"></div>
@@ -3418,7 +4189,6 @@ __HELP_DOCS_CSS__
       <button type="button" class="theme-toggle tiny-btn" id="auth-password-button" hidden>修改密码</button>
       <button type="button" class="theme-toggle tiny-btn" id="auth-department-schedule-button" hidden>日程管理</button>
       <button type="button" class="theme-toggle tiny-btn" id="auth-admin-page-button" hidden>管理后台</button>
-      <button type="button" class="theme-toggle tiny-btn" id="theme-toggle">黑夜模式</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="background-settings-button" aria-expanded="false" aria-controls="background-settings-menu">背景设置</button>
       <button type="button" class="theme-toggle tiny-btn" id="help-docs-button">帮助文档</button>
       <div class="background-settings-menu" id="background-settings-menu" hidden>
@@ -3462,44 +4232,32 @@ __HELP_DOCS_CSS__
         <div class="weekly-plan" id="weekly-plan-box">
           <div class="weekly-plan-head">
             <div class="weekly-plan-meta">
-              <div class="weekly-plan-subtitle" id="weekly-plan-range">每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录待定事项。</div>
+              <div class="weekly-plan-window-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+              <div class="weekly-plan-title-stack">
+                <div class="weekly-plan-app-title">日程</div>
+                <div class="weekly-plan-subtitle" id="weekly-plan-range">本周</div>
+              </div>
+              <div class="weekly-plan-calendar-sync" id="weekly-plan-calendar-sync-summary" aria-live="polite"></div>
             </div>
             <div class="weekly-plan-actions">
+              <div class="weekly-plan-nav" aria-label="周视图导航">
+                <button type="button" id="weekly-plan-today-button" title="回到今天">今天</button>
+                <button type="button" id="weekly-plan-prev-button" title="上一周" aria-label="上一周">‹</button>
+                <button type="button" id="weekly-plan-next-button" title="下一周" aria-label="下一周">›</button>
+              </div>
               <div class="weekly-plan-saved-at" id="weekly-plan-saved-at">最近保存：未保存</div>
+              <button type="button" class="secondary tiny-btn" id="weekly-plan-calendar-sync-button">同步钉钉</button>
               <button type="button" class="danger tiny-btn" id="clear-weekly-plan">清除本周安排</button>
             </div>
           </div>
             <div class="weekly-board-scroll">
             <div class="weekly-board">
-              <div class="weekly-corner"></div>
-              <div class="weekly-head workday">周一</div>
-              <div class="weekly-head workday">周二</div>
-              <div class="weekly-head workday">周三</div>
-              <div class="weekly-head workday">周四</div>
-              <div class="weekly-head workday">周五</div>
-              <div class="weekly-head weekend">周六</div>
-              <div class="weekly-head weekend">周日</div>
-
-              <div class="weekly-label">上午</div>
-              <div class="weekly-cell workday"><textarea id="weekly-monday-am" placeholder="周一上午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-tuesday-am" placeholder="周二上午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-wednesday-am" placeholder="周三上午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-thursday-am" placeholder="周四上午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-friday-am" placeholder="周五上午安排"></textarea></div>
-              <div class="weekly-cell weekend"><textarea id="weekly-saturday-am" placeholder="周六上午安排"></textarea></div>
-              <div class="weekly-cell weekend"><textarea id="weekly-sunday-am" placeholder="周日上午安排"></textarea></div>
-
-              <div class="weekly-label">下午</div>
-              <div class="weekly-cell workday"><textarea id="weekly-monday-pm" placeholder="周一下午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-tuesday-pm" placeholder="周二下午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-wednesday-pm" placeholder="周三下午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-thursday-pm" placeholder="周四下午安排"></textarea></div>
-              <div class="weekly-cell workday"><textarea id="weekly-friday-pm" placeholder="周五下午安排"></textarea></div>
-              <div class="weekly-cell weekend"><textarea id="weekly-saturday-pm" placeholder="周六下午安排"></textarea></div>
-              <div class="weekly-cell weekend"><textarea id="weekly-sunday-pm" placeholder="周日下午安排"></textarea></div>
-
-              <div class="weekly-label">待定事项</div>
-              <div class="weekly-pending"><textarea id="weekly-other-pending" placeholder="填写本周待定事项、临时事项或未定计划"></textarea></div>
+              <div class="weekly-plan-overview" id="weekly-plan-overview"></div>
+              <div class="weekly-items-board" id="weekly-items-board"></div>
+              <div class="weekly-pending">
+                <label class="weekly-pending-label" for="weekly-other-pending">其他待办</label>
+                <textarea id="weekly-other-pending" placeholder="填写本周待定事项、临时事项或未定计划"></textarea>
+              </div>
             </div>
           </div>
         </div>
@@ -3750,6 +4508,7 @@ __HELP_DOCS_CSS__
           <span class="prompt-meta-pill" id="user-dingtalk-mcp-scope">当前用户专属</span>
           <span class="prompt-meta-pill" id="user-dingtalk-mcp-log-state">日志发送：未配置</span>
           <span class="prompt-meta-pill" id="user-dingtalk-mcp-directory-state">通讯录查询：未配置</span>
+          <span class="prompt-meta-pill" id="user-dingtalk-mcp-calendar-state">日历同步：未配置</span>
           <span class="prompt-meta-pill" id="user-dingtalk-mcp-daily-template-state">日报模板：未选择</span>
           <span class="prompt-meta-pill" id="user-dingtalk-mcp-weekly-template-state">周报模板：未选择</span>
           <span class="prompt-meta-pill" id="user-dingtalk-mcp-updated-at">当前未配置</span>
@@ -3762,6 +4521,27 @@ __HELP_DOCS_CSS__
         <label class="auth-field">
           <span>通讯录查询 MCP 地址</span>
           <input id="user-dingtalk-directory-mcp-input" type="url" placeholder="例如：https://your-directory-mcp.example.com/sse">
+        </label>
+        <label class="auth-field">
+          <span>日历 MCP 地址</span>
+          <input id="user-dingtalk-calendar-mcp-input" type="url" placeholder="粘贴钉钉日历 MCP 的 Streamable HTTP 地址">
+        </label>
+        <div class="actions" style="margin-top:0;">
+          <button type="button" class="secondary" id="user-dingtalk-calendar-load-button">读取日历</button>
+          <button type="button" class="secondary" id="user-dingtalk-calendar-sync-button">立即同步</button>
+        </div>
+        <label class="auth-field">
+          <span>同步日历</span>
+          <select id="user-dingtalk-calendar-select">
+            <option value="primary">我的日历（primary）</option>
+          </select>
+        </label>
+        <label class="auth-field">
+          <span>同步方向</span>
+          <select id="user-dingtalk-calendar-mode-select">
+            <option value="two_way">双向同步</option>
+            <option value="push">仅本系统同步到钉钉</option>
+          </select>
         </label>
         <div class="actions" style="margin-top:0;">
           <button type="button" class="secondary" id="user-dingtalk-mcp-load-templates-button">读取模板</button>
@@ -3902,16 +4682,20 @@ __HELP_DOCS_OVERLAY__
     const weeklyPlanRange = document.getElementById("weekly-plan-range");
     const prevWeekButton = document.getElementById("prev-week");
     const nextWeekButton = document.getElementById("next-week");
-    const themeToggleButton = document.getElementById("theme-toggle");
     const backgroundSettingsButton = document.getElementById("background-settings-button");
     const backgroundSettingsMenu = document.getElementById("background-settings-menu");
     const promptEditorButton = document.getElementById("prompt-editor-button");
     const userDingtalkMcpButton = document.getElementById("user-dingtalk-mcp-button");
     const weeklyPlanSavedAt = document.getElementById("weekly-plan-saved-at");
     const clearWeeklyPlanButton = document.getElementById("clear-weekly-plan");
+    const weeklyPlanTodayButton = document.getElementById("weekly-plan-today-button");
+    const weeklyPlanPrevButton = document.getElementById("weekly-plan-prev-button");
+    const weeklyPlanNextButton = document.getElementById("weekly-plan-next-button");
+    const weeklyPlanOverview = document.getElementById("weekly-plan-overview");
     const weeklyPlanBox = document.getElementById("weekly-plan-box");
     const weeklyPlanPanel = weeklyPlanBox.closest(".hero-card");
     const weeklyBoardScroll = weeklyPlanBox.querySelector(".weekly-board-scroll");
+    const weeklyItemsBoard = document.getElementById("weekly-items-board");
     const editorPanel = document.getElementById("editor-panel");
     const monthPanel = document.getElementById("month-panel");
     const pageBackground = document.getElementById("page-background");
@@ -3974,18 +4758,26 @@ __HELP_DOCS_OVERLAY__
     const userDingtalkMcpScope = document.getElementById("user-dingtalk-mcp-scope");
     const userDingtalkMcpLogState = document.getElementById("user-dingtalk-mcp-log-state");
     const userDingtalkMcpDirectoryState = document.getElementById("user-dingtalk-mcp-directory-state");
+    const userDingtalkMcpCalendarState = document.getElementById("user-dingtalk-mcp-calendar-state");
     const userDingtalkMcpDailyTemplateState = document.getElementById("user-dingtalk-mcp-daily-template-state");
     const userDingtalkMcpWeeklyTemplateState = document.getElementById("user-dingtalk-mcp-weekly-template-state");
     const userDingtalkMcpUpdatedAt = document.getElementById("user-dingtalk-mcp-updated-at");
     const userDingtalkMcpDescription = document.getElementById("user-dingtalk-mcp-description");
     const userDingtalkLogMcpInput = document.getElementById("user-dingtalk-log-mcp-input");
     const userDingtalkDirectoryMcpInput = document.getElementById("user-dingtalk-directory-mcp-input");
+    const userDingtalkCalendarMcpInput = document.getElementById("user-dingtalk-calendar-mcp-input");
+    const userDingtalkCalendarLoadButton = document.getElementById("user-dingtalk-calendar-load-button");
+    const userDingtalkCalendarSyncButton = document.getElementById("user-dingtalk-calendar-sync-button");
+    const userDingtalkCalendarSelect = document.getElementById("user-dingtalk-calendar-select");
+    const userDingtalkCalendarModeSelect = document.getElementById("user-dingtalk-calendar-mode-select");
     const userDingtalkMcpLoadTemplatesButton = document.getElementById("user-dingtalk-mcp-load-templates-button");
     const userDingtalkDailyTemplateSelect = document.getElementById("user-dingtalk-daily-template-select");
     const userDingtalkWeeklyTemplateSelect = document.getElementById("user-dingtalk-weekly-template-select");
     const userDingtalkMcpResetButton = document.getElementById("user-dingtalk-mcp-reset-button");
     const userDingtalkMcpSaveButton = document.getElementById("user-dingtalk-mcp-save-button");
     const userDingtalkMcpStatus = document.getElementById("user-dingtalk-mcp-status");
+    const weeklyPlanCalendarSyncSummary = document.getElementById("weekly-plan-calendar-sync-summary");
+    const weeklyPlanCalendarSyncButton = document.getElementById("weekly-plan-calendar-sync-button");
     const helpOverlay = document.getElementById("help-overlay");
     const helpOverlayCloseButton = document.getElementById("help-overlay-close");
     const helpTabList = document.getElementById("help-tab-list");
@@ -4065,6 +4857,10 @@ __HELP_DOCS_OVERLAY__
     let sendResultToastTimer = null;
     let backgroundStretchFrame = 0;
     let currentEditorWorkDate = dateInput.value;
+    let currentWeeklyPlanItems = [];
+    let currentWeeklyPlanCalendarSyncSummary = null;
+    let weeklyPlanCalendarSyncing = false;
+    let weeklyPlanCreateDayIndex = null;
     let currentUiSettings = normalizeUiSettings(initialUiSettings);
     let knownCustomerNames = [];
     let knownCustomerProfiles = {};
@@ -4123,33 +4919,23 @@ __HELP_DOCS_OVERLAY__
     let deliveryProgressSessionCounter = 0;
     let activeDeliveryProgressSessionId = 0;
     const weeklyScheduleInputs = {
-      weekly_monday_am: document.getElementById("weekly-monday-am"),
-      weekly_monday_pm: document.getElementById("weekly-monday-pm"),
-      weekly_tuesday_am: document.getElementById("weekly-tuesday-am"),
-      weekly_tuesday_pm: document.getElementById("weekly-tuesday-pm"),
-      weekly_wednesday_am: document.getElementById("weekly-wednesday-am"),
-      weekly_wednesday_pm: document.getElementById("weekly-wednesday-pm"),
-      weekly_thursday_am: document.getElementById("weekly-thursday-am"),
-      weekly_thursday_pm: document.getElementById("weekly-thursday-pm"),
-      weekly_friday_am: document.getElementById("weekly-friday-am"),
-      weekly_friday_pm: document.getElementById("weekly-friday-pm"),
-      weekly_saturday_am: document.getElementById("weekly-saturday-am"),
-      weekly_saturday_pm: document.getElementById("weekly-saturday-pm"),
-      weekly_sunday_am: document.getElementById("weekly-sunday-am"),
-      weekly_sunday_pm: document.getElementById("weekly-sunday-pm"),
       weekly_other_pending: document.getElementById("weekly-other-pending")
     };
 
     function resizeWeeklyScheduleInput(input) {
-      if (!input) {
+      if (!(input instanceof HTMLTextAreaElement)) {
         return;
       }
       input.style.height = "auto";
-      input.style.height = `${Math.max(88, input.scrollHeight + 2)}px`;
+      const minHeight = input === weeklyScheduleInputs.weekly_other_pending
+        ? 88
+        : (input.classList.contains("weekly-item-title") ? 34 : 42);
+      input.style.height = `${Math.max(minHeight, input.scrollHeight + 2)}px`;
     }
 
     function resizeWeeklyScheduleInputs() {
       Object.values(weeklyScheduleInputs).forEach(resizeWeeklyScheduleInput);
+      weeklyItemsBoard.querySelectorAll("textarea").forEach(resizeWeeklyScheduleInput);
     }
 
     function initializePasswordToggleFields() {
@@ -4912,11 +5698,32 @@ __HELP_DOCS_OVERLAY__
 
     function normalizeUserDingtalkMcpEditorConfig(config) {
       const source = config && typeof config === "object" ? config : {};
+      const calendarOptions = Array.isArray(source.calendar_options)
+        ? source.calendar_options
+          .map((item) => ({
+            calendar_id: String(item && (item.calendar_id || item.calendarId) || "").trim(),
+            summary: String(item && (item.summary || item.name) || "").trim(),
+            description: String(item && item.description || "").trim(),
+            privilege: String(item && item.privilege || "").trim(),
+            type: String(item && item.type || "").trim()
+          }))
+          .filter((item) => item.calendar_id)
+        : [];
       return {
         user_id: String(source.user_id || "").trim(),
         display_name: String(source.display_name || "").trim(),
         log_mcp_url: String(source.log_mcp_url || "").trim(),
         directory_mcp_url: String(source.directory_mcp_url || "").trim(),
+        calendar_mcp_url: String(source.calendar_mcp_url || "").trim(),
+        calendar_id: String(source.calendar_id || "primary").trim() || "primary",
+        calendar_sync_mode: String(source.calendar_sync_mode || "two_way").trim() || "two_way",
+        calendar_options: calendarOptions,
+        calendar_sync_status: String(source.calendar_sync_status || "missing").trim() || "missing",
+        calendar_sync_activated_at: String(source.calendar_sync_activated_at || "").trim(),
+        calendar_sync_start_date: String(source.calendar_sync_start_date || "").trim(),
+        calendar_last_polled_at: String(source.calendar_last_polled_at || "").trim(),
+        calendar_last_synced_at: String(source.calendar_last_synced_at || "").trim(),
+        calendar_last_error: String(source.calendar_last_error || "").trim(),
         daily_template: normalizeUserDingtalkTemplateConfig(source.daily_template),
         weekly_template: normalizeUserDingtalkTemplateConfig(source.weekly_template),
         effective_daily_template: normalizeUserDingtalkTemplateConfig(source.effective_daily_template),
@@ -4950,6 +5757,9 @@ __HELP_DOCS_OVERLAY__
       return {
         log_mcp_url: String(source.log_mcp_url || "").trim(),
         directory_mcp_url: String(source.directory_mcp_url || "").trim(),
+        calendar_mcp_url: String(source.calendar_mcp_url || "").trim(),
+        calendar_id: String(source.calendar_id || "primary").trim() || "primary",
+        calendar_sync_mode: String(source.calendar_sync_mode || "two_way").trim() || "two_way",
         daily_template: buildUserDingtalkTemplatePayload(source.daily_template),
         weekly_template: buildUserDingtalkTemplatePayload(source.weekly_template)
       };
@@ -5084,15 +5894,57 @@ __HELP_DOCS_OVERLAY__
       }
       const hasTemplateSelection = !isUserDingtalkTemplateEmpty(config.daily_template)
         || !isUserDingtalkTemplateEmpty(config.weekly_template);
+      const hasCalendarSelection = Boolean(String(config.calendar_mcp_url || "").trim());
       if (hasUserDingtalkMcpPendingChanges()) {
-        return config.log_mcp_url || config.directory_mcp_url || hasTemplateSelection
+        return config.log_mcp_url || config.directory_mcp_url || hasCalendarSelection || hasTemplateSelection
           ? "已修改，待保存"
           : "已清空配置，待保存";
       }
-      if (!config.log_mcp_url && !config.directory_mcp_url && !hasTemplateSelection) {
+      if (!config.log_mcp_url && !config.directory_mcp_url && !hasCalendarSelection && !hasTemplateSelection) {
         return "当前未配置";
       }
       return config.updated_at ? `最近保存：${config.updated_at}` : "当前使用自定义版本";
+    }
+
+    function renderUserDingtalkCalendarSelect(currentConfig) {
+      const selectedValue = String(currentConfig && currentConfig.calendar_id || "primary").trim() || "primary";
+      const options = Array.isArray(currentConfig && currentConfig.calendar_options)
+        ? currentConfig.calendar_options
+        : [];
+      userDingtalkCalendarSelect.textContent = "";
+      const optionList = options.length
+        ? options
+        : [{
+            calendar_id: "primary",
+            summary: "我的日历（primary）",
+            privilege: "owner",
+            type: "primary"
+          }];
+      optionList.forEach((item) => {
+        const option = document.createElement("option");
+        const calendarId = String(item.calendar_id || "").trim();
+        const summary = String(item.summary || calendarId).trim() || calendarId;
+        option.value = calendarId;
+        option.textContent = `${summary}（${calendarId}）`;
+        userDingtalkCalendarSelect.appendChild(option);
+      });
+      userDingtalkCalendarSelect.value = optionList.some((item) => String(item.calendar_id || "").trim() === selectedValue)
+        ? selectedValue
+        : "primary";
+    }
+
+    function buildUserDingtalkCalendarStateLabel(config) {
+      if (!config || !config.calendar_mcp_url) {
+        return "日历同步：未配置";
+      }
+      const modeLabel = config.calendar_sync_mode === "push" ? "单向" : "双向";
+      if (hasUserDingtalkMcpPendingChanges()) {
+        return "日历同步：待保存";
+      }
+      if (config.calendar_sync_status === "active") {
+        return `日历同步：${modeLabel}，${config.calendar_sync_start_date || "已启用"} 起`;
+      }
+      return `日历同步：${config.calendar_sync_status || "未启用"}`;
     }
 
     function renderUserDingtalkMcpEditor() {
@@ -5101,6 +5953,7 @@ __HELP_DOCS_OVERLAY__
       if (!currentConfig) {
         userDingtalkMcpLogState.textContent = userDingtalkMcpState.loading ? "日志发送：正在加载" : "日志发送：未配置";
         userDingtalkMcpDirectoryState.textContent = userDingtalkMcpState.loading ? "通讯录查询：正在加载" : "通讯录查询：未配置";
+        userDingtalkMcpCalendarState.textContent = userDingtalkMcpState.loading ? "日历同步：正在加载" : "日历同步：未配置";
         userDingtalkMcpDailyTemplateState.textContent = userDingtalkMcpState.loading ? "日报模板：正在加载" : "日报模板：未选择";
         userDingtalkMcpWeeklyTemplateState.textContent = userDingtalkMcpState.loading ? "周报模板：正在加载" : "周报模板：未选择";
         userDingtalkMcpUpdatedAt.textContent = userDingtalkMcpState.loading ? "正在加载配置..." : "当前未配置";
@@ -5113,6 +5966,9 @@ __HELP_DOCS_OVERLAY__
         if (userDingtalkDirectoryMcpInput.value) {
           userDingtalkDirectoryMcpInput.value = "";
         }
+        if (userDingtalkCalendarMcpInput.value) {
+          userDingtalkCalendarMcpInput.value = "";
+        }
       } else {
         if (userDingtalkLogMcpInput.value !== currentConfig.log_mcp_url) {
           userDingtalkLogMcpInput.value = currentConfig.log_mcp_url;
@@ -5120,24 +5976,32 @@ __HELP_DOCS_OVERLAY__
         if (userDingtalkDirectoryMcpInput.value !== currentConfig.directory_mcp_url) {
           userDingtalkDirectoryMcpInput.value = currentConfig.directory_mcp_url;
         }
+        if (userDingtalkCalendarMcpInput.value !== currentConfig.calendar_mcp_url) {
+          userDingtalkCalendarMcpInput.value = currentConfig.calendar_mcp_url;
+        }
         userDingtalkMcpLogState.textContent = currentConfig.log_mcp_url
           ? "日志发送：当前用户自定义"
           : `日志发送：${describeEffectiveMcpSource(currentConfig.log_mcp_source)}`;
         userDingtalkMcpDirectoryState.textContent = currentConfig.directory_mcp_url
           ? "通讯录查询：当前用户自定义"
           : `通讯录查询：${describeEffectiveMcpSource(currentConfig.directory_mcp_source)}`;
+        userDingtalkMcpCalendarState.textContent = buildUserDingtalkCalendarStateLabel(currentConfig);
         userDingtalkMcpDailyTemplateState.textContent = buildUserDingtalkTemplateStateLabel(currentConfig, "daily");
         userDingtalkMcpWeeklyTemplateState.textContent = buildUserDingtalkTemplateStateLabel(currentConfig, "weekly");
         userDingtalkMcpUpdatedAt.textContent = buildUserDingtalkMcpStateText(currentConfig);
         if (hasUserDingtalkLogMcpPendingChanges() && currentConfig.log_mcp_url) {
           userDingtalkMcpDescription.textContent = "日志发送 MCP 地址已修改，保存后会清空已选模板；请重新读取并选择日报、周报模板。";
         } else if (!currentConfig.log_mcp_url) {
-          userDingtalkMcpDescription.textContent = "请先填写并保存“日志发送 MCP 地址”，再读取模板；未选择模板时将无法发送日报或周报。";
+          userDingtalkMcpDescription.textContent = currentConfig.calendar_mcp_url
+            ? "日历 MCP 已配置。日志发送 MCP 为空时不能发送日报或周报；日历同步只处理配置启用后新修改的安排。"
+            : "请先填写并保存“日志发送 MCP 地址”，再读取模板；未选择模板时将无法发送日报或周报。";
         } else {
           userDingtalkMcpDescription.textContent = "每个用户单独维护自己的钉钉 MCP 地址和日志模板；当前仅支持选择纯文本字段的 4 段日报模板、5 段周报模板，未选择时禁止发送。";
         }
       }
 
+      renderUserDingtalkCalendarSelect(currentConfig);
+      userDingtalkCalendarModeSelect.value = String(currentConfig && currentConfig.calendar_sync_mode || "two_way");
       renderUserDingtalkTemplateSelect(userDingtalkDailyTemplateSelect, "daily", currentConfig);
       renderUserDingtalkTemplateSelect(userDingtalkWeeklyTemplateSelect, "weekly", currentConfig);
 
@@ -5148,6 +6012,21 @@ __HELP_DOCS_OVERLAY__
         && userDingtalkMcpState.availableTemplates.length > 0;
       userDingtalkLogMcpInput.disabled = inputsDisabled;
       userDingtalkDirectoryMcpInput.disabled = inputsDisabled;
+      userDingtalkCalendarMcpInput.disabled = inputsDisabled;
+      userDingtalkCalendarSelect.disabled = inputsDisabled;
+      userDingtalkCalendarModeSelect.disabled = inputsDisabled;
+      userDingtalkCalendarLoadButton.disabled = (
+        userDingtalkMcpState.loading
+        || userDingtalkMcpState.saving
+        || !currentConfig
+        || !String(currentConfig.calendar_mcp_url || "").trim()
+      );
+      userDingtalkCalendarSyncButton.disabled = (
+        userDingtalkMcpState.loading
+        || userDingtalkMcpState.saving
+        || !currentConfig
+        || String(currentConfig.calendar_sync_status || "") !== "active"
+      );
       userDingtalkMcpLoadTemplatesButton.disabled = (
         userDingtalkMcpState.loading
         || userDingtalkMcpState.saving
@@ -5162,6 +6041,7 @@ __HELP_DOCS_OVERLAY__
       userDingtalkMcpResetButton.disabled = inputsDisabled || (
         !currentConfig.log_mcp_url
         && !currentConfig.directory_mcp_url
+        && !currentConfig.calendar_mcp_url
         && dailyTemplateEmpty
         && weeklyTemplateEmpty
       );
@@ -5266,6 +6146,127 @@ __HELP_DOCS_OVERLAY__
       }
     }
 
+    async function loadUserDingtalkCalendarOptions() {
+      const currentConfig = userDingtalkMcpState.config;
+      const calendarMcpUrl = String(currentConfig && currentConfig.calendar_mcp_url || "").trim();
+      if (!calendarMcpUrl) {
+        setInlineStatus(userDingtalkMcpStatus, "请先填写日历 MCP 地址。", true);
+        return;
+      }
+      userDingtalkCalendarLoadButton.disabled = true;
+      setInlineStatus(userDingtalkMcpStatus, "正在读取钉钉日历列表...", false);
+      try {
+        const response = await fetch("/api/user-dingtalk-calendar-options", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ calendar_mcp_url: calendarMcpUrl })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "读取钉钉日历失败");
+        }
+        currentConfig.calendar_options = Array.isArray(payload.calendars) ? payload.calendars : [];
+        if (!currentConfig.calendar_options.some((item) => String(item.calendar_id || "") === String(currentConfig.calendar_id || "primary"))) {
+          currentConfig.calendar_id = "primary";
+        }
+        renderUserDingtalkMcpEditor();
+        setInlineStatus(
+          userDingtalkMcpStatus,
+          `已读取 ${currentConfig.calendar_options.length} 个日历，请选择后保存。`,
+          false
+        );
+      } catch (error) {
+        setInlineStatus(userDingtalkMcpStatus, error.message || "读取钉钉日历失败。", true);
+      } finally {
+        renderUserDingtalkMcpEditor();
+      }
+    }
+
+    async function triggerUserDingtalkCalendarSync(options = {}) {
+      const fromWeeklyPlan = Boolean(options.fromWeeklyPlan);
+      const syncDate = String(options.date || dateInput.value || formatDate(new Date())).trim();
+      const statusMessage = (message, isError = false) => {
+        if (fromWeeklyPlan) {
+          setStatus(message, isError ? "error" : "success");
+        } else {
+          setInlineStatus(userDingtalkMcpStatus, message, isError);
+        }
+      };
+      weeklyPlanCalendarSyncing = true;
+      userDingtalkCalendarSyncButton.disabled = true;
+      renderWeeklyPlanCalendarSyncSummary(currentWeeklyPlanCalendarSyncSummary);
+      statusMessage("正在同步当前周的钉钉日程...", false);
+      try {
+        const response = await fetch("/api/user-dingtalk-calendar-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: syncDate })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "钉钉日程同步失败");
+        }
+        const normalizedConfig = normalizeUserDingtalkMcpEditorConfig(payload.config || {});
+        userDingtalkMcpState.config = normalizedConfig;
+        userDingtalkMcpState.savedConfig = cloneUserDingtalkMcpEditorConfig(normalizedConfig);
+        await loadWeeklyPlan(syncDate, false);
+        const queue = payload.queue && typeof payload.queue === "object" ? payload.queue : {};
+        const queuedCount = Number(queue.queued_count || 0);
+        const importedCount = Number(queue.imported_count || 0);
+        let syncMessage = "当前周没有新增或待同步的日程。";
+        if (importedCount && queuedCount) {
+          syncMessage = `已从钉钉导入 ${importedCount} 条日程，并同步 ${queuedCount} 条本地日程到钉钉。`;
+        } else if (importedCount) {
+          syncMessage = `已从钉钉导入 ${importedCount} 条日程。`;
+        } else if (queuedCount) {
+          syncMessage = `当前周已同步 ${queuedCount} 条本地日程到钉钉。`;
+        }
+        statusMessage(syncMessage, false);
+      } catch (error) {
+        statusMessage(error.message || "钉钉日程同步失败。", true);
+      } finally {
+        weeklyPlanCalendarSyncing = false;
+        renderWeeklyPlanCalendarSyncSummary(currentWeeklyPlanCalendarSyncSummary);
+        renderUserDingtalkMcpEditor();
+      }
+    }
+
+    async function syncWeeklyPlanFromToolbar() {
+      if (!(authState.authenticated && authState.user)) {
+        setStatus("请先登录后再同步钉钉日程。", "warning");
+        return;
+      }
+      if (!userDingtalkMcpState.loaded) {
+        await loadUserDingtalkMcpConfig(true).catch(() => {});
+      }
+      const currentConfig = userDingtalkMcpState.config;
+      if (!currentConfig || !String(currentConfig.calendar_mcp_url || "").trim()
+          || String(currentConfig.calendar_sync_status || "") !== "active") {
+        openUserDingtalkMcpOverlay();
+        setInlineStatus(
+          userDingtalkMcpStatus,
+          "请先在钉钉 MCP 中配置并保存日历同步，再执行同步。",
+          true
+        );
+        return;
+      }
+      cancelWeeklyPlanAutosave();
+      const weekStart = currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value);
+      const saved = await savePageSettings({
+        weekStart,
+        settings: getCurrentSettings(),
+        silent: true,
+        force: true
+      });
+      if (!saved) {
+        return;
+      }
+      await triggerUserDingtalkCalendarSync({
+        fromWeeklyPlan: true,
+        date: dateInput.value
+      });
+    }
+
     function openUserDingtalkMcpOverlay() {
       if (!(authState.authenticated && authState.user)) {
         return;
@@ -5294,6 +6295,10 @@ __HELP_DOCS_OVERLAY__
       }
       userDingtalkMcpState.config.log_mcp_url = "";
       userDingtalkMcpState.config.directory_mcp_url = "";
+      userDingtalkMcpState.config.calendar_mcp_url = "";
+      userDingtalkMcpState.config.calendar_id = "primary";
+      userDingtalkMcpState.config.calendar_sync_mode = "two_way";
+      userDingtalkMcpState.config.calendar_options = [];
       userDingtalkMcpState.config.daily_template = normalizeUserDingtalkTemplateConfig({});
       userDingtalkMcpState.config.weekly_template = normalizeUserDingtalkTemplateConfig({});
       setInlineStatus(userDingtalkMcpStatus, "已清空 MCP 地址和模板选择，点击“保存配置”后生效。", false);
@@ -5318,6 +6323,12 @@ __HELP_DOCS_OVERLAY__
           body: JSON.stringify({
             log_mcp_url: String(currentConfig.log_mcp_url || "").trim(),
             directory_mcp_url: String(currentConfig.directory_mcp_url || "").trim(),
+            calendar_mcp_url: String(currentConfig.calendar_mcp_url || "").trim(),
+            calendar_id: String(currentConfig.calendar_id || "primary").trim() || "primary",
+            calendar_sync_mode: String(currentConfig.calendar_sync_mode || "two_way").trim() || "two_way",
+            calendar_options: Array.isArray(currentConfig.calendar_options)
+              ? currentConfig.calendar_options
+              : [],
             daily_template: buildUserDingtalkTemplatePayload(currentConfig.daily_template),
             weekly_template: buildUserDingtalkTemplatePayload(currentConfig.weekly_template),
           }),
@@ -5334,7 +6345,10 @@ __HELP_DOCS_OVERLAY__
         userDingtalkMcpState.config = normalizedConfig;
         userDingtalkMcpState.savedConfig = cloneUserDingtalkMcpEditorConfig(normalizedConfig);
         userDingtalkMcpState.loaded = true;
-        setInlineStatus(userDingtalkMcpStatus, "钉钉 MCP 与模板配置已保存，仅对当前用户生效。", false);
+        const calendarStatus = normalizedConfig.calendar_mcp_url
+          ? `日历同步已启用，从 ${normalizedConfig.calendar_sync_start_date || "今天"} 起只处理新修改的安排，历史数据不会回补。`
+          : "日历同步已关闭，已有钉钉日程不会被删除。";
+        setInlineStatus(userDingtalkMcpStatus, `钉钉 MCP 与模板配置已保存。${calendarStatus}`, false);
       } catch (error) {
         setInlineStatus(userDingtalkMcpStatus, error.message || "保存钉钉 MCP 配置失败。", true);
       } finally {
@@ -5839,21 +6853,12 @@ __HELP_DOCS_OVERLAY__
     const LOCAL_LOGIN_USERNAME_STORAGE_KEY = "daily_planner_last_local_login_username";
 
     function readStoredThemePreference() {
-      try {
-        const value = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
-        return value === "dark" || value === "light" ? value : "";
-      } catch (error) {
-        return "";
-      }
+      return "light";
     }
 
     function writeStoredThemePreference(theme) {
       try {
-        if (theme === "dark" || theme === "light") {
-          window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, theme);
-        } else {
-          window.localStorage.removeItem(THEME_PREFERENCE_STORAGE_KEY);
-        }
+        window.localStorage.removeItem(THEME_PREFERENCE_STORAGE_KEY);
       } catch (error) {
         // Ignore storage failures.
       }
@@ -5888,8 +6893,7 @@ __HELP_DOCS_OVERLAY__
     }
 
     function getAutoTheme(currentDate = new Date()) {
-      const hour = currentDate.getHours();
-      return hour >= AUTO_THEME_DAY_START_HOUR && hour < AUTO_THEME_NIGHT_START_HOUR ? "light" : "dark";
+      return "light";
     }
 
     function getNextAutoThemeSwitchDelay(currentDate = new Date()) {
@@ -5907,26 +6911,16 @@ __HELP_DOCS_OVERLAY__
 
     function scheduleAutoThemeRefresh() {
       window.clearTimeout(scheduleAutoThemeRefresh.timerId);
-      if (readStoredThemePreference()) {
-        return;
-      }
-      scheduleAutoThemeRefresh.timerId = window.setTimeout(() => {
-        applyTheme(getAutoTheme());
-        scheduleAutoThemeRefresh();
-      }, getNextAutoThemeSwitchDelay());
     }
 
     function applyTheme(theme) {
-      const nextTheme = theme === "dark" ? "dark" : "light";
-      document.body.dataset.theme = nextTheme;
-      themeToggleButton.textContent = nextTheme === "dark" ? "白天模式" : "黑夜模式";
-      themeToggleButton.setAttribute("aria-label", nextTheme === "dark" ? "切换到白天模式" : "切换到黑夜模式");
+      document.body.dataset.theme = "light";
+      writeStoredThemePreference("");
       applyVisualSettings(currentUiSettings);
     }
 
     function initTheme() {
-      applyTheme(readStoredThemePreference() || getAutoTheme());
-      scheduleAutoThemeRefresh();
+      applyTheme("light");
     }
 
     function setBackgroundSettingsOpen(isOpen) {
@@ -6085,10 +7079,18 @@ __HELP_DOCS_OVERLAY__
 
     function applyVisualSettings(settings) {
       currentUiSettings = normalizeUiSettings(settings);
-      const theme = document.body.dataset.theme === "dark" ? "dark" : "light";
+      const theme = "light";
+      document.body.dataset.theme = theme;
       const root = document.documentElement;
       const regionSurface = buildRegionSurface(theme, currentUiSettings.region_opacity);
       const panelSurface = buildRegionSurface(theme, Math.max(0.18, currentUiSettings.region_opacity - 0.04));
+      const badgeOpacity = Math.min(0.98, Math.max(0.62, currentUiSettings.region_opacity + 0.16));
+      const boardOpacity = Math.min(0.72, Math.max(0.38, currentUiSettings.region_opacity + 0.18));
+      const controlOpacity = Math.max(0.16, Math.min(0.78, currentUiSettings.region_opacity * 0.62));
+      const tableSurfaceOpacity = Math.max(0.14, Math.min(0.68, currentUiSettings.region_opacity * 0.5));
+      const tableHeaderOpacity = Math.max(0.14, Math.min(0.68, currentUiSettings.region_opacity * 0.52));
+      const tableRowOpacity = Math.max(0.1, Math.min(0.58, currentUiSettings.region_opacity * 0.44));
+      const badgeSurface = buildRegionSurface(theme, badgeOpacity);
       document.documentElement.style.backgroundImage = buildViewportFallback(theme);
       document.documentElement.style.backgroundColor = theme === "dark" ? "#101a29" : "#e2edfb";
       pageBackground.style.backgroundColor = theme === "dark" ? "#101a29" : "#e2edfb";
@@ -6103,14 +7105,33 @@ __HELP_DOCS_OVERLAY__
       scheduleBackgroundStretch();
       root.style.setProperty("--boot-panel-background", panelSurface);
       root.style.setProperty("--boot-region-background", regionSurface);
+      root.style.setProperty("--boot-badge-background", badgeSurface);
+      root.style.setProperty("--shell-surface-strong-alpha", String(Math.max(0.28, Math.min(0.98, currentUiSettings.region_opacity))));
+      root.style.setProperty("--shell-surface-alpha", String(Math.max(0.22, Math.min(0.94, currentUiSettings.region_opacity - 0.04))));
+      root.style.setProperty("--shell-surface-soft-alpha", String(Math.max(0.16, Math.min(0.9, currentUiSettings.region_opacity - 0.12))));
+      root.style.setProperty("--shell-surface-subtle-alpha", String(Math.max(0.12, Math.min(0.86, currentUiSettings.region_opacity - 0.2))));
+      root.style.setProperty("--shell-surface-backdrop-alpha", String(Math.max(0.08, Math.min(0.36, currentUiSettings.region_opacity * 0.28))));
+      root.style.setProperty("--shell-surface-track-alpha", String(Math.max(0.1, Math.min(0.48, currentUiSettings.region_opacity * 0.38))));
+      root.style.setProperty("--shell-surface-header-alpha", String(Math.max(0.14, Math.min(0.58, currentUiSettings.region_opacity * 0.5))));
+      root.style.setProperty("--weekly-board-surface-alpha", String(boardOpacity));
+      root.style.setProperty("--weekly-board-surface-soft-alpha", String(Math.max(0.26, boardOpacity - 0.12)));
+      root.style.setProperty("--form-control-surface-alpha", String(controlOpacity));
+      root.style.setProperty("--form-control-surface-soft-alpha", String(Math.max(0.1, controlOpacity - 0.14)));
+      root.style.setProperty("--editor-table-surface-alpha", String(tableSurfaceOpacity));
+      root.style.setProperty("--editor-table-surface-soft-alpha", String(Math.max(0.08, tableSurfaceOpacity - 0.16)));
+      root.style.setProperty("--editor-table-header-alpha", String(tableHeaderOpacity));
+      root.style.setProperty("--editor-table-header-soft-alpha", String(Math.max(0.08, tableHeaderOpacity - 0.14)));
+      root.style.setProperty("--editor-table-row-alpha", String(tableRowOpacity));
+      root.style.setProperty("--editor-table-row-alt-alpha", String(Math.max(0.08, tableRowOpacity - 0.08)));
+      root.style.setProperty("--editor-table-row-hover-alpha", String(Math.min(0.72, tableRowOpacity + 0.1)));
 
-      weeklyPlanPanel.style.background = panelSurface;
-      weeklyPlanBox.style.background = regionSurface;
+      weeklyPlanPanel.style.background = regionSurface;
+      weeklyPlanBox.style.background = "transparent";
       weeklyBoardScroll.style.background = "";
       editorPanel.style.background = regionSurface;
       monthPanel.style.background = regionSurface;
       if (pageUserBadge) {
-        pageUserBadge.style.background = regionSurface;
+        pageUserBadge.style.background = badgeSurface;
       }
       weeklyPlanBox.querySelectorAll(".weekly-head, .weekly-cell, .weekly-label, .weekly-pending").forEach((element) => {
         element.style.background = "";
@@ -6416,8 +7437,342 @@ __HELP_DOCS_OVERLAY__
       return buildScopedStorageKey(WEEKLY_PLAN_DRAFT_PREFIX, weekStart);
     }
 
+    const WEEKLY_PLAN_DAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+    const WEEKLY_PLAN_TIME_RAIL_LABELS = ["09:00", "10:00", "11:00", "14:00", "16:00", "18:00"];
+
+    function buildWeeklyPlanDate(weekStart, dayIndex) {
+      if (!isValidDateString(weekStart)) {
+        return "";
+      }
+      const dateValue = parseDateString(weekStart);
+      dateValue.setDate(dateValue.getDate() + Number(dayIndex || 0));
+      return formatDate(dateValue);
+    }
+
+    function renderWeeklyPlanTimeRail() {
+      return `
+        <div class="weekly-time-rail" aria-hidden="true">
+          <div class="weekly-time-rail-spacer"></div>
+          ${WEEKLY_PLAN_TIME_RAIL_LABELS.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}
+        </div>
+      `;
+    }
+
+    function renderWeeklyPlanOverview(groupedItems) {
+      if (!weeklyPlanOverview) {
+        return;
+      }
+      const items = (Array.isArray(groupedItems) ? groupedItems.flat() : currentWeeklyPlanItems)
+        .filter((item) => String(item && item.title || "").trim());
+      const today = formatDate(new Date());
+      const todayCount = items.filter((item) => String(item.work_date || "") === today).length;
+      const syncedCount = items.filter((item) => String((item.calendar_sync || {}).status || "") === "synced").length;
+      const pendingCount = items.filter((item) => {
+        const status = String((item.calendar_sync || {}).status || "");
+        return status === "pending" || status === "syncing" || status === "local_only";
+      }).length;
+      const nextItem = items
+        .slice()
+        .sort((left, right) => `${left.work_date || ""} ${left.start_time || ""}`.localeCompare(`${right.work_date || ""} ${right.start_time || ""}`))
+        .find((item) => `${item.work_date || ""} ${item.start_time || ""}` >= `${today} 00:00`);
+      const parts = [
+        `本周 ${items.length} 条`,
+        `今天 ${todayCount} 条`,
+        `已同步 ${syncedCount} 条`,
+      ];
+      if (pendingCount) {
+        parts.push(`待处理 ${pendingCount} 条`);
+      }
+      if (nextItem) {
+        parts.push(`下一项 ${String(nextItem.start_time || "").trim()} ${String(nextItem.title || "").trim()}`);
+      }
+      weeklyPlanOverview.innerHTML = parts
+        .map((part) => `<span class="weekly-plan-overview-pill">${escapeHtml(part)}</span>`)
+        .join("");
+    }
+
+    function makeWeeklyPlanItemId() {
+      return `weekly_item_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+    }
+
+    function sanitizeWeeklyPlanTimeInput(value) {
+      return String(value || "")
+        .trim()
+        .replace(/[０-９]/g, (character) => String(character.charCodeAt(0) - 0xfee0))
+        .replace(/[：；;]/g, ":")
+        .replace(/\s+/g, "");
+    }
+
+    function normalizeWeeklyPlanTimeInput(value) {
+      const source = sanitizeWeeklyPlanTimeInput(value);
+      if (!source) {
+        return "";
+      }
+      const hourOnlyMatch = source.match(/^(\d{1,2})$/);
+      if (hourOnlyMatch) {
+        const hour = Number(hourOnlyMatch[1]);
+        return hour >= 0 && hour <= 23 ? `${String(hour).padStart(2, "0")}:00` : source;
+      }
+      const timeMatch = source.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (!timeMatch) {
+        return source;
+      }
+      const hour = Number(timeMatch[1]);
+      const minute = Number(timeMatch[2]);
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return source;
+      }
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    }
+
+    function isWeeklyPlanTimeFieldName(fieldName) {
+      return fieldName === "start_time" || fieldName === "end_time";
+    }
+
+    function sanitizeWeeklyPlanTimeField(input) {
+      if (!(input instanceof HTMLInputElement)) {
+        return "";
+      }
+      const sanitized = sanitizeWeeklyPlanTimeInput(input.value);
+      if (sanitized !== String(input.value || "")) {
+        input.value = sanitized;
+      }
+      return sanitized;
+    }
+
+    function normalizeWeeklyPlanTimeField(input) {
+      if (!(input instanceof HTMLInputElement)) {
+        return "";
+      }
+      const normalized = normalizeWeeklyPlanTimeInput(input.value);
+      if (normalized !== String(input.value || "")) {
+        input.value = normalized;
+      }
+      return normalized;
+    }
+
+    function validateWeeklyPlanTimeRange(startTime, endTime, title, options = {}) {
+      const normalizedTitle = String(title || "").trim();
+      const normalizedStart = normalizeWeeklyPlanTimeInput(startTime);
+      const normalizedEnd = normalizeWeeklyPlanTimeInput(endTime);
+      const requireTitle = !options || options.requireTitle !== false;
+      if (requireTitle && !normalizedTitle) {
+        return "请填写日程安排。";
+      }
+      if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalizedStart)) {
+        return "开始时间必须是 HH:MM 格式，例如 09:00。";
+      }
+      if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalizedEnd)) {
+        return "结束时间必须是 HH:MM 格式，例如 18:00。";
+      }
+      if (normalizedStart >= normalizedEnd) {
+        return "结束时间必须晚于开始时间。";
+      }
+      return "";
+    }
+
+    function validateWeeklyPlanItemsForSave(settings) {
+      const source = settings && typeof settings === "object" ? settings : {};
+      const items = Array.isArray(source.weekly_plan_items) ? source.weekly_plan_items : [];
+      for (const item of items) {
+        const title = String(item && item.title || "").trim();
+        const legacy = Boolean(item && (item.legacy_slot_key || item.source === "legacy"));
+        if (!title && !legacy) {
+          continue;
+        }
+        const message = validateWeeklyPlanTimeRange(
+          item && item.start_time,
+          item && item.end_time,
+          title || "日程",
+          { requireTitle: false }
+        );
+        if (message) {
+          return title ? `日程“${title}”：${message}` : message;
+        }
+      }
+      return "";
+    }
+
+    function renderWeeklyPlanCreateForm(dayIndex) {
+      return `
+        <form class="weekly-item-create-form" data-weekly-create-form data-day-index="${dayIndex}">
+          <label>
+            <span>安排</span>
+            <textarea data-weekly-create-field="title" placeholder="填写日程安排" required></textarea>
+          </label>
+          <div class="weekly-item-create-time-row">
+            <label>
+              <span>开始时间</span>
+              <input type="text" data-weekly-create-field="start_time" inputmode="numeric" maxlength="5" placeholder="09:00" required>
+            </label>
+            <label>
+              <span>结束时间</span>
+              <input type="text" data-weekly-create-field="end_time" inputmode="numeric" maxlength="5" placeholder="10:00" required>
+            </label>
+          </div>
+          <label>
+            <span>地点（可选）</span>
+            <input type="text" data-weekly-create-field="location" placeholder="填写地点">
+          </label>
+          <div class="weekly-item-create-error" data-weekly-create-error aria-live="polite"></div>
+          <div class="weekly-item-create-actions">
+            <button type="button" class="secondary" data-action="cancel-new-weekly-item">取消</button>
+            <button type="submit" class="primary">保存日程</button>
+          </div>
+        </form>
+      `;
+    }
+
+    function normalizeWeeklyPlanItemsClient(settings, weekStart = currentWeeklyPlanWeekStart) {
+      const source = settings && typeof settings === "object" ? settings : {};
+      const hasItemList = Object.prototype.hasOwnProperty.call(source, "weekly_plan_items");
+      const rawItems = Array.isArray(source.weekly_plan_items) ? source.weekly_plan_items : [];
+      const items = rawItems.map((rawItem, index) => {
+        const item = rawItem && typeof rawItem === "object" ? rawItem : {};
+        return {
+          id: String(item.id || item.item_id || makeWeeklyPlanItemId()).trim(),
+          work_date: String(item.work_date || item.date || "").trim(),
+          start_time: normalizeWeeklyPlanTimeInput(item.start_time),
+          end_time: normalizeWeeklyPlanTimeInput(item.end_time),
+          title: String(item.title || item.content || "").trim(),
+          description: String(item.description || "").trim(),
+          location: String(item.location || "").trim(),
+          sort_order: Number(item.sort_order || index),
+          legacy_slot_key: String(item.legacy_slot_key || "").trim(),
+          source: String(item.source || (item.legacy_slot_key ? "legacy" : "new")).trim(),
+          calendar_sync: normalizeWeeklyPlanCalendarSyncState(item.calendar_sync)
+        };
+      });
+      if (hasItemList || items.length) {
+        return items;
+      }
+      const legacyItems = [];
+      const legacySlots = [
+        ["weekly_monday_am", 0, "09:00", "12:00"],
+        ["weekly_monday_pm", 0, "13:30", "18:00"],
+        ["weekly_tuesday_am", 1, "09:00", "12:00"],
+        ["weekly_tuesday_pm", 1, "13:30", "18:00"],
+        ["weekly_wednesday_am", 2, "09:00", "12:00"],
+        ["weekly_wednesday_pm", 2, "13:30", "18:00"],
+        ["weekly_thursday_am", 3, "09:00", "12:00"],
+        ["weekly_thursday_pm", 3, "13:30", "18:00"],
+        ["weekly_friday_am", 4, "09:00", "12:00"],
+        ["weekly_friday_pm", 4, "13:30", "18:00"],
+        ["weekly_saturday_am", 5, "09:00", "12:00"],
+        ["weekly_saturday_pm", 5, "13:30", "18:00"],
+        ["weekly_sunday_am", 6, "09:00", "12:00"],
+        ["weekly_sunday_pm", 6, "13:30", "18:00"]
+      ];
+      legacySlots.forEach(([slotKey, dayIndex, startTime, endTime]) => {
+        const title = String(source[slotKey] || "").trim();
+        if (!title) {
+          return;
+        }
+        legacyItems.push({
+          id: slotKey,
+          work_date: buildWeeklyPlanDate(weekStart, dayIndex),
+          start_time: startTime,
+          end_time: endTime,
+          title,
+          description: "",
+          location: "",
+          sort_order: dayIndex * 10 + (String(slotKey).endsWith("_pm") ? 1 : 0),
+          legacy_slot_key: slotKey,
+          source: "legacy",
+          calendar_sync: normalizeWeeklyPlanCalendarSyncState()
+        });
+      });
+      return legacyItems;
+    }
+
+    function getWeeklyPlanItemsByDay(items = currentWeeklyPlanItems) {
+      const grouped = Array.from({ length: 7 }, () => []);
+      (Array.isArray(items) ? items : []).forEach((item) => {
+        const targetDate = String(item && item.work_date || "").trim();
+        const weekStart = currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value);
+        if (!targetDate || !weekStart) {
+          return;
+        }
+        const dayIndex = Math.round((parseDateString(targetDate) - parseDateString(weekStart)) / 86400000);
+        if (dayIndex >= 0 && dayIndex < 7) {
+          grouped[dayIndex].push(item);
+        }
+      });
+      grouped.forEach((itemsForDay) => {
+        itemsForDay.sort((left, right) => {
+          const timeCompare = String(left.start_time || "").localeCompare(String(right.start_time || ""));
+          return timeCompare || Number(left.sort_order || 0) - Number(right.sort_order || 0);
+        });
+      });
+      return grouped;
+    }
+
+    function renderWeeklyPlanItems() {
+      if (!weeklyItemsBoard) {
+        return;
+      }
+      const grouped = getWeeklyPlanItemsByDay();
+      const weekStart = currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value);
+      const today = formatDate(new Date());
+      renderWeeklyPlanOverview(grouped);
+      weeklyItemsBoard.innerHTML = renderWeeklyPlanTimeRail() + WEEKLY_PLAN_DAY_LABELS.map((label, dayIndex) => {
+        const dayItems = grouped[dayIndex] || [];
+        const dateValue = buildWeeklyPlanDate(weekStart, dayIndex);
+        const dayNumber = dateValue ? String(Number(dateValue.slice(8))) : "";
+        const itemMarkup = dayItems.length
+          ? dayItems.map((item) => {
+              const itemId = String(item.id || "").trim();
+              const legacy = Boolean(item.legacy_slot_key || item.source === "legacy");
+              const disabled = legacy ? " disabled" : "";
+              const legacyLabel = legacy
+                ? `<span class="weekly-item-legacy-label">${String(item.legacy_slot_key || "").endsWith("_pm") ? "下午" : "上午"}</span>`
+                : "";
+              return `
+                <div class="weekly-item-editor" data-weekly-item-id="${escapeHtml(itemId)}">
+                  <div class="weekly-item-accent"></div>
+                  <div class="weekly-item-main">
+                    <div class="weekly-item-sync-row">${renderWeeklyPlanCalendarSyncInline(item.calendar_sync)}</div>
+                    <div class="weekly-item-time-row">
+                      <div class="weekly-item-time-stack">
+                        <input type="text" data-weekly-field="start_time"${disabled} inputmode="numeric" maxlength="5" placeholder="09:00" value="${escapeHtml(item.start_time || "")}" aria-label="开始时间">
+                        <span class="weekly-item-time-separator">-</span>
+                        <input type="text" data-weekly-field="end_time"${disabled} inputmode="numeric" maxlength="5" placeholder="10:00" value="${escapeHtml(item.end_time || "")}" aria-label="结束时间">
+                      </div>
+                      <button type="button" class="danger weekly-item-delete" data-action="delete-weekly-item" title="删除日程" aria-label="删除日程"><span aria-hidden="true">×</span></button>
+                    </div>
+                    ${legacyLabel}
+                    <textarea class="weekly-item-title" data-weekly-field="title" placeholder="内容">${escapeHtml(item.title || "")}</textarea>
+                    <input class="weekly-item-location" data-weekly-field="location" placeholder="地点" value="${escapeHtml(item.location || "")}">
+                  </div>
+                </div>
+              `;
+            }).join("")
+          : '<div class="weekly-day-empty">暂无安排</div>';
+        const createMarkup = weeklyPlanCreateDayIndex === dayIndex
+          ? renderWeeklyPlanCreateForm(dayIndex)
+          : `<button type="button" class="secondary weekly-item-add" data-action="add-weekly-item" data-day-index="${dayIndex}">+ 新建日程</button>`;
+        return `
+          <div class="weekly-day-column${dayIndex >= 5 ? " weekend" : ""}${dateValue === today ? " today" : ""}" data-weekly-day-index="${dayIndex}">
+            <div class="weekly-day-header">
+              <div class="weekly-day-heading">
+                <span class="weekly-day-name">${label}</span>
+                <span class="weekly-day-count">${dayItems.length ? `${dayItems.length} 项` : "空闲"}</span>
+              </div>
+              <span class="weekly-day-date">${escapeHtml(dayNumber)}</span>
+            </div>
+            <div class="weekly-day-items">${itemMarkup}</div>
+            ${createMarkup}
+          </div>
+        `;
+      }).join("");
+      resizeWeeklyScheduleInputs();
+    }
+
     function hasMeaningfulWeeklyPlanContent(settings) {
-      return Object.keys(weeklyScheduleInputs).some((key) => String(settings && settings[key] || "").trim());
+      const source = settings && typeof settings === "object" ? settings : {};
+      return normalizeWeeklyPlanItemsClient(source, source.week_start || currentWeeklyPlanWeekStart)
+        .some((item) => String(item && item.title || "").trim())
+        || Boolean(String(source.weekly_other_pending || "").trim());
     }
 
     function loadWeeklyPlanDraft(weekStart) {
@@ -6430,7 +7785,7 @@ __HELP_DOCS_OVERLAY__
       }
       return {
         week_start: payload.week_start,
-        settings: normalizeWeeklyPlanPayload(payload.settings),
+        settings: normalizeWeeklyPlanPayload(payload.settings, payload.week_start),
         updated_at: String(payload.updated_at || ""),
         base_updated_at: String(payload.base_updated_at || payload.server_updated_at || ""),
         base_snapshot: String(payload.base_snapshot || "")
@@ -6441,7 +7796,7 @@ __HELP_DOCS_OVERLAY__
       if (!isValidDateString(weekStart)) {
         return;
       }
-      const normalizedSettings = normalizeWeeklyPlanPayload(settings);
+      const normalizedSettings = normalizeWeeklyPlanPayload(settings, weekStart);
       if (!hasMeaningfulWeeklyPlanContent(normalizedSettings)) {
         removeStorageValue(buildWeeklyPlanDraftKey(weekStart));
         return;
@@ -7856,13 +9211,13 @@ __HELP_DOCS_OVERLAY__
 
     function updateWeeklyPlanRange(anchorDate) {
       if (!anchorDate) {
-        weeklyPlanRange.textContent = "每周工作安排：按周维护上午、下午安排，编辑后自动保存，并记录待定事项。";
+        weeklyPlanRange.textContent = "本周";
         return;
       }
       const monday = getMonday(parseDateString(anchorDate));
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
-      weeklyPlanRange.textContent = `每周工作安排：${formatDate(monday)} 至 ${formatDate(sunday)} · 按周维护上午、下午安排，编辑后自动保存，并记录待定事项。`;
+      weeklyPlanRange.textContent = `${formatDate(monday).replace(/-/g, "/")} - ${formatDate(sunday).slice(5).replace("-", "/")}`;
     }
 
     function setWeeklyPlanSavedAtText(text) {
@@ -7871,6 +9226,96 @@ __HELP_DOCS_OVERLAY__
 
     function updateWeeklyPlanSavedAt(value) {
       setWeeklyPlanSavedAtText(value ? `最近保存：${value}` : "最近保存：未保存");
+    }
+
+    function normalizeWeeklyPlanCalendarSyncState(sync) {
+      const source = sync && typeof sync === "object" ? sync : {};
+      return {
+        status: String(source.status || "local_only").trim() || "local_only",
+        label: String(source.label || "本地").trim() || "本地",
+        tone: String(source.tone || "neutral").trim() || "neutral",
+        hint: String(source.hint || "").trim(),
+        event_id: String(source.event_id || "").trim(),
+        last_error: String(source.last_error || "").trim(),
+        calendar_name: String(source.calendar_name || "").trim(),
+        sync_mode: String(source.sync_mode || "").trim(),
+        total_items: Number(source.total_items || 0),
+        enabled: Boolean(source.enabled),
+        counts: source.counts && typeof source.counts === "object" ? source.counts : {},
+      };
+    }
+
+    function renderWeeklyPlanCalendarSyncBadge(sync) {
+      const state = normalizeWeeklyPlanCalendarSyncState(sync);
+      const title = [
+        state.hint,
+        state.calendar_name ? `日历：${state.calendar_name}` : "",
+        state.event_id ? `eventId：${state.event_id}` : "",
+      ].filter(Boolean).join(" · ");
+      return `<span class="calendar-sync-badge neutral" title="${escapeHtml(title)}">钉钉</span><span class="calendar-sync-caption">同步状态：${escapeHtml(state.label)}</span>`;
+    }
+
+    function getWeeklyPlanCalendarSyncToneClass(state) {
+      const tone = String((state && state.tone) || "").trim();
+      if (["success", "pending", "warning", "danger", "muted", "neutral"].includes(tone)) {
+        return tone;
+      }
+      const status = String((state && state.status) || "").trim();
+      if (status === "synced") {
+        return "success";
+      }
+      if (status === "pending" || status === "syncing") {
+        return "pending";
+      }
+      if (["remote_changed", "remote_deleted", "remote_cancelled"].includes(status)) {
+        return "warning";
+      }
+      if (status === "failed" || status === "conflict") {
+        return "danger";
+      }
+      if (status === "missing" || status === "idle" || status === "deleted") {
+        return "muted";
+      }
+      return "neutral";
+    }
+
+    function renderWeeklyPlanCalendarSyncInline(sync) {
+      const state = normalizeWeeklyPlanCalendarSyncState(sync);
+      const title = [
+        state.hint,
+        state.calendar_name ? `日历：${state.calendar_name}` : "",
+        state.event_id ? `eventId：${state.event_id}` : "",
+      ].filter(Boolean).join(" · ");
+      return `<span class="calendar-sync-inline" title="${escapeHtml(title)}">钉钉 · 同步状态：<span class="calendar-sync-state ${getWeeklyPlanCalendarSyncToneClass(state)}">${escapeHtml(state.label)}</span></span>`;
+    }
+
+    function renderWeeklyPlanCalendarSyncSummary(summary) {
+      if (!weeklyPlanCalendarSyncSummary) {
+        return;
+      }
+      const state = normalizeWeeklyPlanCalendarSyncState(summary);
+      const counts = state.counts || {};
+      const detailParts = [];
+      if (state.enabled && state.total_items) {
+        detailParts.push(`${state.total_items} 条日程`);
+      }
+      const pendingCount = Number(counts.pending || 0) + Number(counts.syncing || 0);
+      if (pendingCount) {
+        detailParts.push(`待处理 ${pendingCount}`);
+      }
+      const failedCount = Number(counts.failed || 0) + Number(counts.conflict || 0);
+      if (failedCount) {
+        detailParts.push(`异常 ${failedCount}`);
+      }
+      if (!state.enabled && state.status === "missing") {
+        detailParts.push("可在钉钉 MCP 中配置");
+      }
+      weeklyPlanCalendarSyncSummary.innerHTML = [
+        renderWeeklyPlanCalendarSyncBadge(state),
+        detailParts.length ? `<span>${escapeHtml(detailParts.join(" · "))}</span>` : "",
+      ].join("");
+      weeklyPlanCalendarSyncSummary.title = state.hint || "";
+      weeklyPlanCalendarSyncButton.disabled = weeklyPlanCalendarSyncing;
     }
 
     function parseDateString(value) {
@@ -7897,33 +9342,67 @@ __HELP_DOCS_OVERLAY__
     }
 
     function getCurrentSettings() {
-      const payload = {};
-      Object.entries(weeklyScheduleInputs).forEach(([key, input]) => {
-        payload[key] = input.value.trim();
-      });
-      return payload;
+      return {
+        weekly_plan_items: currentWeeklyPlanItems.map((item, index) => ({
+          id: String(item.id || makeWeeklyPlanItemId()),
+          work_date: String(item.work_date || "").trim(),
+          start_time: normalizeWeeklyPlanTimeInput(item.start_time),
+          end_time: normalizeWeeklyPlanTimeInput(item.end_time),
+          title: String(item.title || "").trim(),
+          description: String(item.description || "").trim(),
+          location: String(item.location || "").trim(),
+          sort_order: Number(item.sort_order || index),
+          legacy_slot_key: String(item.legacy_slot_key || "").trim(),
+          source: String(item.source || "").trim()
+        })),
+        weekly_other_pending: String(weeklyScheduleInputs.weekly_other_pending.value || "").trim()
+      };
     }
 
-    function normalizeWeeklyPlanPayload(settings) {
-      const payload = {};
-      Object.keys(weeklyScheduleInputs).forEach((key) => {
-        payload[key] = String(settings && settings[key] || "").trim();
-      });
-      return payload;
+    function normalizeWeeklyPlanPayload(settings, weekStart = currentWeeklyPlanWeekStart) {
+      const source = settings && typeof settings === "object" ? settings : {};
+      const normalized = {
+        weekly_plan_items: normalizeWeeklyPlanItemsClient(source, weekStart),
+        weekly_other_pending: String(source.weekly_other_pending || "").trim()
+      };
+      if (source.calendar_sync_summary && typeof source.calendar_sync_summary === "object") {
+        normalized.calendar_sync_summary = normalizeWeeklyPlanCalendarSyncState(source.calendar_sync_summary);
+      }
+      return normalized;
     }
 
-    function applyPageSettings(settings) {
-      const normalizedSettings = normalizeWeeklyPlanPayload(settings);
-      Object.entries(weeklyScheduleInputs).forEach(([key, input]) => {
-        input.value = normalizedSettings[key] || "";
-      });
+    function applyPageSettings(settings, options = {}) {
+      const source = settings && typeof settings === "object" ? settings : {};
+      const syncSummary = options.calendarSyncSummary || source.calendar_sync_summary || {};
+      currentWeeklyPlanCalendarSyncSummary = normalizeWeeklyPlanCalendarSyncState(syncSummary);
+      renderWeeklyPlanCalendarSyncSummary(currentWeeklyPlanCalendarSyncSummary);
+      const normalizedSettings = normalizeWeeklyPlanPayload(source, currentWeeklyPlanWeekStart);
+      weeklyPlanCreateDayIndex = null;
+      currentWeeklyPlanItems = normalizedSettings.weekly_plan_items;
+      weeklyScheduleInputs.weekly_other_pending.value = normalizedSettings.weekly_other_pending || "";
+      renderWeeklyPlanItems();
       resizeWeeklyScheduleInputs();
     }
 
     function getWeeklyPlanSnapshot(weekStart, settings) {
+      const normalizedSettings = normalizeWeeklyPlanPayload(settings, weekStart);
       return JSON.stringify({
         week_start: weekStart || "",
-        settings: normalizeWeeklyPlanPayload(settings)
+        settings: {
+          weekly_plan_items: normalizedSettings.weekly_plan_items.map((item, index) => ({
+            id: String(item.id || ""),
+            work_date: String(item.work_date || "").trim(),
+            start_time: normalizeWeeklyPlanTimeInput(item.start_time),
+            end_time: normalizeWeeklyPlanTimeInput(item.end_time),
+            title: String(item.title || "").trim(),
+            description: String(item.description || "").trim(),
+            location: String(item.location || "").trim(),
+            sort_order: Number(item.sort_order || index),
+            legacy_slot_key: String(item.legacy_slot_key || "").trim(),
+            source: String(item.source || "").trim()
+          })),
+          weekly_other_pending: normalizedSettings.weekly_other_pending
+        }
       });
     }
 
@@ -7960,7 +9439,10 @@ __HELP_DOCS_OVERLAY__
 
     async function savePageSettings(options = {}) {
       const weekStart = options.weekStart || currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value);
-      const settings = normalizeWeeklyPlanPayload(options.settings || getCurrentSettings());
+      const settings = normalizeWeeklyPlanPayload(
+        options.settings || getCurrentSettings(),
+        weekStart
+      );
       const silent = Boolean(options.silent);
       const force = Boolean(options.force);
       const payload = {
@@ -7974,6 +9456,14 @@ __HELP_DOCS_OVERLAY__
         return false;
       }
       const snapshot = getWeeklyPlanSnapshot(weekStart, settings);
+      const validationMessage = validateWeeklyPlanItemsForSave(settings);
+      if (validationMessage) {
+        if (currentWeeklyPlanWeekStart === weekStart) {
+          setWeeklyPlanSavedAtText("时间格式有误，未保存");
+        }
+        setStatus(validationMessage, "warning");
+        return false;
+      }
       if (!force && snapshot === (weeklyPlanSavedSnapshots.get(weekStart) || "")) {
         if (!silent) {
           setStatus("每周工作安排已是最新。", "success");
@@ -8111,7 +9601,7 @@ __HELP_DOCS_OVERLAY__
           return;
         }
         currentWeeklyPlanWeekStart = data.week_start || weekStart;
-        const serverSettings = normalizeWeeklyPlanPayload(data.settings || {});
+        const serverSettings = normalizeWeeklyPlanPayload(data.settings || {}, currentWeeklyPlanWeekStart);
         const serverUpdatedAt = String(data.updated_at || "");
         const localDraftSnapshot = localDraft ? getWeeklyPlanSnapshot(localDraft.week_start, localDraft.settings || {}) : "";
         const serverSnapshot = getWeeklyPlanSnapshot(currentWeeklyPlanWeekStart, serverSettings);
@@ -8137,7 +9627,9 @@ __HELP_DOCS_OVERLAY__
         );
 
         if (shouldRestoreLocalDraft) {
-          applyPageSettings(localDraft.settings || {});
+          applyPageSettings(localDraft.settings || {}, {
+            calendarSyncSummary: serverSettings.calendar_sync_summary
+          });
           updateWeeklyPlanSavedAt(localDraft.updated_at || "");
         } else {
           if (localDraft && (!localDraftHasContent || !draftStillMatchesServerBaseline) && serverHasContent) {
@@ -8251,6 +9743,20 @@ __HELP_DOCS_OVERLAY__
       refreshRecentEntries(nextDate);
       refreshMonthEntries();
       warmDeliveryProgressCache(nextDate);
+    }
+
+    function goToTodayFromWeeklyPlan() {
+      persistCurrentEntryDraft();
+      const today = formatDate(new Date());
+      dateInput.value = today;
+      rememberWorkDate(today);
+      syncMonthFromDate();
+      renderWeekButtons(today);
+      loadWeeklyPlan(today, true);
+      loadDateEntry(today);
+      refreshRecentEntries(today);
+      refreshMonthEntries();
+      warmDeliveryProgressCache(today);
     }
 
     function rowTemplate(item = makeBlankItem(), index = 0) {
@@ -9340,6 +10846,35 @@ __HELP_DOCS_OVERLAY__
       userDingtalkMcpState.config.directory_mcp_url = String(userDingtalkDirectoryMcpInput.value || "").trim();
       renderUserDingtalkMcpEditor();
     });
+    userDingtalkCalendarMcpInput.addEventListener("input", () => {
+      if (!userDingtalkMcpState.config) {
+        return;
+      }
+      const nextValue = String(userDingtalkCalendarMcpInput.value || "").trim();
+      const previousSavedValue = userDingtalkMcpState.savedConfig
+        ? String(userDingtalkMcpState.savedConfig.calendar_mcp_url || "")
+        : "";
+      userDingtalkMcpState.config.calendar_mcp_url = nextValue;
+      if (nextValue !== previousSavedValue) {
+        userDingtalkMcpState.config.calendar_options = [];
+        userDingtalkMcpState.config.calendar_id = "primary";
+      }
+      renderUserDingtalkMcpEditor();
+    });
+    userDingtalkCalendarSelect.addEventListener("change", (event) => {
+      if (!userDingtalkMcpState.config) {
+        return;
+      }
+      userDingtalkMcpState.config.calendar_id = String(event.target.value || "primary").trim() || "primary";
+      renderUserDingtalkMcpEditor();
+    });
+    userDingtalkCalendarModeSelect.addEventListener("change", (event) => {
+      if (!userDingtalkMcpState.config) {
+        return;
+      }
+      userDingtalkMcpState.config.calendar_sync_mode = String(event.target.value || "two_way").trim() || "two_way";
+      renderUserDingtalkMcpEditor();
+    });
     userDingtalkDailyTemplateSelect.addEventListener("change", (event) => {
       if (!userDingtalkMcpState.config) {
         return;
@@ -9372,7 +10907,7 @@ __HELP_DOCS_OVERLAY__
       }
       renderUserDingtalkMcpEditor();
     });
-    [userDingtalkLogMcpInput, userDingtalkDirectoryMcpInput, userDingtalkDailyTemplateSelect, userDingtalkWeeklyTemplateSelect].forEach((input) => {
+    [userDingtalkLogMcpInput, userDingtalkDirectoryMcpInput, userDingtalkCalendarMcpInput, userDingtalkCalendarSelect, userDingtalkCalendarModeSelect, userDingtalkDailyTemplateSelect, userDingtalkWeeklyTemplateSelect].forEach((input) => {
       input.addEventListener("keydown", (event) => {
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
           event.preventDefault();
@@ -9382,6 +10917,15 @@ __HELP_DOCS_OVERLAY__
     });
     userDingtalkMcpLoadTemplatesButton.addEventListener("click", () => {
       loadUserDingtalkReportTemplates(true);
+    });
+    userDingtalkCalendarLoadButton.addEventListener("click", () => {
+      loadUserDingtalkCalendarOptions();
+    });
+    userDingtalkCalendarSyncButton.addEventListener("click", () => {
+      triggerUserDingtalkCalendarSync();
+    });
+    weeklyPlanCalendarSyncButton.addEventListener("click", () => {
+      syncWeeklyPlanFromToolbar();
     });
     userDingtalkMcpResetButton.addEventListener("click", restoreUserDingtalkMcpConfigDefault);
     userDingtalkMcpSaveButton.addEventListener("click", saveUserDingtalkMcpEditorConfig);
@@ -9577,12 +11121,157 @@ __HELP_DOCS_OVERLAY__
     clearWeeklyPlanButton.addEventListener("click", clearWeeklyPlan);
     listEditor.addEventListener("input", persistCurrentEntryDraft);
     listEditor.addEventListener("change", persistCurrentEntryDraft);
-    Object.values(weeklyScheduleInputs).forEach((input) => {
-      input.addEventListener("input", () => {
-        resizeWeeklyScheduleInput(input);
-        saveWeeklyPlanDraft(currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value), getCurrentSettings());
-        scheduleWeeklyPlanAutosave();
+    function scheduleWeeklyPlanEdit() {
+      const weekStart = currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value);
+      saveWeeklyPlanDraft(weekStart, getCurrentSettings());
+      const validationMessage = validateWeeklyPlanItemsForSave(getCurrentSettings());
+      if (validationMessage) {
+        cancelWeeklyPlanAutosave();
+        setWeeklyPlanSavedAtText("时间格式有误，未保存");
+        setStatus(validationMessage, "warning");
+        return;
+      }
+      scheduleWeeklyPlanAutosave();
+    }
+    weeklyItemsBoard.addEventListener("input", (event) => {
+      const createField = event.target.closest("[data-weekly-create-field]");
+      if (createField) {
+        const form = createField.closest("[data-weekly-create-form]");
+        const errorEl = form && form.querySelector("[data-weekly-create-error]");
+        if (errorEl) {
+          errorEl.textContent = "";
+        }
+        if (isWeeklyPlanTimeFieldName(createField.dataset.weeklyCreateField)) {
+          sanitizeWeeklyPlanTimeField(createField);
+        }
+        if (createField instanceof HTMLTextAreaElement) {
+          resizeWeeklyScheduleInput(createField);
+        }
+        return;
+      }
+      const field = event.target.closest("[data-weekly-field]");
+      const editor = event.target.closest("[data-weekly-item-id]");
+      if (!field || !editor) {
+        return;
+      }
+      const itemId = String(editor.dataset.weeklyItemId || "").trim();
+      const item = currentWeeklyPlanItems.find((candidate) => String(candidate.id || "") === itemId);
+      if (!item) {
+        return;
+      }
+      if (isWeeklyPlanTimeFieldName(field.dataset.weeklyField)) {
+        sanitizeWeeklyPlanTimeField(field);
+      }
+      item[field.dataset.weeklyField] = String(field.value || "");
+      resizeWeeklyScheduleInput(field);
+      scheduleWeeklyPlanEdit();
+    });
+    weeklyItemsBoard.addEventListener("focusout", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const createField = target.closest("[data-weekly-create-field]");
+      if (createField && isWeeklyPlanTimeFieldName(createField.dataset.weeklyCreateField)) {
+        normalizeWeeklyPlanTimeField(createField);
+        return;
+      }
+      const field = target.closest("[data-weekly-field]");
+      const editor = target.closest("[data-weekly-item-id]");
+      if (!field || !editor || !isWeeklyPlanTimeFieldName(field.dataset.weeklyField)) {
+        return;
+      }
+      const itemId = String(editor.dataset.weeklyItemId || "").trim();
+      const item = currentWeeklyPlanItems.find((candidate) => String(candidate.id || "") === itemId);
+      if (!item) {
+        return;
+      }
+      item[field.dataset.weeklyField] = normalizeWeeklyPlanTimeField(field);
+      scheduleWeeklyPlanEdit();
+    });
+    weeklyScheduleInputs.weekly_other_pending.addEventListener("input", () => {
+      resizeWeeklyScheduleInput(weeklyScheduleInputs.weekly_other_pending);
+      scheduleWeeklyPlanEdit();
+    });
+    weeklyItemsBoard.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-action]");
+      if (!action) {
+        return;
+      }
+      const actionName = String(action.dataset.action || "").trim();
+      if (actionName === "add-weekly-item") {
+        const dayIndex = Number(action.dataset.dayIndex || 0);
+        weeklyPlanCreateDayIndex = Number.isInteger(dayIndex) && dayIndex >= 0 && dayIndex < 7 ? dayIndex : null;
+        renderWeeklyPlanItems();
+        const createForm = weeklyItemsBoard.querySelector(`[data-weekly-day-index="${dayIndex}"] [data-weekly-create-form]`);
+        if (createForm) {
+          const titleInput = createForm.querySelector('[data-weekly-create-field="title"]');
+          if (titleInput) {
+            titleInput.focus();
+          }
+        }
+        return;
+      }
+      if (actionName === "cancel-new-weekly-item") {
+        weeklyPlanCreateDayIndex = null;
+        renderWeeklyPlanItems();
+        return;
+      }
+      if (actionName === "delete-weekly-item") {
+        const editor = action.closest("[data-weekly-item-id]");
+        const itemId = String(editor && editor.dataset.weeklyItemId || "").trim();
+        currentWeeklyPlanItems = currentWeeklyPlanItems.filter(
+          (item) => String(item.id || "") !== itemId
+        );
+        renderWeeklyPlanItems();
+        scheduleWeeklyPlanEdit();
+      }
+    });
+    weeklyItemsBoard.addEventListener("submit", (event) => {
+      const form = event.target.closest("[data-weekly-create-form]");
+      if (!form) {
+        return;
+      }
+      event.preventDefault();
+      const readField = (fieldName) => {
+        const input = form.querySelector(`[data-weekly-create-field="${fieldName}"]`);
+        if (isWeeklyPlanTimeFieldName(fieldName)) {
+          return normalizeWeeklyPlanTimeField(input);
+        }
+        return String(input && input.value || "").trim();
+      };
+      const title = readField("title");
+      const startTime = readField("start_time");
+      const endTime = readField("end_time");
+      const location = readField("location");
+      const errorMessage = validateWeeklyPlanTimeRange(startTime, endTime, title);
+      const errorEl = form.querySelector("[data-weekly-create-error]");
+      if (errorMessage) {
+        if (errorEl) {
+          errorEl.textContent = errorMessage;
+        }
+        return;
+      }
+      const dayIndex = Number(form.dataset.dayIndex || -1);
+      if (!Number.isInteger(dayIndex) || dayIndex < 0 || dayIndex >= 7) {
+        return;
+      }
+      currentWeeklyPlanItems.push({
+        id: makeWeeklyPlanItemId(),
+        work_date: buildWeeklyPlanDate(currentWeeklyPlanWeekStart || getWeekStartString(dateInput.value), dayIndex),
+        start_time: startTime,
+        end_time: endTime,
+        title,
+        description: "",
+        location,
+        sort_order: currentWeeklyPlanItems.length,
+        legacy_slot_key: "",
+        source: "new",
+        calendar_sync: normalizeWeeklyPlanCalendarSyncState()
       });
+      weeklyPlanCreateDayIndex = null;
+      renderWeeklyPlanItems();
+      scheduleWeeklyPlanEdit();
     });
     refreshMonthButton.addEventListener("click", () => refreshMonthEntries(true));
     exportMonthButton.addEventListener("click", () => {
@@ -9610,12 +11299,9 @@ __HELP_DOCS_OVERLAY__
     monthInput.addEventListener("change", () => refreshMonthEntries(true));
     prevWeekButton.addEventListener("click", () => shiftWeek(-7));
     nextWeekButton.addEventListener("click", () => shiftWeek(7));
-    themeToggleButton.addEventListener("click", () => {
-      const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
-      writeStoredThemePreference(nextTheme);
-      applyTheme(nextTheme);
-      scheduleAutoThemeRefresh();
-    });
+    weeklyPlanTodayButton.addEventListener("click", goToTodayFromWeeklyPlan);
+    weeklyPlanPrevButton.addEventListener("click", () => shiftWeek(-7));
+    weeklyPlanNextButton.addEventListener("click", () => shiftWeek(7));
     backgroundSettingsButton.addEventListener("click", (event) => {
       event.stopPropagation();
       setBackgroundSettingsOpen(!isBackgroundSettingsOpen);
@@ -9854,6 +11540,7 @@ def build_admin_overview_payload(anchor_date: str, month: str | None = None) -> 
         user_id = user["user_id"]
         day_entry = fetch_entry(target_date, user_id=user_id)
         week_start, weekly_plan, weekly_updated_at = get_weekly_plan_settings(target_date, user_id=user_id)
+        weekly_plan = build_weekly_plan_client_settings(week_start, weekly_plan)
         month_entries = fetch_month_entries(target_month, user_id=user_id)
         month_stats = build_month_stats(month_entries)
         entries_by_user.append(
@@ -10059,6 +11746,13 @@ def build_department_weekly_plan_rows(settings: dict | None) -> list[dict[str, s
     ]
 
 
+def build_department_weekly_plan_items(
+    week_start: str,
+    settings: dict | None,
+) -> list[dict]:
+    return build_weekly_plan_items(week_start, settings)
+
+
 def build_department_weekly_plan_settings_from_rows(
     weekly_plan_rows: object,
     *,
@@ -10072,6 +11766,71 @@ def build_department_weekly_plan_settings_from_rows(
         settings[pm_key] = str(row.get("pm", "") or "").strip()
     settings["weekly_other_pending"] = str(weekly_other_pending or "").strip()
     return normalize_weekly_plan_settings(settings)
+
+
+def build_department_weekly_plan_settings_from_items(
+    weekly_plan_items: object,
+    *,
+    week_start: str,
+    weekly_other_pending: object = "",
+) -> dict:
+    return build_weekly_plan_settings_from_items(
+        {
+            WEEKLY_PLAN_ITEMS_KEY: weekly_plan_items,
+            "weekly_other_pending": weekly_other_pending,
+        },
+        week_start=week_start,
+    )
+
+
+def _protected_dingtalk_imported_plan_items(settings: dict | None) -> dict[str, dict]:
+    protected_items: dict[str, dict] = {}
+    for item in normalize_weekly_plan_items((settings or {}).get(WEEKLY_PLAN_ITEMS_KEY)):
+        item_id = str(item.get("id") or "").strip()
+        if item_id and str(item.get("source") or "").strip() == DINGTALK_CALENDAR_IMPORTED_SOURCE:
+            protected_items[item_id] = item
+    return protected_items
+
+
+def _weekly_plan_item_protected_snapshot(item: dict | None) -> tuple[str, str, str, str, str, str, str]:
+    source = item if isinstance(item, dict) else {}
+    return (
+        str(source.get("id") or "").strip(),
+        str(source.get("work_date") or "").strip(),
+        _normalize_weekly_plan_time(source.get("start_time")),
+        _normalize_weekly_plan_time(source.get("end_time")),
+        str(source.get("title") or "").strip(),
+        str(source.get("description") or "").strip(),
+        str(source.get("location") or "").strip(),
+    )
+
+
+def validate_cross_user_dingtalk_imported_plan_items(
+    *,
+    current_user: dict | None,
+    target_user: dict | None,
+    current_settings: dict | None,
+    next_settings: dict | None,
+) -> None:
+    editor_user_id = normalize_user_id((current_user or {}).get("user_id"))
+    target_user_id = normalize_user_id((target_user or {}).get("user_id"))
+    if not editor_user_id or not target_user_id or editor_user_id == target_user_id:
+        return
+    protected_items = _protected_dingtalk_imported_plan_items(current_settings)
+    if not protected_items:
+        return
+    next_items = {
+        str(item.get("id") or "").strip(): item
+        for item in normalize_weekly_plan_items((next_settings or {}).get(WEEKLY_PLAN_ITEMS_KEY))
+        if str(item.get("id") or "").strip()
+    }
+    for item_id, previous_item in protected_items.items():
+        next_item = next_items.get(item_id)
+        title = str(previous_item.get("title") or "").strip() or "未命名钉钉日程"
+        if not next_item:
+            raise PermissionError(f"不能删除他人从钉钉同步的日程：{title}。")
+        if _weekly_plan_item_protected_snapshot(next_item) != _weekly_plan_item_protected_snapshot(previous_item):
+            raise PermissionError(f"不能修改他人从钉钉同步的日程：{title}。")
 
 
 def _is_department_schedule_visible_user(user: dict | None) -> bool:
@@ -10695,13 +12454,18 @@ def build_department_schedule_member_payloads(
             continue
         member_user_id = str(member.get("user_id") or "").strip()
         weekly_plan_rows: list[dict[str, str]] = []
+        weekly_plan_items: list[dict] = []
         weekly_other_pending = ""
         weekly_plan_updated_at = ""
         weekly_plan_last_editor = None
         weekly_plan_edit_logs: list[dict[str, Any]] = []
         if include_weekly_plan and member_user_id:
-            _, weekly_plan_settings, weekly_plan_updated_at = get_weekly_plan_settings(target_date, user_id=member_user_id)
+            weekly_plan_week_start, weekly_plan_settings, weekly_plan_updated_at = get_weekly_plan_settings(
+                target_date,
+                user_id=member_user_id,
+            )
             weekly_plan_rows = build_department_weekly_plan_rows(weekly_plan_settings)
+            weekly_plan_items = build_department_weekly_plan_items(weekly_plan_week_start, weekly_plan_settings)
             weekly_other_pending = str(weekly_plan_settings.get("weekly_other_pending", "") or "").strip()
             weekly_plan_edit_logs = list(edit_logs_map.get(member_user_id) or [])
             weekly_plan_last_editor = weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None
@@ -10765,6 +12529,7 @@ def build_department_schedule_member_payloads(
             member_payload.update(
                 {
                     "weekly_plan_rows": weekly_plan_rows,
+                    "weekly_plan_items": weekly_plan_items,
                     "weekly_other_pending": weekly_other_pending,
                     "weekly_plan_updated_at": weekly_plan_updated_at,
                     "weekly_plan_last_editor": weekly_plan_last_editor,
@@ -10851,6 +12616,7 @@ def build_department_schedule_payload(
         include_weekly_plan=True,
         weekly_plan_edit_logs_map=weekly_plan_edit_logs_map,
     )
+    calendar_sync_summary = attach_calendar_sync_metadata_to_department_members(members, week_start)
 
     weekly_stats_available_departments = list(weekly_stats_scope["available_departments"])
     weekly_stats_available_positions = list(weekly_stats_scope["available_positions"])
@@ -10914,6 +12680,7 @@ def build_department_schedule_payload(
             "total_items": department_summary["total_items"],
             "filled_days": department_summary["filled_days"],
         },
+        "calendar_sync_summary": calendar_sync_summary,
         "weekly_stats_available_departments": weekly_stats_available_departments,
         "weekly_stats_available_positions": weekly_stats_available_positions,
         "weekly_stats_available_users": weekly_stats_available_users,
@@ -11167,6 +12934,150 @@ def init_db() -> None:
             ON weekly_plan_edit_logs(target_user_id, edited_at DESC, id DESC)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dingtalk_calendar_sync_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                mcp_url TEXT NOT NULL DEFAULT '',
+                mcp_url_fingerprint TEXT NOT NULL,
+                calendar_id TEXT NOT NULL DEFAULT 'primary',
+                calendar_name TEXT NOT NULL DEFAULT '',
+                sync_mode TEXT NOT NULL DEFAULT 'two_way',
+                activated_at TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                last_polled_at TEXT NOT NULL DEFAULT '',
+                last_synced_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dingtalk_calendar_sessions_user_status
+            ON dingtalk_calendar_sync_sessions(user_id, status, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                week_start TEXT NOT NULL,
+                slot_key TEXT NOT NULL,
+                slot_label TEXT NOT NULL DEFAULT '',
+                work_date TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                location TEXT NOT NULL DEFAULT '',
+                start_at TEXT NOT NULL,
+                end_at TEXT NOT NULL,
+                timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+                source TEXT NOT NULL DEFAULT 'weekly_plan',
+                sync_enabled INTEGER NOT NULL DEFAULT 1,
+                sync_session_id INTEGER,
+                dingtalk_event_id TEXT NOT NULL DEFAULT '',
+                last_remote_event_id TEXT NOT NULL DEFAULT '',
+                last_local_hash TEXT NOT NULL DEFAULT '',
+                last_remote_hash TEXT NOT NULL DEFAULT '',
+                remote_updated_at TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                revision INTEGER NOT NULL DEFAULT 1,
+                deleted_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, week_start, slot_key),
+                FOREIGN KEY(sync_session_id) REFERENCES dingtalk_calendar_sync_sessions(id)
+            )
+            """
+        )
+        schedule_item_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(schedule_items)").fetchall()
+        }
+        if "location" not in schedule_item_columns:
+            connection.execute(
+                "ALTER TABLE schedule_items ADD COLUMN location TEXT NOT NULL DEFAULT ''"
+            )
+        if "last_remote_event_id" not in schedule_item_columns:
+            connection.execute(
+                "ALTER TABLE schedule_items ADD COLUMN last_remote_event_id TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_schedule_items_user_date
+            ON schedule_items(user_id, work_date, status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_schedule_items_sync
+            ON schedule_items(sync_session_id, dingtalk_event_id, status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dingtalk_calendar_sync_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                schedule_item_id INTEGER NOT NULL,
+                sync_session_id INTEGER NOT NULL,
+                operation TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 5,
+                next_attempt_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                last_attempt_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(schedule_item_id) REFERENCES schedule_items(id),
+                FOREIGN KEY(sync_session_id) REFERENCES dingtalk_calendar_sync_sessions(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dingtalk_calendar_jobs_due
+            ON dingtalk_calendar_sync_jobs(status, next_attempt_at, id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dingtalk_calendar_jobs_user
+            ON dingtalk_calendar_sync_jobs(user_id, sync_session_id, status, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dingtalk_calendar_sync_conflicts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                schedule_item_id INTEGER NOT NULL,
+                sync_session_id INTEGER NOT NULL,
+                conflict_type TEXT NOT NULL,
+                base_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                local_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                remote_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'open',
+                resolved_by TEXT NOT NULL DEFAULT '',
+                resolved_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(schedule_item_id) REFERENCES schedule_items(id),
+                FOREIGN KEY(sync_session_id) REFERENCES dingtalk_calendar_sync_sessions(id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dingtalk_calendar_conflicts_user_status
+            ON dingtalk_calendar_sync_conflicts(user_id, status, updated_at DESC, id DESC)
+            """
+        )
         existing_weekly_rows = connection.execute(
             "SELECT COUNT(*) AS row_count FROM weekly_plans WHERE user_id = ?",
             (DEFAULT_LOCAL_USER_ID,),
@@ -11285,11 +13196,582 @@ def get_week_start(value: str) -> str:
     return monday.strftime("%Y-%m-%d")
 
 
+def _new_weekly_plan_item_id() -> str:
+    return f"weekly_item_{uuid.uuid4().hex[:16]}"
+
+
+_WEEKLY_PLAN_TIME_TRANSLATION = str.maketrans(
+    {
+        **{chr(ord("０") + index): str(index) for index in range(10)},
+        "：": ":",
+        "；": ":",
+        ";": ":",
+    }
+)
+
+
+def _normalize_weekly_plan_time(value: object) -> str:
+    normalized = re.sub(r"\s+", "", str(value or "").strip().translate(_WEEKLY_PLAN_TIME_TRANSLATION))
+    hour_only_match = re.fullmatch(r"\d{1,2}", normalized)
+    if hour_only_match:
+        hour = int(hour_only_match.group(0))
+        if 0 <= hour <= 23:
+            return f"{hour:02d}:00"
+    time_match = re.fullmatch(r"(\d{1,2}):(\d{1,2})", normalized)
+    if time_match:
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2))
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+    return ""
+
+
+def _normalize_weekly_plan_sort_order(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_weekly_plan_items(
+    raw_items: object,
+    *,
+    assign_ids: bool = False,
+) -> list[dict]:
+    source_items = raw_items if isinstance(raw_items, list) else []
+    normalized_items: list[dict] = []
+    for raw_item in source_items:
+        if not isinstance(raw_item, dict):
+            continue
+        item_id = str(raw_item.get("id") or raw_item.get("item_id") or "").strip()
+        if not item_id and assign_ids:
+            item_id = _new_weekly_plan_item_id()
+        raw_start_at = str(raw_item.get("start_at") or "")
+        raw_end_at = str(raw_item.get("end_at") or "")
+        item = {
+            "id": item_id,
+            "work_date": str(raw_item.get("work_date") or raw_item.get("date") or "").strip(),
+            "start_time": _normalize_weekly_plan_time(
+                raw_item.get("start_time") or raw_start_at[:16].split("T")[-1]
+            ),
+            "end_time": _normalize_weekly_plan_time(
+                raw_item.get("end_time") or raw_end_at[:16].split("T")[-1]
+            ),
+            "title": str(raw_item.get("title") or raw_item.get("content") or "").strip(),
+            "description": str(raw_item.get("description") or "").strip(),
+            "location": str(raw_item.get("location") or "").strip(),
+            "sort_order": _normalize_weekly_plan_sort_order(raw_item.get("sort_order")),
+            "legacy_slot_key": str(raw_item.get("legacy_slot_key") or "").strip(),
+            "source": str(raw_item.get("source") or "new").strip() or "new",
+        }
+        normalized_items.append(item)
+    return normalized_items
+
+
+def _legacy_weekly_plan_item(
+    week_start: str,
+    slot_key: str,
+    title: object,
+) -> dict:
+    weekday_index, period, slot_label, start_time, end_time = WEEKLY_PLAN_SLOT_DEFINITIONS[slot_key]
+    normalized_week_start = get_week_start(week_start)
+    week_start_date = datetime.strptime(normalized_week_start, "%Y-%m-%d").date()
+    work_date = (week_start_date + timedelta(days=weekday_index)).isoformat()
+    return {
+        "id": slot_key,
+        "work_date": work_date,
+        "start_time": start_time,
+        "end_time": end_time,
+        "title": str(title or "").strip(),
+        "description": "",
+        "location": "",
+        "sort_order": weekday_index * 10 + (0 if period == "am" else 1),
+        "legacy_slot_key": slot_key,
+        "source": "legacy",
+        "period_label": "上午" if period == "am" else "下午",
+        "slot_label": slot_label,
+    }
+
+
+def build_weekly_plan_items(
+    week_start: str,
+    settings: dict | None,
+) -> list[dict]:
+    source = settings if isinstance(settings, dict) else {}
+    normalized_week_start = get_week_start(week_start)
+    items: list[dict] = []
+    for slot_key in WEEKLY_PLAN_LEGACY_SLOT_KEYS:
+        legacy_item = _legacy_weekly_plan_item(
+            normalized_week_start,
+            slot_key,
+            source.get(slot_key, ""),
+        )
+        if legacy_item["title"]:
+            items.append(legacy_item)
+    for index, raw_item in enumerate(normalize_weekly_plan_items(source.get(WEEKLY_PLAN_ITEMS_KEY))):
+        if raw_item.get("legacy_slot_key"):
+            continue
+        if not raw_item.get("id"):
+            raw_item["id"] = _new_weekly_plan_item_id()
+        raw_item["source"] = str(raw_item.get("source") or "new").strip() or "new"
+        raw_item["sort_order"] = int(raw_item.get("sort_order") or 1000 + index)
+        if raw_item.get("work_date") and raw_item.get("title"):
+            items.append(raw_item)
+    items.sort(
+        key=lambda item: (
+            str(item.get("work_date") or ""),
+            str(item.get("start_time") or "99:99"),
+            int(item.get("sort_order") or 0),
+            str(item.get("id") or ""),
+        )
+    )
+    return items
+
+
+def build_weekly_plan_client_settings(
+    week_start: str,
+    settings: dict | None,
+    *,
+    user_id: str | None = None,
+) -> dict:
+    normalized = normalize_weekly_plan_settings(settings)
+    normalized[WEEKLY_PLAN_ITEMS_KEY] = build_weekly_plan_items(week_start, normalized)
+    if normalize_user_id(user_id):
+        metadata = build_dingtalk_calendar_sync_metadata_for_users([normalize_user_id(user_id)], week_start)
+        attach_calendar_sync_state_to_weekly_plan_items(
+            normalize_user_id(user_id),
+            normalized[WEEKLY_PLAN_ITEMS_KEY],
+            metadata,
+        )
+        normalized["calendar_sync_summary"] = build_calendar_sync_member_summary(
+            normalize_user_id(user_id),
+            normalized[WEEKLY_PLAN_ITEMS_KEY],
+            metadata,
+        )
+    return normalized
+
+
+def get_weekly_plan_item_slot_key(item: dict | None) -> str:
+    source = item if isinstance(item, dict) else {}
+    legacy_slot_key = str(source.get("legacy_slot_key") or "").strip()
+    if legacy_slot_key:
+        return legacy_slot_key
+    item_id = str(source.get("id") or "").strip()
+    if not item_id:
+        return ""
+    if item_id in WEEKLY_PLAN_SLOT_DEFINITIONS:
+        return item_id
+    return f"weekly_item:{item_id}"
+
+
+def _calendar_sync_public_state(
+    status: str,
+    *,
+    session: dict | None = None,
+    schedule_item: dict | None = None,
+    job: dict | None = None,
+    conflict_count: int = 0,
+) -> dict[str, object]:
+    normalized_status = str(status or "").strip() or "local_only"
+    labels = {
+        "missing": "未配置",
+        "idle": "无日程",
+        "local_only": "本地",
+        "pending": "待同步",
+        "syncing": "同步中",
+        "synced": "已同步",
+        "failed": "失败",
+        "conflict": "冲突",
+        "remote_changed": "钉钉变更",
+        "remote_deleted": "钉钉已删除",
+        "remote_cancelled": "钉钉已取消",
+        "deleted": "已删除",
+    }
+    tones = {
+        "missing": "muted",
+        "idle": "muted",
+        "local_only": "neutral",
+        "pending": "pending",
+        "syncing": "pending",
+        "synced": "success",
+        "failed": "danger",
+        "conflict": "danger",
+        "remote_changed": "warning",
+        "remote_deleted": "warning",
+        "remote_cancelled": "warning",
+        "deleted": "muted",
+    }
+    hints = {
+        "missing": "该用户未启用钉钉日历同步。",
+        "idle": "当前没有可同步的日程。",
+        "local_only": "尚未建立钉钉日程映射，点击同步钉钉后会入队。",
+        "pending": "已进入钉钉同步队列。",
+        "syncing": "正在同步到钉钉。",
+        "synced": "已同步到钉钉日历。",
+        "failed": "钉钉同步失败，请查看错误后重试。",
+        "conflict": "本地和钉钉日程同时变化，需要人工确认。",
+        "remote_changed": "钉钉端日程已变更。",
+        "remote_deleted": "钉钉端日程已删除。",
+        "remote_cancelled": "钉钉端日程已取消。",
+        "deleted": "本地删除已同步到钉钉。",
+    }
+    job_source = job if isinstance(job, dict) else {}
+    item_source = schedule_item if isinstance(schedule_item, dict) else {}
+    session_source = session if isinstance(session, dict) else {}
+    last_error = str(job_source.get("last_error") or session_source.get("last_error") or "").strip()
+    hint = last_error if normalized_status in {"failed", "conflict"} and last_error else hints.get(normalized_status, "")
+    return {
+        "status": normalized_status,
+        "label": labels.get(normalized_status, normalized_status),
+        "tone": tones.get(normalized_status, "neutral"),
+        "hint": hint,
+        "event_id": str(item_source.get("dingtalk_event_id") or item_source.get("last_remote_event_id") or "").strip(),
+        "job_status": str(job_source.get("status") or "").strip(),
+        "job_operation": str(job_source.get("operation") or "").strip(),
+        "last_error": last_error,
+        "conflict_count": int(conflict_count or 0),
+        "calendar_name": str(session_source.get("calendar_name") or "").strip(),
+        "sync_mode": str(session_source.get("sync_mode") or "").strip(),
+        "last_synced_at": str(session_source.get("last_synced_at") or "").strip(),
+        "updated_at": str(item_source.get("updated_at") or "").strip(),
+    }
+
+
+def build_dingtalk_calendar_item_public_state(
+    session: dict | None,
+    schedule_item: dict | None,
+    job: dict | None,
+    conflict_count: int,
+) -> dict[str, object]:
+    if not session:
+        return _calendar_sync_public_state("missing")
+    if not schedule_item:
+        return _calendar_sync_public_state("local_only", session=session)
+    item_status = str(schedule_item.get("status") or "").strip()
+    job_status = str((job or {}).get("status") or "").strip()
+    if conflict_count or item_status == DINGTALK_CALENDAR_ITEM_CONFLICT:
+        status = "conflict"
+    elif job_status == DINGTALK_CALENDAR_JOB_RUNNING:
+        status = "syncing"
+    elif job_status == DINGTALK_CALENDAR_JOB_PENDING:
+        status = "pending"
+    elif job_status in {DINGTALK_CALENDAR_JOB_FAILED, DINGTALK_CALENDAR_JOB_UNKNOWN}:
+        status = "failed"
+    elif item_status == DINGTALK_CALENDAR_ITEM_SYNCED:
+        status = "synced"
+    elif item_status == DINGTALK_CALENDAR_ITEM_PENDING:
+        status = "pending"
+    elif item_status == DINGTALK_CALENDAR_ITEM_UNKNOWN:
+        status = "failed"
+    elif item_status == DINGTALK_CALENDAR_ITEM_REMOTE_DELETED:
+        status = "remote_deleted"
+    elif item_status == DINGTALK_CALENDAR_ITEM_REMOTE_CANCELLED:
+        status = "remote_cancelled"
+    elif item_status == DINGTALK_CALENDAR_ITEM_DELETED:
+        status = "deleted"
+    else:
+        status = "local_only"
+    return _calendar_sync_public_state(
+        status,
+        session=session,
+        schedule_item=schedule_item,
+        job=job,
+        conflict_count=conflict_count,
+    )
+
+
+def build_dingtalk_calendar_sync_metadata_for_users(
+    user_ids: list[str] | tuple[str, ...],
+    week_start: str,
+) -> dict[str, dict[str, object]]:
+    normalized_user_ids: list[str] = []
+    for raw_user_id in user_ids:
+        normalized_user_id = normalize_user_id(raw_user_id)
+        if normalized_user_id and normalized_user_id not in normalized_user_ids:
+            normalized_user_ids.append(normalized_user_id)
+    metadata: dict[str, dict[str, object]] = {
+        user_id: {"session": None, "items": {}}
+        for user_id in normalized_user_ids
+    }
+    if not normalized_user_ids:
+        return metadata
+    normalized_week_start = get_week_start(week_start)
+    placeholders = ", ".join("?" for _ in normalized_user_ids)
+    with get_connection() as connection:
+        sessions = connection.execute(
+            f"""
+            SELECT *
+            FROM dingtalk_calendar_sync_sessions
+            WHERE user_id IN ({placeholders}) AND status = ?
+            ORDER BY user_id ASC, id DESC
+            """,
+            (*normalized_user_ids, DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE),
+        ).fetchall()
+        for row in sessions:
+            user_id = str(row["user_id"] or "").strip()
+            if user_id in metadata and not metadata[user_id]["session"]:
+                metadata[user_id]["session"] = dict(row)
+
+        schedule_rows = connection.execute(
+            f"""
+            SELECT *
+            FROM schedule_items
+            WHERE user_id IN ({placeholders}) AND week_start = ?
+            """,
+            (*normalized_user_ids, normalized_week_start),
+        ).fetchall()
+        schedule_items = [dict(row) for row in schedule_rows]
+        schedule_item_ids = [int(item["id"]) for item in schedule_items if int(item.get("id") or 0)]
+        jobs_by_item_id: dict[int, dict] = {}
+        conflict_counts: dict[int, int] = {}
+        if schedule_item_ids:
+            item_placeholders = ", ".join("?" for _ in schedule_item_ids)
+            job_rows = connection.execute(
+                f"""
+                SELECT *
+                FROM dingtalk_calendar_sync_jobs
+                WHERE schedule_item_id IN ({item_placeholders})
+                ORDER BY schedule_item_id ASC, id DESC
+                """,
+                schedule_item_ids,
+            ).fetchall()
+            for row in job_rows:
+                schedule_item_id = int(row["schedule_item_id"] or 0)
+                if schedule_item_id and schedule_item_id not in jobs_by_item_id:
+                    jobs_by_item_id[schedule_item_id] = dict(row)
+            conflict_rows = connection.execute(
+                f"""
+                SELECT schedule_item_id, COUNT(*) AS count
+                FROM dingtalk_calendar_sync_conflicts
+                WHERE schedule_item_id IN ({item_placeholders}) AND status = 'open'
+                GROUP BY schedule_item_id
+                """,
+                schedule_item_ids,
+            ).fetchall()
+            conflict_counts = {
+                int(row["schedule_item_id"] or 0): int(row["count"] or 0)
+                for row in conflict_rows
+            }
+
+    for item in schedule_items:
+        user_id = str(item.get("user_id") or "").strip()
+        slot_key = str(item.get("slot_key") or "").strip()
+        if user_id not in metadata or not slot_key:
+            continue
+        session = metadata[user_id]["session"]
+        item_id = int(item.get("id") or 0)
+        metadata[user_id]["items"][slot_key] = build_dingtalk_calendar_item_public_state(
+            session if isinstance(session, dict) else None,
+            item,
+            jobs_by_item_id.get(item_id),
+            conflict_counts.get(item_id, 0),
+        )
+    return metadata
+
+
+def attach_calendar_sync_state_to_weekly_plan_items(
+    user_id: str,
+    weekly_plan_items: list[dict],
+    metadata: dict[str, dict[str, object]],
+) -> None:
+    normalized_user_id = normalize_user_id(user_id)
+    user_metadata = metadata.get(normalized_user_id) if isinstance(metadata, dict) else None
+    session = user_metadata.get("session") if isinstance(user_metadata, dict) else None
+    item_states = user_metadata.get("items") if isinstance(user_metadata, dict) and isinstance(user_metadata.get("items"), dict) else {}
+    for item in weekly_plan_items if isinstance(weekly_plan_items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        slot_key = get_weekly_plan_item_slot_key(item)
+        item["calendar_sync"] = item_states.get(slot_key) or build_dingtalk_calendar_item_public_state(
+            session if isinstance(session, dict) else None,
+            None,
+            None,
+            0,
+        )
+
+
+def build_calendar_sync_member_summary(
+    user_id: str,
+    weekly_plan_items: list[dict],
+    metadata: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    normalized_user_id = normalize_user_id(user_id)
+    user_metadata = metadata.get(normalized_user_id) if isinstance(metadata, dict) else None
+    session = user_metadata.get("session") if isinstance(user_metadata, dict) else None
+    counts: dict[str, int] = {}
+    for item in weekly_plan_items if isinstance(weekly_plan_items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        status = str((item.get("calendar_sync") or {}).get("status") or "local_only").strip()
+        counts[status] = counts.get(status, 0) + 1
+    total_items = sum(counts.values())
+    if not session:
+        state = _calendar_sync_public_state("missing")
+    elif counts.get("conflict"):
+        state = _calendar_sync_public_state("conflict", session=session)
+    elif counts.get("failed"):
+        state = _calendar_sync_public_state("failed", session=session)
+    elif counts.get("syncing"):
+        state = _calendar_sync_public_state("syncing", session=session)
+    elif counts.get("pending"):
+        state = _calendar_sync_public_state("pending", session=session)
+    elif counts.get("remote_deleted"):
+        state = _calendar_sync_public_state("remote_deleted", session=session)
+    elif counts.get("remote_cancelled") or counts.get("remote_changed"):
+        state = _calendar_sync_public_state("remote_cancelled", session=session)
+    elif total_items and counts.get("synced") == total_items:
+        state = _calendar_sync_public_state("synced", session=session)
+    elif total_items:
+        state = _calendar_sync_public_state("local_only", session=session)
+    else:
+        state = _calendar_sync_public_state("idle", session=session)
+    state.update(
+        {
+            "enabled": bool(session),
+            "total_items": total_items,
+            "counts": counts,
+            "calendar_id": str((session or {}).get("calendar_id") or "").strip() if isinstance(session, dict) else "",
+        }
+    )
+    return state
+
+
+def attach_calendar_sync_metadata_to_department_members(
+    members: list[dict],
+    week_start: str,
+) -> dict[str, object]:
+    user_ids = [
+        normalize_user_id((member.get("user") or {}).get("user_id"))
+        for member in members
+        if isinstance(member, dict) and isinstance(member.get("user"), dict)
+    ]
+    metadata = build_dingtalk_calendar_sync_metadata_for_users(user_ids, week_start)
+    summary_counts: dict[str, int] = {}
+    enabled_member_count = 0
+    total_item_count = 0
+    for member in members:
+        if not isinstance(member, dict):
+            continue
+        user = member.get("user") if isinstance(member.get("user"), dict) else {}
+        user_id = normalize_user_id(user.get("user_id"))
+        weekly_plan_items = member.get("weekly_plan_items") if isinstance(member.get("weekly_plan_items"), list) else []
+        attach_calendar_sync_state_to_weekly_plan_items(user_id, weekly_plan_items, metadata)
+        member_summary = build_calendar_sync_member_summary(user_id, weekly_plan_items, metadata)
+        member["calendar_sync"] = member_summary
+        if member_summary.get("enabled"):
+            enabled_member_count += 1
+        total_item_count += int(member_summary.get("total_items") or 0)
+        status = str(member_summary.get("status") or "missing")
+        summary_counts[status] = summary_counts.get(status, 0) + 1
+    overall_status = "missing"
+    if enabled_member_count:
+        if summary_counts.get("conflict"):
+            overall_status = "conflict"
+        elif summary_counts.get("failed"):
+            overall_status = "failed"
+        elif summary_counts.get("syncing"):
+            overall_status = "syncing"
+        elif summary_counts.get("pending"):
+            overall_status = "pending"
+        elif summary_counts.get("remote_deleted"):
+            overall_status = "remote_deleted"
+        elif summary_counts.get("remote_cancelled") or summary_counts.get("remote_changed"):
+            overall_status = "remote_cancelled"
+        elif summary_counts.get("synced"):
+            overall_status = "synced"
+        else:
+            overall_status = "local_only"
+    overall_state = _calendar_sync_public_state(overall_status)
+    return {
+        **overall_state,
+        "member_count": len(members),
+        "enabled_member_count": enabled_member_count,
+        "total_items": total_item_count,
+        "counts": summary_counts,
+    }
+
+
+def _validate_weekly_plan_item(
+    item: dict,
+    *,
+    week_start: str,
+) -> dict:
+    normalized_week_start = get_week_start(week_start)
+    item_id = str(item.get("id") or "").strip() or _new_weekly_plan_item_id()
+    work_date = validate_date(str(item.get("work_date") or "").strip())
+    week_start_date = datetime.strptime(normalized_week_start, "%Y-%m-%d").date()
+    week_end_date = week_start_date + timedelta(days=6)
+    work_date_value = datetime.strptime(work_date, "%Y-%m-%d").date()
+    if work_date_value < week_start_date or work_date_value > week_end_date:
+        raise ValueError("周计划事项日期必须落在当前周内。")
+    start_time = _normalize_weekly_plan_time(item.get("start_time"))
+    end_time = _normalize_weekly_plan_time(item.get("end_time"))
+    if not start_time or not end_time:
+        raise ValueError("周计划事项时间必须使用 HH:MM 格式，例如 09:00。")
+    if start_time >= end_time:
+        raise ValueError("周计划事项的结束时间必须晚于开始时间。")
+    legacy_slot_key = str(item.get("legacy_slot_key") or "").strip()
+    if legacy_slot_key and legacy_slot_key not in WEEKLY_PLAN_SLOT_DEFINITIONS:
+        legacy_slot_key = ""
+    item_source = str(item.get("source") or "").strip()
+    if legacy_slot_key:
+        item_source = "legacy"
+    elif item_source != DINGTALK_CALENDAR_IMPORTED_SOURCE:
+        item_source = "new"
+    return {
+        "id": item_id,
+        "work_date": work_date,
+        "start_time": start_time,
+        "end_time": end_time,
+        "title": str(item.get("title") or "").strip(),
+        "description": str(item.get("description") or "").strip(),
+        "location": str(item.get("location") or "").strip(),
+        "sort_order": _normalize_weekly_plan_sort_order(item.get("sort_order")),
+        "legacy_slot_key": legacy_slot_key,
+        "source": item_source,
+    }
+
+
+def build_weekly_plan_settings_from_items(
+    payload: dict | None,
+    *,
+    week_start: str,
+) -> dict:
+    source = payload if isinstance(payload, dict) else {}
+    settings = DEFAULT_PAGE_SETTINGS.copy()
+    for key in WEEKLY_PLAN_LEGACY_SLOT_KEYS:
+        settings[key] = str(source.get(key, "") or "").strip()
+    settings["weekly_other_pending"] = str(source.get("weekly_other_pending", "") or "").strip()
+    if WEEKLY_PLAN_ITEMS_KEY not in source:
+        return normalize_weekly_plan_settings(settings)
+
+    raw_items = normalize_weekly_plan_items(source.get(WEEKLY_PLAN_ITEMS_KEY), assign_ids=True)
+    new_items: list[dict] = []
+    seen_ids: set[str] = set()
+    for raw_item in raw_items:
+        item = _validate_weekly_plan_item(raw_item, week_start=week_start)
+        if item["id"] in seen_ids:
+            raise ValueError("周计划事项 ID 重复，请刷新页面后重试。")
+        seen_ids.add(item["id"])
+        legacy_slot_key = item["legacy_slot_key"] or (
+            item["id"] if item["id"] in WEEKLY_PLAN_SLOT_DEFINITIONS else ""
+        )
+        if legacy_slot_key:
+            settings[legacy_slot_key] = item["title"]
+            continue
+        if not item["title"]:
+            continue
+        new_items.append(item)
+    settings[WEEKLY_PLAN_ITEMS_KEY] = new_items
+    return normalize_weekly_plan_settings(settings)
+
+
 def normalize_weekly_plan_settings(payload: dict | None) -> dict:
     source = payload if isinstance(payload, dict) else {}
     settings = {}
     for key in WEEKLY_PLAN_KEYS:
         settings[key] = str(source.get(key, DEFAULT_PAGE_SETTINGS[key])).strip()
+    settings[WEEKLY_PLAN_ITEMS_KEY] = normalize_weekly_plan_items(source.get(WEEKLY_PLAN_ITEMS_KEY))
     return settings
 
 
@@ -11311,18 +13793,37 @@ def get_weekly_plan_settings(anchor_date: str, user_id: str | None = None) -> tu
 
 
 def save_weekly_plan_settings(
-    week_start: str, payload: dict | None, user_id: str | None = None
+    week_start: str,
+    payload: dict | None,
+    user_id: str | None = None,
+    *,
+    calendar_sync_origin: bool = False,
 ) -> tuple[str, dict, str]:
     normalized_week_start = get_week_start(week_start)
     normalized_user_id = ensure_user(normalize_user_id(user_id))
-    settings = normalize_weekly_plan_settings(payload)
+    source_payload = payload if isinstance(payload, dict) else {}
+    if WEEKLY_PLAN_ITEMS_KEY in source_payload:
+        settings = build_weekly_plan_settings_from_items(
+            source_payload,
+            week_start=normalized_week_start,
+        )
+    else:
+        settings = normalize_weekly_plan_settings(source_payload)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    calendar_changed_at = calendar_sync_now_text()
+    previous_settings = DEFAULT_PAGE_SETTINGS.copy()
     with get_connection() as connection:
         existing = connection.execute(
-            "SELECT created_at FROM weekly_plans WHERE user_id = ? AND week_start = ?",
+            "SELECT created_at, settings_json FROM weekly_plans WHERE user_id = ? AND week_start = ?",
             (normalized_user_id, normalized_week_start),
         ).fetchone()
         created_at = existing["created_at"] if existing else timestamp
+        if existing:
+            try:
+                loaded_previous_settings = json.loads(existing["settings_json"] or "{}")
+            except json.JSONDecodeError:
+                loaded_previous_settings = {}
+            previous_settings = normalize_weekly_plan_settings(loaded_previous_settings)
         connection.execute(
             """
             INSERT INTO weekly_plans (user_id, week_start, settings_json, created_at, updated_at)
@@ -11338,6 +13839,14 @@ def save_weekly_plan_settings(
                 created_at,
                 timestamp,
             ),
+        )
+    if not calendar_sync_origin and previous_settings != settings:
+        queue_weekly_plan_calendar_changes(
+            normalized_user_id,
+            normalized_week_start,
+            previous_settings,
+            settings,
+            changed_at=calendar_changed_at,
         )
     return normalized_week_start, settings, timestamp
 
@@ -11358,11 +13867,672 @@ def build_weekly_plan_change_details(previous_settings: dict | None, next_settin
             details.append(f"删除{field_label}：{before_value}")
         else:
             details.append(f"修改{field_label}：原“{before_value}”改为“{after_value}”")
+    previous_items = {
+        str(item.get("id") or ""): item
+        for item in normalize_weekly_plan_items(previous.get(WEEKLY_PLAN_ITEMS_KEY))
+        if str(item.get("id") or "")
+    }
+    current_items = {
+        str(item.get("id") or ""): item
+        for item in normalize_weekly_plan_items(current.get(WEEKLY_PLAN_ITEMS_KEY))
+        if str(item.get("id") or "")
+    }
+    for item_id in sorted(set(previous_items) | set(current_items)):
+        before = previous_items.get(item_id)
+        after = current_items.get(item_id)
+        if before == after:
+            continue
+        before_title = str((before or {}).get("title") or "").strip()
+        after_title = str((after or {}).get("title") or "").strip()
+        if before is None:
+            details.append(f"新增日程：{after_title or '未命名事项'}")
+        elif after is None:
+            details.append(f"删除日程：{before_title or '未命名事项'}")
+        else:
+            details.append(
+                f"修改日程：{before_title or '未命名事项'}"
+                f"（{before.get('start_time', '')}-{before.get('end_time', '')}）"
+                f"改为{after_title or '未命名事项'}"
+                f"（{after.get('start_time', '')}-{after.get('end_time', '')}）"
+            )
     return details
 
 
+def build_calendar_slot_datetime(work_date: str, clock_time: str) -> str:
+    return f"{validate_date(work_date)}T{str(clock_time or '').strip()}:00+08:00"
+
+
+def build_calendar_item_local_snapshot(
+    *,
+    title: str,
+    work_date: str,
+    start_at: str,
+    end_at: str,
+    timezone: str = DINGTALK_CALENDAR_TIMEZONE,
+    location: str = "",
+    description: str = "",
+) -> dict[str, object]:
+    return {
+        "title": str(title or "").strip(),
+        "work_date": validate_date(work_date),
+        "start_at": str(start_at or "").strip(),
+        "end_at": str(end_at or "").strip(),
+        "timezone": str(timezone or DINGTALK_CALENDAR_TIMEZONE).strip() or DINGTALK_CALENDAR_TIMEZONE,
+        "location": str(location or "").strip(),
+        "description": str(description or "").strip(),
+        "all_day": False,
+    }
+
+
+def build_calendar_snapshot_hash(snapshot: dict | None) -> str:
+    normalized = snapshot if isinstance(snapshot, dict) else {}
+    return hashlib.sha256(
+        json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def build_schedule_item_snapshot(row: sqlite3.Row | dict | None) -> dict[str, object]:
+    if isinstance(row, dict):
+        source = row
+    elif hasattr(row, "keys"):
+        source = {key: row[key] for key in row.keys()}
+    else:
+        source = {}
+    return build_calendar_item_local_snapshot(
+        title=str(source.get("title") or ""),
+        work_date=str(source.get("work_date") or ""),
+        start_at=str(source.get("start_at") or ""),
+        end_at=str(source.get("end_at") or ""),
+        timezone=str(source.get("timezone") or DINGTALK_CALENDAR_TIMEZONE),
+        location=str(source.get("location") or ""),
+        description=str(source.get("description") or ""),
+    )
+
+
+def get_schedule_item_by_id(schedule_item_id: int | str | None) -> dict | None:
+    try:
+        normalized_id = int(schedule_item_id or 0)
+    except (TypeError, ValueError):
+        normalized_id = 0
+    if normalized_id <= 0:
+        return None
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM schedule_items WHERE id = ?",
+            (normalized_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_schedule_item_by_slot(
+    user_id: str,
+    week_start: str,
+    slot_key: str,
+) -> dict | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM schedule_items
+            WHERE user_id = ? AND week_start = ? AND slot_key = ?
+            """,
+            (normalize_user_id(user_id), get_week_start(week_start), str(slot_key or "").strip()),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def enqueue_calendar_sync_job_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    user_id: str,
+    schedule_item_id: int,
+    sync_session_id: int,
+    operation: str,
+) -> None:
+    timestamp = calendar_sync_now_text()
+    idempotency_key = f"{sync_session_id}:{schedule_item_id}:{operation}"
+    existing = connection.execute(
+        """
+        SELECT id
+        FROM dingtalk_calendar_sync_jobs
+        WHERE schedule_item_id = ?
+          AND sync_session_id = ?
+          AND status IN (?, ?)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (
+            int(schedule_item_id),
+            int(sync_session_id),
+            DINGTALK_CALENDAR_JOB_PENDING,
+            DINGTALK_CALENDAR_JOB_RUNNING,
+        ),
+    ).fetchone()
+    if existing:
+        normalized_operation = str(operation or "upsert").strip() or "upsert"
+        if normalized_operation == "delete":
+            connection.execute(
+                """
+                UPDATE dingtalk_calendar_sync_jobs
+                SET operation = 'delete', idempotency_key = ?, next_attempt_at = ?,
+                    last_error = '', updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    idempotency_key,
+                    timestamp,
+                    timestamp,
+                    int(existing["id"]),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE dingtalk_calendar_sync_jobs
+                SET operation = ?, idempotency_key = ?, next_attempt_at = ?,
+                    last_error = '', updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    normalized_operation,
+                    idempotency_key,
+                    timestamp,
+                    timestamp,
+                    int(existing["id"]),
+                ),
+            )
+        return
+    connection.execute(
+        """
+        INSERT INTO dingtalk_calendar_sync_jobs (
+            user_id,
+            schedule_item_id,
+            sync_session_id,
+            operation,
+            idempotency_key,
+            max_attempts,
+            next_attempt_at,
+            status,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            normalize_user_id(user_id),
+            int(schedule_item_id),
+            int(sync_session_id),
+            str(operation or "upsert").strip() or "upsert",
+            idempotency_key,
+            DINGTALK_CALENDAR_SYNC_MAX_ATTEMPTS,
+            timestamp,
+            DINGTALK_CALENDAR_JOB_PENDING,
+            timestamp,
+            timestamp,
+        ),
+    )
+
+
+def is_dingtalk_imported_schedule_item(schedule_item: dict | None) -> bool:
+    return (
+        isinstance(schedule_item, dict)
+        and str(schedule_item.get("source") or "").strip() == DINGTALK_CALENDAR_IMPORTED_SOURCE
+    )
+
+
+def cancel_pending_calendar_sync_jobs_with_connection(
+    connection: sqlite3.Connection,
+    *,
+    schedule_item_id: int,
+    reason: str,
+) -> None:
+    timestamp = calendar_sync_now_text()
+    connection.execute(
+        """
+        UPDATE dingtalk_calendar_sync_jobs
+        SET status = ?, next_attempt_at = '', last_error = ?, updated_at = ?
+        WHERE schedule_item_id = ? AND status = ?
+        """,
+        (
+            DINGTALK_CALENDAR_JOB_CANCELLED,
+            str(reason or "").strip(),
+            timestamp,
+            int(schedule_item_id),
+            DINGTALK_CALENDAR_JOB_PENDING,
+        ),
+    )
+
+
+def remove_weekly_plan_item_for_schedule_item(schedule_item: dict | None) -> None:
+    if not isinstance(schedule_item, dict):
+        return
+    slot_key = str(schedule_item.get("slot_key") or "").strip()
+    user_id = normalize_user_id(schedule_item.get("user_id"))
+    week_start = str(schedule_item.get("week_start") or "").strip()
+    if not slot_key or not user_id or not week_start:
+        return
+    _, current_settings, _ = get_weekly_plan_settings(week_start, user_id=user_id)
+    changed = False
+    if slot_key.startswith("weekly_item:"):
+        item_id = slot_key.split(":", 1)[1].strip()
+        current_items = normalize_weekly_plan_items(current_settings.get(WEEKLY_PLAN_ITEMS_KEY))
+        updated_items = [
+            item
+            for item in current_items
+            if str(item.get("id") or "").strip() != item_id
+        ]
+        changed = len(updated_items) != len(current_items)
+        current_settings[WEEKLY_PLAN_ITEMS_KEY] = updated_items
+    elif slot_key in WEEKLY_PLAN_SLOT_DEFINITIONS:
+        changed = bool(str(current_settings.get(slot_key) or "").strip())
+        current_settings[slot_key] = ""
+    if changed:
+        save_weekly_plan_settings(
+            week_start,
+            current_settings,
+            user_id=user_id,
+            calendar_sync_origin=True,
+        )
+
+
+def _upsert_schedule_item_for_calendar(
+    connection: sqlite3.Connection,
+    *,
+    user_id: str,
+    week_start: str,
+    slot_key: str,
+    slot_label: str,
+    work_date: str,
+    start_time: str,
+    end_time: str,
+    title: str,
+    description: str = "",
+    location: str = "",
+    sync_session: dict,
+    changed_at: str,
+) -> dict | None:
+    normalized_week_start = get_week_start(week_start)
+    normalized_work_date = validate_date(work_date)
+    normalized_start_time = _normalize_weekly_plan_time(start_time)
+    normalized_end_time = _normalize_weekly_plan_time(end_time)
+    if not normalized_start_time or not normalized_end_time or normalized_start_time >= normalized_end_time:
+        return None
+    work_date = normalized_work_date
+    if work_date < str(sync_session.get("start_date") or ""):
+        return None
+    if str(changed_at or "") <= str(sync_session.get("activated_at") or ""):
+        return None
+    normalized_user_id = normalize_user_id(user_id)
+    normalized_title = str(title or "").strip()
+    normalized_description = str(description or "").strip()
+    normalized_location = str(location or "").strip()
+    existing = connection.execute(
+        """
+        SELECT *
+        FROM schedule_items
+        WHERE user_id = ? AND week_start = ? AND slot_key = ?
+        """,
+        (normalized_user_id, normalized_week_start, slot_key),
+    ).fetchone()
+    existing_dict = dict(existing) if existing else None
+    active_session_id = int(sync_session["id"])
+    existing_session_id = int(existing_dict.get("sync_session_id") or 0) if existing_dict else 0
+    session_changed = bool(existing_dict and existing_session_id != active_session_id)
+    previous_remote_event_id = (
+        str(existing_dict.get("dingtalk_event_id") or "").strip()
+        or str(existing_dict.get("last_remote_event_id") or "").strip()
+        if existing_dict
+        else ""
+    )
+
+    timestamp = calendar_sync_now_text()
+    start_at = build_calendar_slot_datetime(work_date, normalized_start_time)
+    end_at = build_calendar_slot_datetime(work_date, normalized_end_time)
+    if not normalized_title:
+        if not existing_dict:
+            return None
+        if is_dingtalk_imported_schedule_item(existing_dict):
+            cancel_pending_calendar_sync_jobs_with_connection(
+                connection,
+                schedule_item_id=int(existing_dict["id"]),
+                reason="本地删除了钉钉导入日程，未删除钉钉日程。",
+            )
+            if session_changed:
+                connection.execute(
+                    """
+                    UPDATE schedule_items
+                    SET title = '', sync_session_id = ?, dingtalk_event_id = '',
+                        last_remote_event_id = ?, last_local_hash = '', last_remote_hash = '',
+                        remote_updated_at = '', status = ?, sync_enabled = 0,
+                        deleted_at = ?, updated_at = ?, revision = revision + 1
+                    WHERE id = ?
+                    """,
+                    (
+                        active_session_id,
+                        previous_remote_event_id,
+                        DINGTALK_CALENDAR_ITEM_DELETED,
+                        timestamp,
+                        timestamp,
+                        int(existing_dict["id"]),
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE schedule_items
+                    SET title = '', dingtalk_event_id = ?, last_remote_event_id = ?,
+                        last_local_hash = '', last_remote_hash = '', remote_updated_at = '',
+                        status = ?, sync_enabled = 0, deleted_at = ?, updated_at = ?,
+                        revision = revision + 1
+                    WHERE id = ?
+                    """,
+                    (
+                        "",
+                        previous_remote_event_id,
+                        DINGTALK_CALENDAR_ITEM_DELETED,
+                        timestamp,
+                        timestamp,
+                        int(existing_dict["id"]),
+                    ),
+                )
+            return {"id": int(existing_dict["id"])}
+        if session_changed:
+            # Rebind the local cell to the new session without deleting or
+            # updating the event created by the frozen session.
+            connection.execute(
+                """
+                UPDATE schedule_items
+                SET title = '', sync_session_id = ?, dingtalk_event_id = '',
+                    last_remote_event_id = ?, last_local_hash = '', last_remote_hash = '',
+                    remote_updated_at = '', status = ?, deleted_at = ?,
+                    updated_at = ?, revision = revision + 1
+                WHERE id = ?
+                """,
+                (
+                    active_session_id,
+                    previous_remote_event_id,
+                    DINGTALK_CALENDAR_ITEM_DELETED,
+                    timestamp,
+                    timestamp,
+                    int(existing_dict["id"]),
+                ),
+            )
+            return {"id": int(existing_dict["id"])}
+        connection.execute(
+            """
+            UPDATE schedule_items
+            SET title = '', status = ?, deleted_at = ?, updated_at = ?, revision = revision + 1
+            WHERE id = ?
+            """,
+            (
+                DINGTALK_CALENDAR_ITEM_DELETED,
+                timestamp,
+                timestamp,
+                int(existing_dict["id"]),
+            ),
+        )
+        enqueue_calendar_sync_job_with_connection(
+            connection,
+            user_id=normalized_user_id,
+            schedule_item_id=int(existing_dict["id"]),
+            sync_session_id=active_session_id,
+            operation="delete",
+        )
+        return {"id": int(existing_dict["id"])}
+
+    snapshot = build_calendar_item_local_snapshot(
+        title=normalized_title,
+        work_date=work_date,
+        start_at=start_at,
+        end_at=end_at,
+        description=normalized_description,
+        location=normalized_location,
+    )
+    local_hash = build_calendar_snapshot_hash(snapshot)
+    if existing_dict:
+        if session_changed:
+            connection.execute(
+                """
+                UPDATE schedule_items
+                SET slot_label = ?, work_date = ?, title = ?, description = ?, location = ?,
+                    start_at = ?, end_at = ?,
+                    timezone = ?, sync_enabled = 1, sync_session_id = ?,
+                    dingtalk_event_id = '', last_remote_event_id = ?,
+                    last_local_hash = ?, last_remote_hash = '',
+                    remote_updated_at = '', status = ?, deleted_at = '',
+                    updated_at = ?, revision = revision + 1
+                WHERE id = ?
+                """,
+                (
+                    slot_label,
+                    work_date,
+                    normalized_title,
+                    normalized_description,
+                    normalized_location,
+                    start_at,
+                    end_at,
+                    DINGTALK_CALENDAR_TIMEZONE,
+                    active_session_id,
+                    previous_remote_event_id,
+                    local_hash,
+                    DINGTALK_CALENDAR_ITEM_PENDING,
+                    timestamp,
+                    int(existing_dict["id"]),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE schedule_items
+                SET slot_label = ?, work_date = ?, title = ?, description = ?, location = ?,
+                    start_at = ?, end_at = ?,
+                    timezone = ?, sync_enabled = 1, sync_session_id = ?, last_local_hash = ?,
+                    status = ?, deleted_at = '', updated_at = ?, revision = revision + 1
+                WHERE id = ?
+                """,
+                (
+                    slot_label,
+                    work_date,
+                    normalized_title,
+                    normalized_description,
+                    normalized_location,
+                    start_at,
+                    end_at,
+                    DINGTALK_CALENDAR_TIMEZONE,
+                    active_session_id,
+                    local_hash,
+                    DINGTALK_CALENDAR_ITEM_PENDING,
+                    timestamp,
+                    int(existing_dict["id"]),
+                ),
+            )
+        item_id = int(existing_dict["id"])
+    else:
+        connection.execute(
+            """
+            INSERT INTO schedule_items (
+                user_id,
+                week_start,
+                slot_key,
+                slot_label,
+                work_date,
+                title,
+                description,
+                location,
+                start_at,
+                end_at,
+                timezone,
+                source,
+                sync_enabled,
+                sync_session_id,
+                last_local_hash,
+                status,
+                revision,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'weekly_plan', 1, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                normalized_user_id,
+                normalized_week_start,
+                slot_key,
+                slot_label,
+                work_date,
+                normalized_title,
+                normalized_description,
+                normalized_location,
+                start_at,
+                end_at,
+                DINGTALK_CALENDAR_TIMEZONE,
+                active_session_id,
+                local_hash,
+                DINGTALK_CALENDAR_ITEM_PENDING,
+                timestamp,
+                timestamp,
+            ),
+        )
+        item_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+    enqueue_calendar_sync_job_with_connection(
+        connection,
+        user_id=normalized_user_id,
+        schedule_item_id=item_id,
+        sync_session_id=active_session_id,
+        operation="upsert",
+    )
+    return {"id": item_id}
+
+
+def upsert_schedule_item_for_weekly_plan(
+    connection: sqlite3.Connection,
+    *,
+    user_id: str,
+    week_start: str,
+    slot_key: str,
+    title: str,
+    sync_session: dict,
+    changed_at: str,
+) -> dict | None:
+    slot_definition = WEEKLY_PLAN_SLOT_DEFINITIONS.get(slot_key)
+    if not slot_definition:
+        return None
+    weekday_index, _, slot_label, start_time, end_time = slot_definition
+    normalized_week_start = get_week_start(week_start)
+    week_start_date = datetime.strptime(normalized_week_start, "%Y-%m-%d").date()
+    work_date = (week_start_date + timedelta(days=weekday_index)).isoformat()
+    return _upsert_schedule_item_for_calendar(
+        connection,
+        user_id=user_id,
+        week_start=normalized_week_start,
+        slot_key=slot_key,
+        slot_label=slot_label,
+        work_date=work_date,
+        start_time=start_time,
+        end_time=end_time,
+        title=title,
+        sync_session=sync_session,
+        changed_at=changed_at,
+    )
+
+
+def upsert_schedule_item_for_weekly_plan_item(
+    connection: sqlite3.Connection,
+    *,
+    user_id: str,
+    week_start: str,
+    item: dict,
+    sync_session: dict,
+    changed_at: str,
+) -> dict | None:
+    item_id = str(item.get("id") or "").strip()
+    if not item_id:
+        return None
+    start_time = _normalize_weekly_plan_time(item.get("start_time"))
+    end_time = _normalize_weekly_plan_time(item.get("end_time"))
+    if not start_time or not end_time:
+        return None
+    title = str(item.get("title") or "").strip()
+    slot_label = f"{str(item.get('work_date') or '').strip()} {start_time}-{end_time}"
+    return _upsert_schedule_item_for_calendar(
+        connection,
+        user_id=user_id,
+        week_start=week_start,
+        slot_key=f"weekly_item:{item_id}",
+        slot_label=slot_label,
+        work_date=str(item.get("work_date") or "").strip(),
+        start_time=start_time,
+        end_time=end_time,
+        title=title,
+        description=str(item.get("description") or "").strip(),
+        location=str(item.get("location") or "").strip(),
+        sync_session=sync_session,
+        changed_at=changed_at,
+    )
+
+
+def queue_weekly_plan_calendar_changes(
+    user_id: str,
+    week_start: str,
+    previous_settings: dict,
+    next_settings: dict,
+    *,
+    changed_at: str,
+) -> None:
+    sync_session = get_active_dingtalk_calendar_sync_session(user_id)
+    if not sync_session:
+        return
+    previous = normalize_weekly_plan_settings(previous_settings)
+    current = normalize_weekly_plan_settings(next_settings)
+    changed_slots = [
+        slot_key
+        for slot_key in WEEKLY_PLAN_SLOT_DEFINITIONS
+        if str(previous.get(slot_key) or "").strip() != str(current.get(slot_key) or "").strip()
+    ]
+    previous_items = {
+        str(item.get("id") or ""): item
+        for item in normalize_weekly_plan_items(previous.get(WEEKLY_PLAN_ITEMS_KEY))
+        if str(item.get("id") or "")
+    }
+    current_items = {
+        str(item.get("id") or ""): item
+        for item in normalize_weekly_plan_items(current.get(WEEKLY_PLAN_ITEMS_KEY))
+        if str(item.get("id") or "")
+    }
+    changed_item_ids = [
+        item_id
+        for item_id in sorted(set(previous_items) | set(current_items))
+        if previous_items.get(item_id) != current_items.get(item_id)
+    ]
+    if not changed_slots and not changed_item_ids:
+        return
+    with get_connection() as connection:
+        for slot_key in changed_slots:
+            upsert_schedule_item_for_weekly_plan(
+                connection,
+                user_id=user_id,
+                week_start=week_start,
+                slot_key=slot_key,
+                title=str(current.get(slot_key) or "").strip(),
+                sync_session=sync_session,
+                changed_at=changed_at,
+            )
+        for item_id in changed_item_ids:
+            item = current_items.get(item_id) or previous_items.get(item_id) or {}
+            if item_id not in current_items:
+                item = dict(item)
+                item["title"] = ""
+            upsert_schedule_item_for_weekly_plan_item(
+                connection,
+                user_id=user_id,
+                week_start=week_start,
+                item=item,
+                sync_session=sync_session,
+                changed_at=changed_at,
+            )
+
+
 def build_weekly_plan_edit_log_payload(row: sqlite3.Row | dict | None) -> dict:
-    if isinstance(row, sqlite3.Row):
+    if hasattr(row, "keys"):
         source = {key: row[key] for key in row.keys()}
     elif isinstance(row, dict):
         source = row
@@ -11938,9 +15108,48 @@ def normalize_user_dingtalk_mcp_config(payload: dict | None) -> dict:
     source = payload if isinstance(payload, dict) else {}
     daily_template = normalize_dingtalk_template_config(source.get("daily_template", {}))
     weekly_template = normalize_dingtalk_template_config(source.get("weekly_template", {}))
+    raw_calendar_options = source.get("calendar_options", [])
+    calendar_options: list[dict[str, str]] = []
+    seen_calendar_ids: set[str] = set()
+    if isinstance(raw_calendar_options, list):
+        for raw_option in raw_calendar_options:
+            if not isinstance(raw_option, dict):
+                continue
+            calendar_id = str(
+                raw_option.get("calendar_id")
+                or raw_option.get("calendarId")
+                or ""
+            ).strip()
+            if not calendar_id or calendar_id in seen_calendar_ids:
+                continue
+            seen_calendar_ids.add(calendar_id)
+            calendar_options.append(
+                {
+                    "calendar_id": calendar_id,
+                    "summary": str(
+                        raw_option.get("summary")
+                        or raw_option.get("name")
+                        or calendar_id
+                    ).strip()
+                    or calendar_id,
+                    "description": str(raw_option.get("description") or "").strip(),
+                    "privilege": str(raw_option.get("privilege") or "").strip(),
+                    "type": str(raw_option.get("type") or "").strip(),
+                }
+            )
+    calendar_id = str(source.get("calendar_id") or DINGTALK_CALENDAR_DEFAULT_ID).strip()
+    if not calendar_id:
+        calendar_id = DINGTALK_CALENDAR_DEFAULT_ID
+    sync_mode = str(source.get("calendar_sync_mode") or DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY).strip()
+    if sync_mode not in {DINGTALK_CALENDAR_SYNC_MODE_PUSH, DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY}:
+        sync_mode = DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY
     return {
         "log_mcp_url": str(source.get("log_mcp_url", "") or "").strip(),
         "directory_mcp_url": str(source.get("directory_mcp_url", "") or "").strip(),
+        "calendar_mcp_url": str(source.get("calendar_mcp_url", "") or "").strip(),
+        "calendar_id": calendar_id,
+        "calendar_sync_mode": sync_mode,
+        "calendar_options": calendar_options,
         "daily_template": daily_template if has_dingtalk_template_selection(daily_template) else {},
         "weekly_template": weekly_template if has_dingtalk_template_selection(weekly_template) else {},
     }
@@ -11952,6 +15161,7 @@ def has_user_dingtalk_mcp_config_values(config: dict | None) -> bool:
         (
             str(payload.get("log_mcp_url") or "").strip(),
             str(payload.get("directory_mcp_url") or "").strip(),
+            str(payload.get("calendar_mcp_url") or "").strip(),
             has_dingtalk_template_selection(payload.get("daily_template")),
             has_dingtalk_template_selection(payload.get("weekly_template")),
         )
@@ -11981,6 +15191,10 @@ def get_user_dingtalk_mcp_config(user_id: str | None = None) -> dict:
         "user_id": normalized_user_id,
         "log_mcp_url": config["log_mcp_url"],
         "directory_mcp_url": config["directory_mcp_url"],
+        "calendar_mcp_url": config["calendar_mcp_url"],
+        "calendar_id": config["calendar_id"],
+        "calendar_sync_mode": config["calendar_sync_mode"],
+        "calendar_options": config["calendar_options"],
         "daily_template": config["daily_template"],
         "weekly_template": config["weekly_template"],
         "uses_custom_log_mcp": bool(config["log_mcp_url"]),
@@ -12037,12 +15251,242 @@ def require_selected_dingtalk_report_template_config(
     return normalize_dingtalk_template_config(template_config)
 
 
+def calendar_sync_now_text() -> str:
+    return datetime.now().isoformat(timespec="microseconds")
+
+
+def unwrap_dingtalk_mcp_result(payload: object) -> object:
+    if not isinstance(payload, dict):
+        return payload
+    if payload.get("success") is False or payload.get("ok") is False:
+        raise RuntimeError(
+            str(
+                payload.get("errorMsg")
+                or payload.get("errorMessage")
+                or payload.get("message")
+                or payload.get("error")
+                or DINGTALK_CALENDAR_MCP_INVALID_ERROR
+            )
+        )
+    result = payload.get("result")
+    if result is not None:
+        return result
+    data = payload.get("data")
+    if data is not None:
+        return data
+    return payload
+
+
+def normalize_dingtalk_calendar_options(payload: object) -> list[dict[str, str]]:
+    source = unwrap_dingtalk_mcp_result(payload)
+    if isinstance(source, dict):
+        for key in ("calendars", "items", "list", "data"):
+            candidate = source.get(key)
+            if isinstance(candidate, list):
+                source = candidate
+                break
+    raw_options = source if isinstance(source, list) else []
+    options: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for raw_option in raw_options:
+        if not isinstance(raw_option, dict):
+            continue
+        calendar_id = str(
+            raw_option.get("calendarId")
+            or raw_option.get("calendar_id")
+            or raw_option.get("id")
+            or ""
+        ).strip()
+        if not calendar_id or calendar_id in seen_ids:
+            continue
+        seen_ids.add(calendar_id)
+        options.append(
+            {
+                "calendar_id": calendar_id,
+                "summary": str(
+                    raw_option.get("summary")
+                    or raw_option.get("name")
+                    or calendar_id
+                ).strip()
+                or calendar_id,
+                "description": str(raw_option.get("description") or "").strip(),
+                "privilege": str(raw_option.get("privilege") or "").strip(),
+                "type": str(raw_option.get("type") or "").strip(),
+            }
+        )
+    return options
+
+
+def list_dingtalk_calendar_options(mcp_url: str) -> list[dict[str, str]]:
+    normalized_url = str(mcp_url or "").strip()
+    if not normalized_url:
+        raise RuntimeError(DINGTALK_CALENDAR_MCP_REQUIRED_ERROR)
+    options = normalize_dingtalk_calendar_options(
+        call_dingtalk_mcp_tool(normalized_url, "list_calendars", {})
+    )
+    if not options:
+        raise RuntimeError(DINGTALK_CALENDAR_MCP_INVALID_ERROR)
+    return options
+
+
+def get_active_dingtalk_calendar_sync_session(user_id: str | None = None) -> dict | None:
+    normalized_user_id = normalize_user_id(user_id)
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM dingtalk_calendar_sync_sessions
+            WHERE user_id = ? AND status = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (normalized_user_id, DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_dingtalk_calendar_sync_session(session_id: int | str | None) -> dict | None:
+    try:
+        normalized_session_id = int(session_id or 0)
+    except (TypeError, ValueError):
+        normalized_session_id = 0
+    if normalized_session_id <= 0:
+        return None
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM dingtalk_calendar_sync_sessions WHERE id = ?",
+            (normalized_session_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def pause_dingtalk_calendar_sync_sessions(
+    user_id: str,
+    *,
+    status: str = DINGTALK_CALENDAR_SYNC_STATUS_FROZEN,
+) -> None:
+    timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE dingtalk_calendar_sync_sessions
+            SET status = ?, updated_at = ?
+            WHERE user_id = ? AND status = ?
+            """,
+            (
+                status,
+                timestamp,
+                normalize_user_id(user_id),
+                DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE,
+            ),
+        )
+
+
+def create_dingtalk_calendar_sync_session(
+    user_id: str,
+    *,
+    mcp_url: str,
+    calendar_id: str,
+    calendar_name: str,
+    sync_mode: str,
+    activated_at: str | None = None,
+) -> dict:
+    normalized_user_id = normalize_user_id(user_id)
+    normalized_url = str(mcp_url or "").strip()
+    normalized_calendar_id = str(calendar_id or DINGTALK_CALENDAR_DEFAULT_ID).strip() or DINGTALK_CALENDAR_DEFAULT_ID
+    normalized_sync_mode = (
+        sync_mode
+        if sync_mode in {DINGTALK_CALENDAR_SYNC_MODE_PUSH, DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY}
+        else DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY
+    )
+    timestamp = str(activated_at or "").strip() or calendar_sync_now_text()
+    start_date = timestamp[:10]
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO dingtalk_calendar_sync_sessions (
+                user_id,
+                mcp_url,
+                mcp_url_fingerprint,
+                calendar_id,
+                calendar_name,
+                sync_mode,
+                activated_at,
+                start_date,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_user_id,
+                normalized_url,
+                build_dingtalk_mcp_url_fingerprint(normalized_url),
+                normalized_calendar_id,
+                str(calendar_name or normalized_calendar_id).strip() or normalized_calendar_id,
+                normalized_sync_mode,
+                timestamp,
+                start_date,
+                DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE,
+                timestamp,
+                timestamp,
+            ),
+        )
+        session_id = int(connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+    return get_dingtalk_calendar_sync_session(session_id) or {}
+
+
+def resolve_selected_dingtalk_calendar(
+    options: list[dict[str, str]],
+    calendar_id: str,
+) -> dict[str, str]:
+    normalized_calendar_id = str(calendar_id or DINGTALK_CALENDAR_DEFAULT_ID).strip() or DINGTALK_CALENDAR_DEFAULT_ID
+    selected = next(
+        (item for item in options if str(item.get("calendar_id") or "").strip() == normalized_calendar_id),
+        None,
+    )
+    if not selected:
+        raise ValueError("所选钉钉日历不存在，请先读取日历列表后重试。")
+    privilege = str(selected.get("privilege") or "").strip()
+    if privilege and privilege not in {"owner", "writer"}:
+        raise ValueError("所选钉钉日历没有创建和编辑权限，请选择自己的日历或可编辑的共享日历。")
+    return selected
+
+
 def save_user_dingtalk_mcp_config(user_id: str | None, payload: dict | None) -> dict:
     normalized_user_id = ensure_user(normalize_user_id(user_id))
     setting_key = build_user_dingtalk_mcp_setting_key(normalized_user_id)
     existing_config = get_user_dingtalk_mcp_config(normalized_user_id)
     config = normalize_user_dingtalk_mcp_config(payload)
     log_mcp_changed = str(config.get("log_mcp_url") or "").strip() != str(existing_config.get("log_mcp_url") or "").strip()
+    old_calendar_url = str(existing_config.get("calendar_mcp_url") or "").strip()
+    new_calendar_url = str(config.get("calendar_mcp_url") or "").strip()
+    old_calendar_id = str(existing_config.get("calendar_id") or DINGTALK_CALENDAR_DEFAULT_ID).strip()
+    new_calendar_id = str(config.get("calendar_id") or DINGTALK_CALENDAR_DEFAULT_ID).strip()
+    calendar_url_changed = old_calendar_url != new_calendar_url
+    calendar_id_changed = old_calendar_id != new_calendar_id
+    active_calendar_session = get_active_dingtalk_calendar_sync_session(normalized_user_id)
+    calendar_session_needs_activation = bool(
+        new_calendar_url
+        and (
+            calendar_url_changed
+            or calendar_id_changed
+            or not active_calendar_session
+        )
+    )
+    selected_calendar: dict[str, str] | None = None
+    if new_calendar_url and (calendar_session_needs_activation or not config.get("calendar_options")):
+        calendar_options = list_dingtalk_calendar_options(new_calendar_url)
+        selected_calendar = resolve_selected_dingtalk_calendar(calendar_options, new_calendar_id)
+        config["calendar_options"] = calendar_options
+    elif new_calendar_url:
+        selected_calendar = resolve_selected_dingtalk_calendar(
+            list(config.get("calendar_options") or []),
+            new_calendar_id,
+        )
+    else:
+        config["calendar_options"] = []
     if log_mcp_changed:
         config["daily_template"] = {}
         config["weekly_template"] = {}
@@ -12074,6 +15518,39 @@ def save_user_dingtalk_mcp_config(user_id: str | None, payload: dict | None) -> 
                 "DELETE FROM app_settings WHERE setting_key = ?",
                 (f"user:{normalized_user_id}:{DINGTALK_REPORT_TEMPLATE_CACHE_SETTING_KEY}",),
             )
+    if not new_calendar_url:
+        pause_dingtalk_calendar_sync_sessions(
+            normalized_user_id,
+            status=DINGTALK_CALENDAR_SYNC_STATUS_PAUSED,
+        )
+    elif calendar_session_needs_activation:
+        pause_dingtalk_calendar_sync_sessions(
+            normalized_user_id,
+            status=DINGTALK_CALENDAR_SYNC_STATUS_FROZEN,
+        )
+        create_dingtalk_calendar_sync_session(
+            normalized_user_id,
+            mcp_url=new_calendar_url,
+            calendar_id=new_calendar_id,
+            calendar_name=str((selected_calendar or {}).get("summary") or new_calendar_id),
+            sync_mode=str(config.get("calendar_sync_mode") or DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY),
+        )
+    elif active_calendar_session:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE dingtalk_calendar_sync_sessions
+                SET sync_mode = ?, calendar_name = ?, updated_at = ?
+                WHERE id = ? AND status = ?
+                """,
+                (
+                    str(config.get("calendar_sync_mode") or DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY),
+                    str((selected_calendar or {}).get("summary") or active_calendar_session.get("calendar_name") or new_calendar_id),
+                    calendar_sync_now_text(),
+                    int(active_calendar_session["id"]),
+                    DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE,
+                ),
+            )
     return get_user_dingtalk_mcp_config_summary(normalized_user_id)
 
 
@@ -12084,6 +15561,7 @@ def build_user_dingtalk_mcp_config_summary(user: dict | None) -> dict:
     effective_config = get_effective_dingtalk_mcp_config(normalized_user_id)
     effective_daily_template = get_effective_dingtalk_daily_template_config(normalized_user_id)
     effective_weekly_template = get_effective_dingtalk_weekly_template_config(normalized_user_id)
+    calendar_session = get_active_dingtalk_calendar_sync_session(normalized_user_id)
     return {
         **config,
         "display_name": str(row.get("display_name", "") or normalized_user_id).strip() or normalized_user_id,
@@ -12095,6 +15573,14 @@ def build_user_dingtalk_mcp_config_summary(user: dict | None) -> dict:
         "log_mcp_source": str(effective_config.get("log_mcp_source") or "missing").strip() or "missing",
         "directory_mcp_source": str(effective_config.get("directory_mcp_source") or "missing").strip()
         or "missing",
+        "calendar_mcp_source": "user" if config.get("calendar_mcp_url") else "missing",
+        "calendar_sync_session_id": int(calendar_session["id"]) if calendar_session else 0,
+        "calendar_sync_status": str(calendar_session.get("status") or "missing") if calendar_session else "missing",
+        "calendar_sync_activated_at": str(calendar_session.get("activated_at") or "") if calendar_session else "",
+        "calendar_sync_start_date": str(calendar_session.get("start_date") or "") if calendar_session else "",
+        "calendar_last_polled_at": str(calendar_session.get("last_polled_at") or "") if calendar_session else "",
+        "calendar_last_synced_at": str(calendar_session.get("last_synced_at") or "") if calendar_session else "",
+        "calendar_last_error": str(calendar_session.get("last_error") or "") if calendar_session else "",
         "effective_daily_template": effective_daily_template,
         "effective_weekly_template": effective_weekly_template,
         "daily_template_source": str(effective_daily_template.get("source") or "missing").strip() or "missing",
@@ -12338,6 +15824,1577 @@ def call_dingtalk_mcp_tool(
     if structured_payload is not None:
         return structured_payload
     raise RuntimeError("钉钉 MCP 工具没有返回内容。")
+
+
+def extract_dingtalk_calendar_event_id(payload: object) -> str:
+    if isinstance(payload, dict):
+        for key in ("eventId", "event_id", "id"):
+            value = str(payload.get(key) or "").strip()
+            if value:
+                return value
+        for key in ("event", "data", "result"):
+            value = extract_dingtalk_calendar_event_id(payload.get(key))
+            if value:
+                return value
+    elif isinstance(payload, list):
+        for item in payload:
+            value = extract_dingtalk_calendar_event_id(item)
+            if value:
+                return value
+    return ""
+
+
+def extract_dingtalk_calendar_event_objects(payload: object) -> list[dict]:
+    source = unwrap_dingtalk_mcp_result(payload)
+    if isinstance(source, dict):
+        for key in ("events", "items", "list", "data"):
+            candidate = source.get(key)
+            if isinstance(candidate, list):
+                source = candidate
+                break
+    if isinstance(source, list):
+        return [item for item in source if isinstance(item, dict)]
+    if isinstance(source, dict) and extract_dingtalk_calendar_event_id(source):
+        return [source]
+    return []
+
+
+def is_dingtalk_calendar_event_not_found_error(error: BaseException) -> bool:
+    message = str(error or "").strip().casefold()
+    if not message:
+        return False
+    return any(
+        marker in message
+        for marker in (
+            "not found",
+            "not exist",
+            "event not found",
+            "404",
+            "不存在",
+            "已删除",
+            "找不到",
+            "无此日程",
+        )
+    )
+
+
+def is_truthy_dingtalk_calendar_event_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value or "").strip().casefold()
+    if not normalized:
+        return False
+    return normalized in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+        "cancel",
+        "canceled",
+        "cancelled",
+        "deleted",
+        "removed",
+        "取消",
+        "已取消",
+        "删除",
+        "已删除",
+    }
+
+
+def is_dingtalk_calendar_event_cancelled(event: dict | None) -> bool:
+    if not isinstance(event, dict):
+        return False
+    for key in (
+        "isCancelled",
+        "isCanceled",
+        "is_cancelled",
+        "is_canceled",
+        "cancelled",
+        "canceled",
+        "isDeleted",
+        "is_deleted",
+    ):
+        if key in event and is_truthy_dingtalk_calendar_event_flag(event.get(key)):
+            return True
+    for key in (
+        "status",
+        "eventStatus",
+        "event_status",
+        "state",
+        "eventState",
+        "event_state",
+    ):
+        raw_value = str(event.get(key) or "").strip()
+        if not raw_value:
+            continue
+        normalized = re.sub(r"[\s_-]+", "", raw_value.casefold())
+        if normalized in {"cancel", "canceled", "cancelled", "deleted", "removed"}:
+            return True
+        if "取消" in raw_value or "已删除" in raw_value:
+            return True
+    for key in ("cancelledAt", "canceledAt", "cancelled_at", "canceled_at", "deletedAt", "deleted_at"):
+        if str(event.get(key) or "").strip():
+            return True
+    return False
+
+
+def extract_dingtalk_calendar_event_datetime(event: dict, field_name: str) -> str:
+    raw_value = event.get(field_name)
+    if raw_value is None:
+        aliases = {
+            "startDateTime": ("start", "startTime", "start_at"),
+            "endDateTime": ("end", "endTime", "end_at"),
+        }
+        for alias in aliases.get(field_name, ()):
+            if alias in event:
+                raw_value = event.get(alias)
+                break
+    if isinstance(raw_value, dict):
+        raw_value = raw_value.get("dateTime") or raw_value.get("value") or raw_value.get("date")
+    if isinstance(raw_value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(raw_value) / 1000).strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        except (OverflowError, OSError, ValueError):
+            return ""
+    return str(raw_value or "").strip()
+
+
+def normalize_dingtalk_calendar_event_snapshot(event: dict | None) -> dict[str, object]:
+    source = event if isinstance(event, dict) else {}
+    start_at = extract_dingtalk_calendar_event_datetime(source, "startDateTime")
+    end_at = extract_dingtalk_calendar_event_datetime(source, "endDateTime")
+    title = str(source.get("summary") or source.get("title") or source.get("subject") or "").strip()
+    description = str(source.get("description") or "").strip()
+    marker_match = re.search(r"\[DailyPlanner schedule_item_id=\d+\]", description)
+    if marker_match:
+        description = (description[: marker_match.start()] + description[marker_match.end() :]).strip()
+    location = source.get("location")
+    if isinstance(location, dict):
+        location = location.get("displayName") or location.get("name") or ""
+    is_all_day = bool(source.get("isAllDay") or source.get("allDay"))
+    work_date = start_at[:10] if start_at else ""
+    return {
+        "title": title,
+        "work_date": work_date,
+        "start_at": start_at,
+        "end_at": end_at,
+        "timezone": str(source.get("timeZone") or DINGTALK_CALENDAR_TIMEZONE).strip() or DINGTALK_CALENDAR_TIMEZONE,
+        "location": str(location or "").strip(),
+        "description": description,
+        "all_day": is_all_day,
+    }
+
+
+def build_dingtalk_calendar_event_payload(
+    schedule_item: dict,
+    *,
+    calendar_id: str,
+) -> dict:
+    item_id = int(schedule_item.get("id") or 0)
+    description = str(schedule_item.get("description") or "").strip()
+    marker = f"[DailyPlanner schedule_item_id={item_id}]"
+    description = f"{description}\n{marker}".strip()
+    return {
+        "summary": str(schedule_item.get("title") or "").strip(),
+        "startDateTime": str(schedule_item.get("start_at") or "").strip(),
+        "endDateTime": str(schedule_item.get("end_at") or "").strip(),
+        "isAllDay": False,
+        "timeZone": str(schedule_item.get("timezone") or DINGTALK_CALENDAR_TIMEZONE).strip()
+        or DINGTALK_CALENDAR_TIMEZONE,
+        "calendarId": str(calendar_id or DINGTALK_CALENDAR_DEFAULT_ID).strip() or DINGTALK_CALENDAR_DEFAULT_ID,
+        "description": description,
+        "freeBusy": "busy",
+        "onlineMeeting": {"add": False},
+    }
+
+
+def list_dingtalk_calendar_events(
+    mcp_url: str,
+    *,
+    calendar_id: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict]:
+    calendar_timezone = timezone(timedelta(hours=8))
+    start_datetime = datetime.strptime(validate_date(start_date), "%Y-%m-%d").replace(tzinfo=calendar_timezone)
+    end_datetime = datetime.strptime(validate_date(end_date), "%Y-%m-%d").replace(tzinfo=calendar_timezone)
+    start_time = int(start_datetime.timestamp() * 1000)
+    end_time = int(end_datetime.timestamp() * 1000)
+    cursor = ""
+    events: list[dict] = []
+    for _ in range(100):
+        arguments: dict[str, object] = {
+            "calendarId": str(calendar_id or DINGTALK_CALENDAR_DEFAULT_ID).strip() or DINGTALK_CALENDAR_DEFAULT_ID,
+            "startTime": start_time,
+            "endTime": end_time,
+            "limit": 100,
+        }
+        if cursor:
+            arguments["cursor"] = cursor
+        payload = call_dingtalk_mcp_tool(mcp_url, "list_calendar_events", arguments)
+        source = unwrap_dingtalk_mcp_result(payload)
+        events.extend(extract_dingtalk_calendar_event_objects(source))
+        next_cursor = ""
+        if isinstance(source, dict):
+            next_cursor = str(
+                source.get("nextCursor")
+                or source.get("next_cursor")
+                or source.get("cursor")
+                or ""
+            ).strip()
+        if not next_cursor or next_cursor == cursor:
+            break
+        cursor = next_cursor
+    return events
+
+
+def get_dingtalk_calendar_event_detail(
+    mcp_url: str,
+    *,
+    calendar_id: str,
+    event_id: str,
+) -> dict | None:
+    payload = call_dingtalk_mcp_tool(
+        mcp_url,
+        "get_calendar_detail",
+        {
+            "calendarId": str(calendar_id or DINGTALK_CALENDAR_DEFAULT_ID).strip()
+            or DINGTALK_CALENDAR_DEFAULT_ID,
+            "eventId": str(event_id or "").strip(),
+        },
+    )
+    events = extract_dingtalk_calendar_event_objects(payload)
+    if events:
+        return events[0]
+    if isinstance(payload, dict) and extract_dingtalk_calendar_event_id(payload):
+        return payload
+    return None
+
+
+def _parse_dingtalk_calendar_datetime(value: object) -> datetime | None:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+    calendar_timezone = timezone(timedelta(hours=8))
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_value):
+        return datetime.strptime(raw_value, "%Y-%m-%d").replace(tzinfo=calendar_timezone)
+    normalized_value = raw_value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized_value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=calendar_timezone)
+    return parsed.astimezone(calendar_timezone)
+
+
+def build_imported_dingtalk_weekly_plan_item_id(event_id: str) -> str:
+    fingerprint = hashlib.sha1(str(event_id or "").strip().encode("utf-8")).hexdigest()[:16]
+    return f"dingtalk_{fingerprint}"
+
+
+def build_weekly_plan_item_from_dingtalk_event(
+    event: dict,
+    *,
+    week_start: str,
+) -> dict[str, object] | None:
+    if not isinstance(event, dict) or is_dingtalk_calendar_event_cancelled(event):
+        return None
+    event_id = extract_dingtalk_calendar_event_id(event)
+    if not event_id:
+        return None
+    raw_description = str(event.get("description") or "")
+    if re.search(r"\[DailyPlanner schedule_item_id=\d+\]", raw_description):
+        return None
+    remote_snapshot = normalize_dingtalk_calendar_event_snapshot(event)
+    if remote_snapshot.get("all_day"):
+        return None
+    start_at = _parse_dingtalk_calendar_datetime(remote_snapshot.get("start_at"))
+    end_at = _parse_dingtalk_calendar_datetime(remote_snapshot.get("end_at"))
+    if not start_at or not end_at or start_at >= end_at:
+        return None
+    if start_at.date() != end_at.date():
+        return None
+    normalized_week_start = get_week_start(week_start)
+    week_start_date = datetime.strptime(normalized_week_start, "%Y-%m-%d").date()
+    week_end_date = week_start_date + timedelta(days=7)
+    work_date = start_at.date()
+    if not (week_start_date <= work_date < week_end_date):
+        return None
+    start_time = start_at.strftime("%H:%M")
+    end_time = end_at.strftime("%H:%M")
+    if not _normalize_weekly_plan_time(start_time) or not _normalize_weekly_plan_time(end_time):
+        return None
+    title = str(remote_snapshot.get("title") or "").strip() or "未命名钉钉日程"
+    item = {
+        "id": build_imported_dingtalk_weekly_plan_item_id(event_id),
+        "work_date": work_date.isoformat(),
+        "start_time": start_time,
+        "end_time": end_time,
+        "title": title,
+        "description": str(remote_snapshot.get("description") or "").strip(),
+        "location": str(remote_snapshot.get("location") or "").strip(),
+        "sort_order": 0,
+        "legacy_slot_key": "",
+        "source": DINGTALK_CALENDAR_IMPORTED_SOURCE,
+    }
+    local_snapshot = build_calendar_item_local_snapshot(
+        title=title,
+        work_date=work_date.isoformat(),
+        start_at=build_calendar_slot_datetime(work_date.isoformat(), start_time),
+        end_at=build_calendar_slot_datetime(work_date.isoformat(), end_time),
+        timezone=str(remote_snapshot.get("timezone") or DINGTALK_CALENDAR_TIMEZONE),
+        location=str(remote_snapshot.get("location") or "").strip(),
+        description=str(remote_snapshot.get("description") or "").strip(),
+    )
+    return {
+        "event_id": event_id,
+        "item": item,
+        "snapshot": local_snapshot,
+        "remote_updated_at": str(
+            event.get("updatedAt")
+            or event.get("updated_at")
+            or event.get("lastModifiedDateTime")
+            or ""
+        ).strip(),
+    }
+
+
+def list_existing_dingtalk_calendar_event_ids_for_user(
+    connection: sqlite3.Connection,
+    *,
+    user_id: str,
+    event_ids: list[str] | tuple[str, ...],
+) -> set[str]:
+    normalized_event_ids = [
+        str(event_id or "").strip()
+        for event_id in event_ids
+        if str(event_id or "").strip()
+    ]
+    if not normalized_event_ids:
+        return set()
+    placeholders = ", ".join("?" for _ in normalized_event_ids)
+    rows = connection.execute(
+        f"""
+        SELECT dingtalk_event_id, last_remote_event_id
+        FROM schedule_items
+        WHERE user_id = ?
+          AND (
+            dingtalk_event_id IN ({placeholders})
+            OR last_remote_event_id IN ({placeholders})
+          )
+        """,
+        (
+            normalize_user_id(user_id),
+            *normalized_event_ids,
+            *normalized_event_ids,
+        ),
+    ).fetchall()
+    existing: set[str] = set()
+    for row in rows:
+        for key in ("dingtalk_event_id", "last_remote_event_id"):
+            event_id = str(row[key] or "").strip()
+            if event_id:
+                existing.add(event_id)
+    return existing
+
+
+def insert_imported_dingtalk_schedule_item_mappings(
+    *,
+    user_id: str,
+    week_start: str,
+    sync_session: dict,
+    imported_items: list[dict[str, object]],
+) -> None:
+    if not imported_items:
+        return
+    normalized_user_id = normalize_user_id(user_id)
+    normalized_week_start = get_week_start(week_start)
+    session_id = int(sync_session["id"])
+    timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        for imported in imported_items:
+            item = imported.get("item") if isinstance(imported, dict) else None
+            snapshot = imported.get("snapshot") if isinstance(imported, dict) else None
+            if not isinstance(item, dict) or not isinstance(snapshot, dict):
+                continue
+            event_id = str(imported.get("event_id") or "").strip()
+            item_id = str(item.get("id") or "").strip()
+            if not event_id or not item_id:
+                continue
+            work_date = validate_date(str(item.get("work_date") or ""))
+            start_time = _normalize_weekly_plan_time(item.get("start_time"))
+            end_time = _normalize_weekly_plan_time(item.get("end_time"))
+            if not start_time or not end_time:
+                continue
+            local_hash = build_calendar_snapshot_hash(snapshot)
+            slot_key = f"weekly_item:{item_id}"
+            connection.execute(
+                """
+                INSERT INTO schedule_items (
+                    user_id,
+                    week_start,
+                    slot_key,
+                    slot_label,
+                    work_date,
+                    title,
+                    description,
+                    location,
+                    start_at,
+                    end_at,
+                    timezone,
+                    source,
+                    sync_enabled,
+                    sync_session_id,
+                    dingtalk_event_id,
+                    last_remote_event_id,
+                    last_local_hash,
+                    last_remote_hash,
+                    remote_updated_at,
+                    status,
+                    revision,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(user_id, week_start, slot_key) DO UPDATE SET
+                    slot_label = excluded.slot_label,
+                    work_date = excluded.work_date,
+                    title = excluded.title,
+                    description = excluded.description,
+                    location = excluded.location,
+                    start_at = excluded.start_at,
+                    end_at = excluded.end_at,
+                    timezone = excluded.timezone,
+                    source = excluded.source,
+                    sync_enabled = 1,
+                    sync_session_id = excluded.sync_session_id,
+                    dingtalk_event_id = excluded.dingtalk_event_id,
+                    last_remote_event_id = excluded.last_remote_event_id,
+                    last_local_hash = excluded.last_local_hash,
+                    last_remote_hash = excluded.last_remote_hash,
+                    remote_updated_at = excluded.remote_updated_at,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at,
+                    revision = revision + 1
+                """,
+                (
+                    normalized_user_id,
+                    normalized_week_start,
+                    slot_key,
+                    f"{work_date} {start_time}-{end_time}",
+                    work_date,
+                    str(item.get("title") or "").strip(),
+                    str(item.get("description") or "").strip(),
+                    str(item.get("location") or "").strip(),
+                    str(snapshot.get("start_at") or "").strip(),
+                    str(snapshot.get("end_at") or "").strip(),
+                    str(snapshot.get("timezone") or DINGTALK_CALENDAR_TIMEZONE).strip()
+                    or DINGTALK_CALENDAR_TIMEZONE,
+                    DINGTALK_CALENDAR_IMPORTED_SOURCE,
+                    session_id,
+                    event_id,
+                    event_id,
+                    local_hash,
+                    local_hash,
+                    str(imported.get("remote_updated_at") or "").strip(),
+                    DINGTALK_CALENDAR_ITEM_SYNCED,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+
+
+def import_dingtalk_calendar_events_for_week(
+    user_id: str,
+    week_start: str,
+    *,
+    sync_session: dict | None = None,
+) -> dict[str, object]:
+    normalized_user_id = normalize_user_id(user_id)
+    session = sync_session or get_active_dingtalk_calendar_sync_session(normalized_user_id)
+    if not session:
+        return {"status": "missing", "imported_count": 0, "remote_count": 0, "skipped_count": 0}
+    if str(session.get("sync_mode") or DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY) != DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY:
+        return {"status": "push_only", "imported_count": 0, "remote_count": 0, "skipped_count": 0}
+
+    normalized_week_start = get_week_start(week_start)
+    week_start_date = datetime.strptime(normalized_week_start, "%Y-%m-%d").date()
+    week_end_exclusive = week_start_date + timedelta(days=7)
+    events = list_dingtalk_calendar_events(
+        str(session.get("mcp_url") or "").strip(),
+        calendar_id=str(session.get("calendar_id") or DINGTALK_CALENDAR_DEFAULT_ID),
+        start_date=normalized_week_start,
+        end_date=week_end_exclusive.isoformat(),
+    )
+    candidates = [
+        candidate
+        for event in events
+        for candidate in [build_weekly_plan_item_from_dingtalk_event(event, week_start=normalized_week_start)]
+        if candidate
+    ]
+    if not candidates:
+        return {
+            "status": "idle",
+            "imported_count": 0,
+            "remote_count": len(events),
+            "skipped_count": len(events),
+        }
+
+    with get_connection() as connection:
+        existing_event_ids = list_existing_dingtalk_calendar_event_ids_for_user(
+            connection,
+            user_id=normalized_user_id,
+            event_ids=[str(candidate.get("event_id") or "") for candidate in candidates],
+        )
+
+    _, current_settings, _ = get_weekly_plan_settings(normalized_week_start, user_id=normalized_user_id)
+    existing_items = normalize_weekly_plan_items(current_settings.get(WEEKLY_PLAN_ITEMS_KEY))
+    seen_item_ids = {
+        str(item.get("id") or "").strip()
+        for item in existing_items
+        if str(item.get("id") or "").strip()
+    }
+    imported_items: list[dict[str, object]] = []
+    for candidate in sorted(
+        candidates,
+        key=lambda item: (
+            str((item.get("item") or {}).get("work_date") or ""),
+            str((item.get("item") or {}).get("start_time") or ""),
+            str((item.get("item") or {}).get("title") or ""),
+        ),
+    ):
+        event_id = str(candidate.get("event_id") or "").strip()
+        item = candidate.get("item") if isinstance(candidate.get("item"), dict) else {}
+        item_id = str(item.get("id") or "").strip()
+        if not event_id or event_id in existing_event_ids or not item_id or item_id in seen_item_ids:
+            continue
+        seen_item_ids.add(item_id)
+        item["sort_order"] = 1000 + len(existing_items) + len(imported_items)
+        imported_items.append(candidate)
+
+    if not imported_items:
+        return {
+            "status": "idle",
+            "imported_count": 0,
+            "remote_count": len(events),
+            "skipped_count": len(events),
+        }
+
+    next_settings = normalize_weekly_plan_settings(current_settings)
+    next_settings[WEEKLY_PLAN_ITEMS_KEY] = [
+        *existing_items,
+        *[dict(imported["item"]) for imported in imported_items if isinstance(imported.get("item"), dict)],
+    ]
+    save_weekly_plan_settings(
+        normalized_week_start,
+        next_settings,
+        user_id=normalized_user_id,
+        calendar_sync_origin=True,
+    )
+    insert_imported_dingtalk_schedule_item_mappings(
+        user_id=normalized_user_id,
+        week_start=normalized_week_start,
+        sync_session=session,
+        imported_items=imported_items,
+    )
+    return {
+        "status": "imported",
+        "imported_count": len(imported_items),
+        "remote_count": len(events),
+        "skipped_count": max(0, len(events) - len(imported_items)),
+    }
+
+
+def find_dingtalk_calendar_event_for_schedule_item(
+    mcp_url: str,
+    *,
+    schedule_item: dict,
+    calendar_id: str,
+) -> dict | None:
+    work_date = validate_date(str(schedule_item.get("work_date") or date.today().isoformat()))
+    start_date = (datetime.strptime(work_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    end_date = (datetime.strptime(work_date, "%Y-%m-%d") + timedelta(days=2)).strftime("%Y-%m-%d")
+    marker = f"schedule_item_id={int(schedule_item.get('id') or 0)}"
+    for event in list_dingtalk_calendar_events(
+        mcp_url,
+        calendar_id=calendar_id,
+        start_date=start_date,
+        end_date=end_date,
+    ):
+        description = str(event.get("description") or "")
+        if marker in description and not is_dingtalk_calendar_event_cancelled(event):
+            return event
+    return None
+
+
+def normalize_calendar_job_row(row: sqlite3.Row | dict | None) -> dict:
+    if isinstance(row, dict):
+        source = row
+    elif hasattr(row, "keys"):
+        source = {key: row[key] for key in row.keys()}
+    else:
+        source = {}
+    return {
+        "id": int(source.get("id") or 0),
+        "user_id": str(source.get("user_id") or "").strip(),
+        "schedule_item_id": int(source.get("schedule_item_id") or 0),
+        "sync_session_id": int(source.get("sync_session_id") or 0),
+        "operation": str(source.get("operation") or "upsert").strip() or "upsert",
+        "attempt_count": int(source.get("attempt_count") or 0),
+        "max_attempts": int(source.get("max_attempts") or DINGTALK_CALENDAR_SYNC_MAX_ATTEMPTS),
+        "status": str(source.get("status") or DINGTALK_CALENDAR_JOB_PENDING).strip(),
+        "last_error": str(source.get("last_error") or "").strip(),
+    }
+
+
+def list_due_dingtalk_calendar_sync_jobs(limit: int = DINGTALK_CALENDAR_SYNC_DISPATCH_BATCH_SIZE) -> list[sqlite3.Row]:
+    timestamp = calendar_sync_now_text()
+    stale_running_cutoff = (
+        datetime.now()
+        - timedelta(
+            seconds=max(
+                DINGTALK_CALENDAR_SYNC_RETRY_DELAY_SECONDS,
+                DINGTALK_MCP_REQUEST_TIMEOUT_SECONDS * 2,
+            )
+        )
+    ).isoformat(timespec="microseconds")
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE dingtalk_calendar_sync_jobs
+            SET status = ?, next_attempt_at = ?, last_error = '', updated_at = ?
+            WHERE status = ? AND last_attempt_at != '' AND last_attempt_at <= ?
+            """,
+            (
+                DINGTALK_CALENDAR_JOB_PENDING,
+                timestamp,
+                timestamp,
+                DINGTALK_CALENDAR_JOB_RUNNING,
+                stale_running_cutoff,
+            ),
+        )
+        return connection.execute(
+            """
+            SELECT *
+            FROM dingtalk_calendar_sync_jobs
+            WHERE status = ? AND next_attempt_at <= ?
+            ORDER BY next_attempt_at ASC, id ASC
+            LIMIT ?
+            """,
+            (
+                DINGTALK_CALENDAR_JOB_PENDING,
+                timestamp,
+                max(1, min(int(limit or 10), 50)),
+            ),
+        ).fetchall()
+
+
+def claim_dingtalk_calendar_sync_job(job_id: int) -> bool:
+    timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        result = connection.execute(
+            """
+            UPDATE dingtalk_calendar_sync_jobs
+            SET status = ?, next_attempt_at = '', last_attempt_at = ?,
+                last_error = '', updated_at = ?
+            WHERE id = ? AND status = ? AND next_attempt_at <= ?
+            """,
+            (
+                DINGTALK_CALENDAR_JOB_RUNNING,
+                timestamp,
+                timestamp,
+                int(job_id),
+                DINGTALK_CALENDAR_JOB_PENDING,
+                timestamp,
+            ),
+        )
+    return bool(result.rowcount == 1)
+
+
+def update_schedule_item_sync_state(
+    schedule_item_id: int,
+    *,
+    status: str,
+    dingtalk_event_id: str | None = None,
+    last_remote_event_id: str | None = None,
+    last_local_hash: str | None = None,
+    last_remote_hash: str | None = None,
+    remote_updated_at: str | None = None,
+) -> None:
+    assignments = ["status = ?", "updated_at = ?"]
+    values: list[object] = [str(status or DINGTALK_CALENDAR_ITEM_PENDING), calendar_sync_now_text()]
+    if dingtalk_event_id is not None:
+        assignments.append("dingtalk_event_id = ?")
+        values.append(str(dingtalk_event_id or "").strip())
+    if last_remote_event_id is not None:
+        assignments.append("last_remote_event_id = ?")
+        values.append(str(last_remote_event_id or "").strip())
+    if last_local_hash is not None:
+        assignments.append("last_local_hash = ?")
+        values.append(str(last_local_hash or "").strip())
+    if last_remote_hash is not None:
+        assignments.append("last_remote_hash = ?")
+        values.append(str(last_remote_hash or "").strip())
+    if remote_updated_at is not None:
+        assignments.append("remote_updated_at = ?")
+        values.append(str(remote_updated_at or "").strip())
+    values.append(int(schedule_item_id))
+    with get_connection() as connection:
+        connection.execute(
+            f"UPDATE schedule_items SET {', '.join(assignments)} WHERE id = ?",
+            values,
+        )
+
+
+def mark_calendar_job_result(
+    job_id: int,
+    *,
+    status: str,
+    attempt_count: int,
+    error: str = "",
+) -> None:
+    timestamp = calendar_sync_now_text()
+    next_attempt_at = ""
+    if status == DINGTALK_CALENDAR_JOB_PENDING:
+        next_attempt_at = (
+            datetime.now() + timedelta(seconds=DINGTALK_CALENDAR_SYNC_RETRY_DELAY_SECONDS)
+        ).isoformat(timespec="microseconds")
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE dingtalk_calendar_sync_jobs
+            SET status = ?, attempt_count = ?, last_attempt_at = ?,
+                next_attempt_at = ?, last_error = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                status,
+                int(attempt_count),
+                timestamp,
+                next_attempt_at,
+                str(error or "").strip(),
+                timestamp,
+                int(job_id),
+            ),
+        )
+
+
+def process_dingtalk_calendar_sync_job(job: sqlite3.Row | dict) -> None:
+    normalized_job = normalize_calendar_job_row(job)
+    if not normalized_job["id"]:
+        return
+    if normalized_job["status"] != DINGTALK_CALENDAR_JOB_PENDING:
+        return
+    if not claim_dingtalk_calendar_sync_job(normalized_job["id"]):
+        return
+    attempt_count = normalized_job["attempt_count"] + 1
+    session = get_dingtalk_calendar_sync_session(normalized_job["sync_session_id"])
+    schedule_item = get_schedule_item_by_id(normalized_job["schedule_item_id"])
+    if not session or str(session.get("status") or "") != DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE:
+        mark_calendar_job_result(
+            normalized_job["id"],
+            status=DINGTALK_CALENDAR_JOB_FAILED,
+            attempt_count=attempt_count,
+            error="日历同步会话已暂停，未修改钉钉历史日程。",
+        )
+        return
+    if not schedule_item:
+        mark_calendar_job_result(
+            normalized_job["id"],
+            status=DINGTALK_CALENDAR_JOB_FAILED,
+            attempt_count=attempt_count,
+            error="本地日程事项不存在。",
+        )
+        return
+    if (
+        normalized_job["operation"] != "delete"
+        and str(schedule_item.get("status") or "").strip()
+        in {
+            DINGTALK_CALENDAR_ITEM_DELETED,
+            DINGTALK_CALENDAR_ITEM_REMOTE_DELETED,
+            DINGTALK_CALENDAR_ITEM_REMOTE_CANCELLED,
+        }
+    ):
+        mark_calendar_job_result(
+            normalized_job["id"],
+            status=DINGTALK_CALENDAR_JOB_CANCELLED,
+            attempt_count=attempt_count,
+            error="本地日程已进入终止状态，跳过钉钉同步。",
+        )
+        return
+    mcp_url = str(session.get("mcp_url") or "").strip()
+    calendar_id = str(session.get("calendar_id") or DINGTALK_CALENDAR_DEFAULT_ID).strip()
+    try:
+        operation = normalized_job["operation"]
+        if operation == "delete":
+            event_id = str(
+                schedule_item.get("dingtalk_event_id")
+                or schedule_item.get("last_remote_event_id")
+                or ""
+            ).strip()
+            if is_dingtalk_imported_schedule_item(schedule_item):
+                update_schedule_item_sync_state(
+                    normalized_job["schedule_item_id"],
+                    status=DINGTALK_CALENDAR_ITEM_DELETED,
+                    dingtalk_event_id="",
+                    last_remote_event_id=event_id,
+                    last_local_hash="",
+                    last_remote_hash="",
+                    remote_updated_at="",
+                )
+                mark_calendar_job_result(
+                    normalized_job["id"],
+                    status=DINGTALK_CALENDAR_JOB_CANCELLED,
+                    attempt_count=attempt_count,
+                    error="钉钉导入日程仅删除本地，不删除钉钉日程。",
+                )
+                return
+            if event_id:
+                try:
+                    call_dingtalk_mcp_tool(
+                        mcp_url,
+                        "delete_calendar_event",
+                        {"eventId": event_id, "calendarId": calendar_id},
+                    )
+                except Exception as delete_error:
+                    if not is_dingtalk_calendar_event_not_found_error(delete_error):
+                        raise
+            update_schedule_item_sync_state(
+                normalized_job["schedule_item_id"],
+                status=DINGTALK_CALENDAR_ITEM_DELETED,
+                dingtalk_event_id="",
+                last_remote_event_id=event_id,
+                last_local_hash=build_calendar_snapshot_hash(build_schedule_item_snapshot(schedule_item)),
+                last_remote_hash="",
+                remote_updated_at="",
+            )
+            mark_calendar_job_result(
+                normalized_job["id"],
+                status=DINGTALK_CALENDAR_JOB_SENT,
+                attempt_count=attempt_count,
+            )
+            return
+
+        local_snapshot = build_schedule_item_snapshot(schedule_item)
+        local_hash = build_calendar_snapshot_hash(local_snapshot)
+        event_id = str(schedule_item.get("dingtalk_event_id") or "").strip()
+        if event_id:
+            try:
+                response = call_dingtalk_mcp_tool(
+                    mcp_url,
+                    "update_calendar_event",
+                    {
+                        "eventId": event_id,
+                        **build_dingtalk_calendar_event_payload(schedule_item, calendar_id=calendar_id),
+                    },
+                )
+            except Exception as update_error:
+                if not is_dingtalk_calendar_event_not_found_error(update_error):
+                    raise
+                # The remote event may have been deleted between polls. Treat
+                # the next operation as a fresh create only after the detail
+                # lookup/update explicitly reports that it no longer exists.
+                update_schedule_item_sync_state(
+                    normalized_job["schedule_item_id"],
+                    status=DINGTALK_CALENDAR_ITEM_PENDING,
+                    dingtalk_event_id="",
+                    last_remote_event_id=event_id,
+                    last_remote_hash="",
+                    remote_updated_at="",
+                )
+                schedule_item["dingtalk_event_id"] = ""
+                event_id = ""
+            else:
+                updated_events = extract_dingtalk_calendar_event_objects(response)
+                if updated_events and is_dingtalk_calendar_event_cancelled(updated_events[0]):
+                    update_schedule_item_sync_state(
+                        normalized_job["schedule_item_id"],
+                        status=DINGTALK_CALENDAR_ITEM_PENDING,
+                        dingtalk_event_id="",
+                        last_remote_event_id=event_id,
+                        last_remote_hash="",
+                        remote_updated_at="",
+                    )
+                    schedule_item["dingtalk_event_id"] = ""
+                    event_id = ""
+        if not event_id:
+            if attempt_count > 1:
+                recovered = find_dingtalk_calendar_event_for_schedule_item(
+                    mcp_url,
+                    schedule_item=schedule_item,
+                    calendar_id=calendar_id,
+                )
+                event_id = extract_dingtalk_calendar_event_id(recovered)
+                if event_id:
+                    response = recovered
+        if not event_id:
+            response = call_dingtalk_mcp_tool(
+                mcp_url,
+                "create_calendar_event",
+                build_dingtalk_calendar_event_payload(schedule_item, calendar_id=calendar_id),
+            )
+            event_id = extract_dingtalk_calendar_event_id(response)
+            if not event_id:
+                recovered = find_dingtalk_calendar_event_for_schedule_item(
+                    mcp_url,
+                    schedule_item=schedule_item,
+                    calendar_id=calendar_id,
+                )
+                event_id = extract_dingtalk_calendar_event_id(recovered)
+            if not event_id:
+                raise RuntimeError("钉钉创建日程未返回 eventId，暂不重复创建。")
+        remote_event = extract_dingtalk_calendar_event_objects(response)
+        remote_snapshot = normalize_dingtalk_calendar_event_snapshot(remote_event[0] if remote_event else {})
+        remote_hash = build_calendar_snapshot_hash(remote_snapshot if remote_snapshot.get("start_at") else local_snapshot)
+        update_schedule_item_sync_state(
+            normalized_job["schedule_item_id"],
+            status=DINGTALK_CALENDAR_ITEM_SYNCED,
+            dingtalk_event_id=event_id,
+            last_remote_event_id=event_id,
+            last_local_hash=local_hash,
+            last_remote_hash=remote_hash,
+            remote_updated_at=str(
+                (remote_event[0] if remote_event else {}).get("updatedAt")
+                or (remote_event[0] if remote_event else {}).get("updated_at")
+                or ""
+            ),
+        )
+        mark_calendar_job_result(
+            normalized_job["id"],
+            status=DINGTALK_CALENDAR_JOB_SENT,
+            attempt_count=attempt_count,
+        )
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE dingtalk_calendar_sync_sessions
+                SET last_synced_at = ?, last_error = '', updated_at = ?
+                WHERE id = ?
+                """,
+                (calendar_sync_now_text(), calendar_sync_now_text(), int(session["id"])),
+            )
+    except Exception as error:
+        LOGGER.exception(
+            "DingTalk calendar sync job failed: job_id=%s user_id=%s session_id=%s operation=%s",
+            normalized_job["id"],
+            normalized_job["user_id"],
+            normalized_job["sync_session_id"],
+            normalized_job["operation"],
+        )
+        next_status = (
+            DINGTALK_CALENDAR_JOB_UNKNOWN
+            if attempt_count >= max(normalized_job["max_attempts"], 1)
+            else DINGTALK_CALENDAR_JOB_PENDING
+        )
+        mark_calendar_job_result(
+            normalized_job["id"],
+            status=next_status,
+            attempt_count=attempt_count,
+            error=str(error),
+        )
+        update_schedule_item_sync_state(
+            normalized_job["schedule_item_id"],
+            status=DINGTALK_CALENDAR_ITEM_UNKNOWN if next_status == DINGTALK_CALENDAR_JOB_UNKNOWN else DINGTALK_CALENDAR_ITEM_PENDING,
+        )
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE dingtalk_calendar_sync_sessions
+                SET last_error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (str(error), calendar_sync_now_text(), int(session["id"])),
+            )
+
+
+def create_dingtalk_calendar_sync_conflict(
+    *,
+    schedule_item: dict,
+    session: dict,
+    base_snapshot: dict,
+    local_snapshot: dict,
+    remote_snapshot: dict,
+    conflict_type: str,
+) -> None:
+    timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        existing = connection.execute(
+            """
+            SELECT id
+            FROM dingtalk_calendar_sync_conflicts
+            WHERE schedule_item_id = ? AND sync_session_id = ?
+              AND conflict_type = ? AND status = 'open'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (
+                int(schedule_item["id"]),
+                int(session["id"]),
+                str(conflict_type or "changed_both"),
+            ),
+        ).fetchone()
+        if existing:
+            connection.execute(
+                """
+                UPDATE dingtalk_calendar_sync_conflicts
+                SET base_snapshot_json = ?, local_snapshot_json = ?,
+                    remote_snapshot_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(base_snapshot, ensure_ascii=False),
+                    json.dumps(local_snapshot, ensure_ascii=False),
+                    json.dumps(remote_snapshot, ensure_ascii=False),
+                    timestamp,
+                    int(existing["id"]),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO dingtalk_calendar_sync_conflicts (
+                    user_id,
+                    schedule_item_id,
+                    sync_session_id,
+                    conflict_type,
+                    base_snapshot_json,
+                    local_snapshot_json,
+                    remote_snapshot_json,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
+                """,
+                (
+                    str(schedule_item.get("user_id") or "").strip(),
+                    int(schedule_item["id"]),
+                    int(session["id"]),
+                    str(conflict_type or "changed_both"),
+                    json.dumps(base_snapshot, ensure_ascii=False),
+                    json.dumps(local_snapshot, ensure_ascii=False),
+                    json.dumps(remote_snapshot, ensure_ascii=False),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+    update_schedule_item_sync_state(
+        int(schedule_item["id"]),
+        status=DINGTALK_CALENDAR_ITEM_CONFLICT,
+    )
+
+
+def apply_remote_dingtalk_calendar_event(event: dict, schedule_item: dict, session: dict) -> None:
+    if is_dingtalk_calendar_event_cancelled(event):
+        mark_dingtalk_calendar_item_remote_cancelled(
+            int(schedule_item["id"]),
+            event_id=extract_dingtalk_calendar_event_id(event)
+            or str(schedule_item.get("dingtalk_event_id") or "").strip(),
+        )
+        return
+    remote_snapshot = normalize_dingtalk_calendar_event_snapshot(event)
+    if not remote_snapshot.get("start_at") or not remote_snapshot.get("end_at"):
+        return
+    remote_hash = build_calendar_snapshot_hash(remote_snapshot)
+    local_snapshot = build_schedule_item_snapshot(schedule_item)
+    local_hash = build_calendar_snapshot_hash(local_snapshot)
+    last_local_hash = str(schedule_item.get("last_local_hash") or "").strip()
+    last_remote_hash = str(schedule_item.get("last_remote_hash") or "").strip()
+    remote_changed = bool(last_remote_hash and remote_hash != last_remote_hash)
+    local_changed = bool(last_local_hash and local_hash != last_local_hash)
+    if not remote_changed:
+        return
+    if local_changed:
+        create_dingtalk_calendar_sync_conflict(
+            schedule_item=schedule_item,
+            session=session,
+            base_snapshot=local_snapshot,
+            local_snapshot=local_snapshot,
+            remote_snapshot=remote_snapshot,
+            conflict_type="changed_both",
+        )
+        return
+    if (
+        str(remote_snapshot.get("work_date") or "") != str(schedule_item.get("work_date") or "")
+        or str(remote_snapshot.get("start_at") or "") != str(schedule_item.get("start_at") or "")
+        or str(remote_snapshot.get("end_at") or "") != str(schedule_item.get("end_at") or "")
+    ):
+        create_dingtalk_calendar_sync_conflict(
+            schedule_item=schedule_item,
+            session=session,
+            base_snapshot=local_snapshot,
+            local_snapshot=local_snapshot,
+            remote_snapshot=remote_snapshot,
+            conflict_type="time_changed",
+        )
+        return
+    updated_timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE schedule_items
+            SET title = ?, description = ?, location = ?, last_local_hash = ?,
+                last_remote_hash = ?, remote_updated_at = ?, status = ?,
+                updated_at = ?, revision = revision + 1
+            WHERE id = ?
+            """,
+            (
+                str(remote_snapshot.get("title") or "").strip(),
+                str(remote_snapshot.get("description") or "").strip(),
+                str(remote_snapshot.get("location") or "").strip(),
+                remote_hash,
+                remote_hash,
+                str(event.get("updatedAt") or event.get("updated_at") or ""),
+                DINGTALK_CALENDAR_ITEM_SYNCED,
+                updated_timestamp,
+                int(schedule_item["id"]),
+            ),
+        )
+    slot_key = str(schedule_item.get("slot_key") or "").strip()
+    if slot_key.startswith("weekly_item:"):
+        item_id = slot_key.split(":", 1)[1].strip()
+        _, current_settings, _ = get_weekly_plan_settings(
+            str(schedule_item.get("work_date") or date.today().isoformat()),
+            user_id=str(schedule_item.get("user_id") or ""),
+        )
+        updated_items = normalize_weekly_plan_items(current_settings.get(WEEKLY_PLAN_ITEMS_KEY))
+        for item in updated_items:
+            if str(item.get("id") or "").strip() != item_id:
+                continue
+            item["title"] = str(remote_snapshot.get("title") or "").strip()
+            item["description"] = str(remote_snapshot.get("description") or "").strip()
+            item["location"] = str(remote_snapshot.get("location") or "").strip()
+            break
+        current_settings[WEEKLY_PLAN_ITEMS_KEY] = updated_items
+        save_weekly_plan_settings(
+            str(schedule_item.get("week_start") or ""),
+            current_settings,
+            user_id=str(schedule_item.get("user_id") or ""),
+            calendar_sync_origin=True,
+        )
+    elif slot_key:
+        _, current_settings, _ = get_weekly_plan_settings(
+            str(schedule_item.get("work_date") or date.today().isoformat()),
+            user_id=str(schedule_item.get("user_id") or ""),
+        )
+        current_settings[slot_key] = str(remote_snapshot.get("title") or "").strip()
+        save_weekly_plan_settings(
+            str(schedule_item.get("week_start") or ""),
+            current_settings,
+            user_id=str(schedule_item.get("user_id") or ""),
+            calendar_sync_origin=True,
+        )
+
+
+def mark_dingtalk_calendar_item_remote_terminal_state(
+    schedule_item_id: int,
+    *,
+    status: str,
+    event_id: str,
+) -> None:
+    schedule_item = get_schedule_item_by_id(schedule_item_id)
+    if not schedule_item:
+        return
+    normalized_event_id = str(
+        event_id
+        or schedule_item.get("dingtalk_event_id")
+        or schedule_item.get("last_remote_event_id")
+        or ""
+    ).strip()
+    update_schedule_item_sync_state(
+        int(schedule_item_id),
+        status=status,
+        dingtalk_event_id="",
+        last_remote_event_id=normalized_event_id,
+        last_remote_hash="",
+        remote_updated_at="",
+    )
+    with get_connection() as connection:
+        cancel_pending_calendar_sync_jobs_with_connection(
+            connection,
+            schedule_item_id=int(schedule_item_id),
+            reason="钉钉端日程已删除或取消，取消待执行同步任务。",
+        )
+    if not is_dingtalk_imported_schedule_item(schedule_item):
+        remove_weekly_plan_item_for_schedule_item(schedule_item)
+
+
+def mark_dingtalk_calendar_item_remote_deleted(schedule_item_id: int, *, event_id: str = "") -> None:
+    mark_dingtalk_calendar_item_remote_terminal_state(
+        schedule_item_id,
+        status=DINGTALK_CALENDAR_ITEM_REMOTE_DELETED,
+        event_id=event_id,
+    )
+
+
+def mark_dingtalk_calendar_item_remote_cancelled(schedule_item_id: int, *, event_id: str = "") -> None:
+    mark_dingtalk_calendar_item_remote_terminal_state(
+        schedule_item_id,
+        status=DINGTALK_CALENDAR_ITEM_REMOTE_CANCELLED,
+        event_id=event_id,
+    )
+
+
+def poll_dingtalk_calendar_sync_session(session: dict) -> None:
+    if str(session.get("sync_mode") or DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY) != DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY:
+        return
+    mcp_url = str(session.get("mcp_url") or "").strip()
+    if not mcp_url:
+        return
+    today = date.today()
+    start_date = max(today, datetime.strptime(str(session.get("start_date") or today.isoformat()), "%Y-%m-%d").date())
+    end_date_exclusive = today + timedelta(days=DINGTALK_CALENDAR_SYNC_WINDOW_DAYS + 1)
+    events = list_dingtalk_calendar_events(
+        mcp_url,
+        calendar_id=str(session.get("calendar_id") or DINGTALK_CALENDAR_DEFAULT_ID),
+        start_date=start_date.isoformat(),
+        end_date=end_date_exclusive.isoformat(),
+    )
+    event_map = {
+        extract_dingtalk_calendar_event_id(event): event
+        for event in events
+        if extract_dingtalk_calendar_event_id(event)
+    }
+    with get_connection() as connection:
+        linked_items = connection.execute(
+            """
+            SELECT *
+            FROM schedule_items
+            WHERE sync_session_id = ? AND dingtalk_event_id != ''
+              AND status NOT IN (?, ?, ?)
+              AND work_date >= ?
+              AND work_date < ?
+            """,
+            (
+                int(session["id"]),
+                DINGTALK_CALENDAR_ITEM_DELETED,
+                DINGTALK_CALENDAR_ITEM_REMOTE_DELETED,
+                DINGTALK_CALENDAR_ITEM_REMOTE_CANCELLED,
+                start_date.isoformat(),
+                end_date_exclusive.isoformat(),
+            ),
+        ).fetchall()
+    for row in linked_items:
+        item = dict(row)
+        event_id = str(item.get("dingtalk_event_id") or "").strip()
+        event = event_map.get(event_id)
+        if event:
+            apply_remote_dingtalk_calendar_event(event, item, session)
+            continue
+        try:
+            detail = get_dingtalk_calendar_event_detail(
+                mcp_url,
+                calendar_id=str(session.get("calendar_id") or DINGTALK_CALENDAR_DEFAULT_ID),
+                event_id=event_id,
+            )
+        except Exception as error:
+            if not is_dingtalk_calendar_event_not_found_error(error):
+                raise
+            detail = None
+        if detail:
+            apply_remote_dingtalk_calendar_event(detail, item, session)
+        else:
+            mark_dingtalk_calendar_item_remote_deleted(int(item["id"]), event_id=event_id)
+    timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE dingtalk_calendar_sync_sessions
+            SET last_polled_at = ?, last_error = '', updated_at = ?
+            WHERE id = ?
+            """,
+            (timestamp, timestamp, int(session["id"])),
+        )
+
+
+def list_due_dingtalk_calendar_sync_sessions() -> list[dict]:
+    timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM dingtalk_calendar_sync_sessions
+            WHERE status = ?
+              AND (last_polled_at = '' OR last_polled_at <= ?)
+            ORDER BY id ASC
+            """,
+            (
+                DINGTALK_CALENDAR_SYNC_STATUS_ACTIVE,
+                (
+                    datetime.now() - timedelta(seconds=DINGTALK_CALENDAR_SYNC_POLL_SECONDS)
+                ).isoformat(timespec="microseconds"),
+            ),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def run_dingtalk_calendar_sync_cycle() -> None:
+    for job in list_due_dingtalk_calendar_sync_jobs():
+        process_dingtalk_calendar_sync_job(job)
+    for session in list_due_dingtalk_calendar_sync_sessions():
+        try:
+            poll_dingtalk_calendar_sync_session(session)
+        except Exception as error:
+            LOGGER.exception(
+                "DingTalk calendar poll failed: user_id=%s session_id=%s",
+                str(session.get("user_id") or ""),
+                int(session.get("id") or 0),
+            )
+            timestamp = calendar_sync_now_text()
+            with get_connection() as connection:
+                connection.execute(
+                    """
+                    UPDATE dingtalk_calendar_sync_sessions
+                    SET last_polled_at = ?, last_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (timestamp, str(error), timestamp, int(session["id"])),
+                )
+
+
+def run_dingtalk_calendar_sync_now(user_id: str | None = None) -> None:
+    normalized_user_id = normalize_user_id(user_id)
+    session = get_active_dingtalk_calendar_sync_session(normalized_user_id)
+    if not session:
+        raise ValueError(DINGTALK_CALENDAR_MCP_REQUIRED_ERROR)
+    timestamp = calendar_sync_now_text()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE dingtalk_calendar_sync_jobs
+            SET next_attempt_at = ?, updated_at = ?
+            WHERE user_id = ? AND sync_session_id = ? AND status = ?
+            """,
+            (
+                timestamp,
+                timestamp,
+                normalized_user_id,
+                int(session["id"]),
+                DINGTALK_CALENDAR_JOB_PENDING,
+            ),
+        )
+        jobs = connection.execute(
+            """
+            SELECT *
+            FROM dingtalk_calendar_sync_jobs
+            WHERE user_id = ? AND sync_session_id = ? AND status = ?
+            ORDER BY next_attempt_at ASC, id ASC
+            LIMIT ?
+            """,
+            (
+                normalized_user_id,
+                int(session["id"]),
+                DINGTALK_CALENDAR_JOB_PENDING,
+                DINGTALK_CALENDAR_SYNC_DISPATCH_BATCH_SIZE,
+            ),
+        ).fetchall()
+    for job in jobs:
+        process_dingtalk_calendar_sync_job(job)
+    if str(session.get("sync_mode") or DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY) == DINGTALK_CALENDAR_SYNC_MODE_TWO_WAY:
+        try:
+            poll_dingtalk_calendar_sync_session(session)
+        except Exception as error:
+            with get_connection() as connection:
+                connection.execute(
+                    """
+                    UPDATE dingtalk_calendar_sync_sessions
+                    SET last_error = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (str(error), calendar_sync_now_text(), int(session["id"])),
+                )
+            raise RuntimeError(str(error)) from error
+
+
+def build_weekly_plan_calendar_queue_baseline(
+    user_id: str,
+    week_start: str,
+    settings: dict,
+    sync_session: dict,
+) -> tuple[dict, int]:
+    normalized_user_id = normalize_user_id(user_id)
+    normalized_week_start = get_week_start(week_start)
+    current = normalize_weekly_plan_settings(settings)
+    synced_slot_keys: set[str] = set()
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT slot_key
+            FROM schedule_items
+            WHERE user_id = ? AND week_start = ? AND sync_session_id = ?
+              AND status = ? AND dingtalk_event_id != ''
+            """,
+            (
+                normalized_user_id,
+                normalized_week_start,
+                int(sync_session["id"]),
+                DINGTALK_CALENDAR_ITEM_SYNCED,
+            ),
+        ).fetchall()
+    for row in rows:
+        slot_key = str(row["slot_key"] or "").strip()
+        if slot_key:
+            synced_slot_keys.add(slot_key)
+
+    baseline = DEFAULT_PAGE_SETTINGS.copy()
+    baseline["weekly_other_pending"] = str(current.get("weekly_other_pending") or "").strip()
+    queue_item_count = 0
+    for slot_key in WEEKLY_PLAN_LEGACY_SLOT_KEYS:
+        title = str(current.get(slot_key) or "").strip()
+        if not title:
+            continue
+        if slot_key in synced_slot_keys:
+            baseline[slot_key] = title
+        else:
+            queue_item_count += 1
+
+    baseline_items: list[dict] = []
+    for item in normalize_weekly_plan_items(current.get(WEEKLY_PLAN_ITEMS_KEY)):
+        if not str(item.get("title") or "").strip():
+            continue
+        slot_key = get_weekly_plan_item_slot_key(item)
+        if slot_key in synced_slot_keys:
+            baseline_items.append(item)
+        else:
+            queue_item_count += 1
+    baseline[WEEKLY_PLAN_ITEMS_KEY] = baseline_items
+    return normalize_weekly_plan_settings(baseline), queue_item_count
+
+
+def queue_weekly_plan_calendar_snapshot_for_user(
+    user_id: str,
+    week_start: str,
+) -> dict[str, object]:
+    normalized_user_id = normalize_user_id(user_id)
+    normalized_week_start = get_week_start(week_start)
+    session = get_active_dingtalk_calendar_sync_session(normalized_user_id)
+    if not session:
+        return {
+            "user_id": normalized_user_id,
+            "status": "missing",
+            "label": "未配置",
+            "item_count": 0,
+            "queued_count": 0,
+            "imported_count": 0,
+        }
+    import_result = import_dingtalk_calendar_events_for_week(
+        normalized_user_id,
+        normalized_week_start,
+        sync_session=session,
+    )
+    _, settings, _ = get_weekly_plan_settings(normalized_week_start, user_id=normalized_user_id)
+    weekly_plan_items = build_weekly_plan_items(normalized_week_start, settings)
+    previous_settings, queued_count = build_weekly_plan_calendar_queue_baseline(
+        normalized_user_id,
+        normalized_week_start,
+        settings,
+        session,
+    )
+    if queued_count:
+        queue_weekly_plan_calendar_changes(
+            normalized_user_id,
+            normalized_week_start,
+            previous_settings,
+            settings,
+            changed_at=calendar_sync_now_text(),
+        )
+    imported_count = int(import_result.get("imported_count") or 0)
+    item_count = queued_count + imported_count
+    status = "queued" if queued_count else ("imported" if imported_count else "idle")
+    return {
+        "user_id": normalized_user_id,
+        "status": status,
+        "label": "已入队" if queued_count else ("已导入" if imported_count else "无变化"),
+        "item_count": item_count,
+        "queued_count": queued_count,
+        "imported_count": imported_count,
+        "remote_count": int(import_result.get("remote_count") or 0),
+        "skipped_count": int(import_result.get("skipped_count") or 0),
+        "total_week_item_count": len(weekly_plan_items),
+        "calendar_name": str(session.get("calendar_name") or session.get("calendar_id") or "").strip(),
+    }
+
+
+def run_department_schedule_calendar_sync_payload(
+    current_user: dict | None,
+    anchor_date: str,
+    requested_department: str | None = None,
+    requested_departments: object | None = None,
+    requested_positions: object | None = None,
+    requested_users: object | None = None,
+) -> dict[str, object]:
+    target_date = validate_date(anchor_date)
+    week_start, _, _ = build_week_window(target_date)
+    scope = resolve_department_schedule_scope(
+        current_user,
+        requested_department,
+        requested_departments=requested_departments,
+        requested_positions=requested_positions,
+        requested_users=requested_users,
+    )
+    target_users = scope.get("department_users") if isinstance(scope, dict) else []
+    target_user_ids = [
+        normalize_user_id(user.get("user_id"))
+        for user in target_users
+        if isinstance(user, dict) and normalize_user_id(user.get("user_id"))
+    ]
+    results: list[dict[str, object]] = []
+    for target_user_id in target_user_ids:
+        queued = queue_weekly_plan_calendar_snapshot_for_user(target_user_id, week_start)
+        if queued["status"] == "missing":
+            results.append({**queued, "sync_result": "skipped", "error": ""})
+            continue
+        try:
+            run_dingtalk_calendar_sync_now(target_user_id)
+        except Exception as error:
+            results.append({**queued, "sync_result": "failed", "error": str(error)})
+            continue
+        results.append({**queued, "sync_result": "ok", "error": ""})
+    synced_count = sum(1 for item in results if item.get("sync_result") == "ok")
+    skipped_count = sum(1 for item in results if item.get("sync_result") == "skipped")
+    failed_count = sum(1 for item in results if item.get("sync_result") == "failed")
+    imported_count = sum(int(item.get("imported_count") or 0) for item in results)
+    queued_count = sum(int(item.get("queued_count") or 0) for item in results)
+    return {
+        "ok": failed_count == 0,
+        "week_start": week_start,
+        "summary": {
+            "member_count": len(target_user_ids),
+            "synced_count": synced_count,
+            "skipped_count": skipped_count,
+            "failed_count": failed_count,
+            "imported_count": imported_count,
+            "queued_count": queued_count,
+            "item_count": sum(int(item.get("item_count") or 0) for item in results),
+        },
+        "results": results,
+    }
+
+
+def run_dingtalk_calendar_sync_dispatcher_forever() -> None:
+    while True:
+        try:
+            run_dingtalk_calendar_sync_cycle()
+        except Exception:
+            LOGGER.exception("DingTalk calendar sync dispatcher cycle failed")
+        time.sleep(30)
+
+
+def start_dingtalk_calendar_sync_dispatcher() -> None:
+    global _calendar_sync_dispatcher_thread
+    with _calendar_sync_dispatcher_lock:
+        if _calendar_sync_dispatcher_thread and _calendar_sync_dispatcher_thread.is_alive():
+            return
+        _calendar_sync_dispatcher_thread = threading.Thread(
+            target=run_dingtalk_calendar_sync_dispatcher_forever,
+            name="dingtalk-calendar-sync-dispatcher",
+            daemon=True,
+        )
+        _calendar_sync_dispatcher_thread.start()
 
 
 def call_dingtalk_mcp_template_detail_with_retry(
@@ -13035,12 +18092,18 @@ def build_weekly_day_plan_for_log(
     target = datetime.strptime(validate_date(target_date), "%Y-%m-%d")
     day_keys = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
     day_key = day_keys[target.weekday()]
+    day_items = [
+        item
+        for item in build_weekly_plan_items(week_start, normalized_settings)
+        if str(item.get("work_date") or "").strip() == target_date
+    ]
     return {
         "week_start": week_start,
         "target_date": target_date,
         "day_name": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][target.weekday()],
         "am": normalized_settings.get(f"weekly_{day_key}_am", ""),
         "pm": normalized_settings.get(f"weekly_{day_key}_pm", ""),
+        "items": day_items,
         "other_pending": normalized_settings.get("weekly_other_pending", ""),
         "updated_at": updated_at,
     }
@@ -13058,12 +18121,23 @@ def build_weekly_plan_overview_for_report(week_start: str, settings: dict | None
         ("周日", "sunday"),
     ]
     day_plans = []
-    for day_name, day_key in ordered_days:
+    normalized_week_start = get_week_start(week_start)
+    for day_index, (day_name, day_key) in enumerate(ordered_days):
+        work_date = (
+            datetime.strptime(normalized_week_start, "%Y-%m-%d").date()
+            + timedelta(days=day_index)
+        ).isoformat()
         day_plans.append(
             {
                 "day_name": day_name,
+                "work_date": work_date,
                 "am": normalized_settings.get(f"weekly_{day_key}_am", ""),
                 "pm": normalized_settings.get(f"weekly_{day_key}_pm", ""),
+                "items": [
+                    item
+                    for item in build_weekly_plan_items(normalized_week_start, normalized_settings)
+                    if str(item.get("work_date") or "").strip() == work_date
+                ],
             }
         )
     return {
@@ -14487,6 +19561,14 @@ def fallback_weekly_report_sections(context: dict) -> list[dict]:
             next_actions.append(f"{len(next_actions) + 1}. {day_name}上午：{am_plan}")
         if pm_plan:
             next_actions.append(f"{len(next_actions) + 1}. {day_name}下午：{pm_plan}")
+        for item in day_plan.get("items") or []:
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            start_time = str(item.get("start_time") or "").strip()
+            end_time = str(item.get("end_time") or "").strip()
+            time_label = f"{start_time}-{end_time} " if start_time and end_time else ""
+            next_actions.append(f"{len(next_actions) + 1}. {day_name}{time_label}：{title}")
     other_pending = str(next_week_plan.get("other_pending", "")).strip()
     if other_pending:
         next_actions.append(f"{len(next_actions) + 1}. 其他待定：{other_pending}")
@@ -14749,6 +19831,17 @@ def build_fallback_daily_log_content(context: dict) -> str:
             if part not in seen_lines:
                 seen_lines.add(part)
                 plan_lines.append(part)
+    for item in weekly_plan.get("items") or []:
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        start_time = str(item.get("start_time") or "").strip()
+        end_time = str(item.get("end_time") or "").strip()
+        time_label = f"{start_time}-{end_time} " if start_time and end_time else ""
+        line = f"{time_label}{title}".strip()
+        if line not in seen_lines:
+            seen_lines.add(line)
+            plan_lines.append(line)
     if not plan_lines:
         for item in items:
             for part in split_content_parts(str(item.get("pending_issues", ""))):
@@ -16466,6 +21559,22 @@ def delete_local_account_with_all_history(
             "DELETE FROM scheduled_dingtalk_log_jobs WHERE user_id = ?",
             (target_user_id,),
         ).rowcount
+        deleted_calendar_conflicts = connection.execute(
+            "DELETE FROM dingtalk_calendar_sync_conflicts WHERE user_id = ?",
+            (target_user_id,),
+        ).rowcount
+        deleted_calendar_jobs = connection.execute(
+            "DELETE FROM dingtalk_calendar_sync_jobs WHERE user_id = ?",
+            (target_user_id,),
+        ).rowcount
+        deleted_schedule_items = connection.execute(
+            "DELETE FROM schedule_items WHERE user_id = ?",
+            (target_user_id,),
+        ).rowcount
+        deleted_calendar_sessions = connection.execute(
+            "DELETE FROM dingtalk_calendar_sync_sessions WHERE user_id = ?",
+            (target_user_id,),
+        ).rowcount
         deleted_accounts = connection.execute(
             "DELETE FROM local_accounts WHERE username = ?",
             (normalized_username,),
@@ -16495,6 +21604,10 @@ def delete_local_account_with_all_history(
         "deleted_scan_sessions": deleted_scan_sessions,
         "deleted_identities": deleted_identities,
         "deleted_scheduled_jobs": deleted_scheduled_jobs,
+        "deleted_calendar_conflicts": deleted_calendar_conflicts,
+        "deleted_calendar_jobs": deleted_calendar_jobs,
+        "deleted_schedule_items": deleted_schedule_items,
+        "deleted_calendar_sessions": deleted_calendar_sessions,
         "deleted_accounts": deleted_accounts,
         "deleted_users": deleted_users,
         "deleted_logs": deleted_logs,
@@ -16743,7 +21856,11 @@ def render_index_html(current_user: dict | None = None) -> str:
     if isinstance(current_user, dict):
         current_user_id = str(current_user.get("user_id") or "").strip()
     target_user_id = current_user_id or None
-    _, weekly_settings, _ = get_weekly_plan_settings(date.today().isoformat(), user_id=target_user_id)
+    current_week_start, weekly_settings, _ = get_weekly_plan_settings(
+        date.today().isoformat(),
+        user_id=target_user_id,
+    )
+    weekly_settings = build_weekly_plan_client_settings(current_week_start, weekly_settings, user_id=target_user_id)
     ui_settings, _ = get_ui_settings(user_id=target_user_id)
     field_options = get_business_field_options_for_user_id(target_user_id)
     html = INDEX_HTML.replace("__INITIAL_DATE__", date.today().isoformat())
@@ -16947,6 +22064,20 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                     item = dict(row)
                     for column in list(item):
                         if column in {"password_hash", "salt_hex", "key_hash"}:
+                            item[column] = "[REDACTED]"
+                        elif column == "mcp_url" or (
+                            column == "setting_value"
+                            and (
+                                "dingtalk_mcp" in table_name
+                                or (
+                                    table_name == "app_settings"
+                                    and str(item.get("setting_key") or "").startswith(
+                                        "user:"
+                                    )
+                                    and "dingtalk" in str(item.get("setting_key") or "")
+                                )
+                            )
+                        ):
                             item[column] = "[REDACTED]"
                     rows.append(item)
                 tables.append({"name": table_name, "schema": table_row["sql"], "columns": columns, "rows": rows})
@@ -17396,7 +22527,13 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/settings":
             week_start, settings, updated_at = get_weekly_plan_settings(date.today().isoformat(), user_id=user_id)
-            self._send_json({"week_start": week_start, "settings": settings, "updated_at": updated_at})
+            self._send_json(
+                {
+                    "week_start": week_start,
+                    "settings": build_weekly_plan_client_settings(week_start, settings, user_id=user_id),
+                    "updated_at": updated_at,
+                }
+            )
             return
 
         if parsed.path == "/api/ui-settings":
@@ -17460,7 +22597,13 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
             requested_date = query.get("date", [""])[0] or date.today().isoformat()
             try:
                 week_start, settings, updated_at = get_weekly_plan_settings(requested_date, user_id=user_id)
-                self._send_json({"week_start": week_start, "settings": settings, "updated_at": updated_at})
+                self._send_json(
+                    {
+                        "week_start": week_start,
+                        "settings": build_weekly_plan_client_settings(week_start, settings, user_id=user_id),
+                        "updated_at": updated_at,
+                    }
+                )
             except ValueError:
                 self._send_json({"error": "日期格式必须是 YYYY-MM-DD。"}, status=HTTPStatus.BAD_REQUEST)
             return
@@ -17615,6 +22758,45 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "未找到对应接口。"}, status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
+        if self.path == "/api/department-schedule/calendar-sync":
+            current_user = self._get_current_user()
+            if not current_user:
+                self._send_json({"error": "请先登录后再同步钉钉日历。"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                raw_payload = self.rfile.read(content_length)
+                payload = json.loads(raw_payload.decode("utf-8")) if raw_payload else {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                requested_date = str(payload.get("date") or date.today().isoformat()).strip() or date.today().isoformat()
+                sync_result = run_department_schedule_calendar_sync_payload(
+                    current_user,
+                    requested_date,
+                    str(payload.get("department") or "").strip(),
+                    requested_departments=payload.get("departments", []),
+                    requested_positions=payload.get("positions", []),
+                    requested_users=payload.get("users", []),
+                )
+                refreshed_payload = build_department_schedule_payload(
+                    current_user,
+                    requested_date,
+                    str(payload.get("department") or "").strip(),
+                    requested_departments=payload.get("departments", []),
+                    requested_positions=payload.get("positions", []),
+                    requested_users=payload.get("users", []),
+                )
+                self._send_json({**sync_result, "payload": refreshed_payload})
+            except PermissionError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.FORBIDDEN)
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            except RuntimeError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
         if self.path == "/api/department-schedule/weekly-plan":
             current_user = self._get_current_user()
             if not current_user:
@@ -17652,6 +22834,10 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                             "user_id": target_user_id,
                             "week_start": saved_week_start,
                             "weekly_plan_rows": build_department_weekly_plan_rows(current_settings),
+                            "weekly_plan_items": build_department_weekly_plan_items(
+                                saved_week_start,
+                                current_settings,
+                            ),
                             "weekly_other_pending": str(current_settings.get("weekly_other_pending", "") or "").strip(),
                             "updated_at": current_updated_at,
                             "weekly_plan_last_editor": weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None,
@@ -17660,9 +22846,22 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                         status=HTTPStatus.CONFLICT,
                     )
                     return
-                settings = build_department_weekly_plan_settings_from_rows(
-                    payload.get("weekly_plan_rows", []),
-                    weekly_other_pending=payload.get("weekly_other_pending", ""),
+                if "weekly_plan_items" in payload:
+                    settings = build_department_weekly_plan_settings_from_items(
+                        payload.get("weekly_plan_items", []),
+                        week_start=saved_week_start,
+                        weekly_other_pending=payload.get("weekly_other_pending", ""),
+                    )
+                else:
+                    settings = build_department_weekly_plan_settings_from_rows(
+                        payload.get("weekly_plan_rows", []),
+                        weekly_other_pending=payload.get("weekly_other_pending", ""),
+                    )
+                validate_cross_user_dingtalk_imported_plan_items(
+                    current_user=current_user,
+                    target_user=target_user,
+                    current_settings=current_settings,
+                    next_settings=settings,
                 )
                 if settings != current_settings:
                     change_details = build_weekly_plan_change_details(current_settings, settings)
@@ -17692,6 +22891,10 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                         "user_id": target_user_id,
                         "week_start": saved_week_start,
                         "weekly_plan_rows": build_department_weekly_plan_rows(saved_settings),
+                        "weekly_plan_items": build_department_weekly_plan_items(
+                            saved_week_start,
+                            saved_settings,
+                        ),
                         "weekly_other_pending": str(saved_settings.get("weekly_other_pending", "") or "").strip(),
                         "updated_at": updated_at,
                         "weekly_plan_last_editor": weekly_plan_edit_logs[0] if weekly_plan_edit_logs else None,
@@ -18123,7 +23326,13 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 user_id = self._resolve_user_id(payload=payload)
                 week_start = str(payload.get("week_start", date.today().isoformat())).strip() or date.today().isoformat()
                 saved_week_start, settings, updated_at = save_weekly_plan_settings(week_start, payload, user_id=user_id)
-                self._send_json({"week_start": saved_week_start, "settings": settings, "updated_at": updated_at})
+                self._send_json(
+                    {
+                        "week_start": saved_week_start,
+                        "settings": build_weekly_plan_client_settings(saved_week_start, settings, user_id=user_id),
+                        "updated_at": updated_at,
+                    }
+                )
             except ValueError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             except PermissionError as error:
@@ -18143,7 +23352,13 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 saved_week_start, settings, updated_at = save_weekly_plan_settings(
                     week_start, settings_payload, user_id=user_id
                 )
-                self._send_json({"week_start": saved_week_start, "settings": settings, "updated_at": updated_at})
+                self._send_json(
+                    {
+                        "week_start": saved_week_start,
+                        "settings": build_weekly_plan_client_settings(saved_week_start, settings, user_id=user_id),
+                        "updated_at": updated_at,
+                    }
+                )
             except ValueError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
             except PermissionError as error:
@@ -18230,6 +23445,66 @@ class DailyPlannerHandler(BaseHTTPRequestHandler):
                 self._send_json({"config": save_user_dingtalk_mcp_config(current_user["user_id"], payload)})
             except ValueError as error:
                 self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            except RuntimeError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        if self.path == "/api/user-dingtalk-calendar-options":
+            current_user = self._get_current_user()
+            if not current_user:
+                self._send_json({"error": "请先登录后再读取钉钉日历。"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                raw_payload = self.rfile.read(content_length)
+                payload = json.loads(raw_payload.decode("utf-8")) if raw_payload else {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                calendar_url = str(payload.get("calendar_mcp_url") or "").strip()
+                if not calendar_url:
+                    raise ValueError(DINGTALK_CALENDAR_MCP_REQUIRED_ERROR)
+                self._send_json(
+                    {
+                        "calendars": list_dingtalk_calendar_options(calendar_url),
+                        "calendar_mcp_url_fingerprint": build_dingtalk_mcp_url_fingerprint(calendar_url),
+                    }
+                )
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            except RuntimeError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        if self.path == "/api/user-dingtalk-calendar-sync":
+            current_user = self._get_current_user()
+            if not current_user:
+                self._send_json({"error": "请先登录后再同步钉钉日历。"}, status=HTTPStatus.UNAUTHORIZED)
+                return
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                raw_payload = self.rfile.read(content_length)
+                payload = json.loads(raw_payload.decode("utf-8")) if raw_payload else {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                week_start = app_date = str(payload.get("date") or date.today().isoformat()).strip() or date.today().isoformat()
+                queue_result = queue_weekly_plan_calendar_snapshot_for_user(current_user["user_id"], week_start)
+                run_dingtalk_calendar_sync_now(current_user["user_id"])
+                self._send_json(
+                    {
+                        "ok": True,
+                        "queue": queue_result,
+                        "date": app_date,
+                        "config": get_user_dingtalk_mcp_config_summary(current_user["user_id"]),
+                    }
+                )
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_REQUEST)
+            except RuntimeError as error:
+                self._send_json({"error": str(error)}, status=HTTPStatus.BAD_GATEWAY)
             except json.JSONDecodeError:
                 self._send_json({"error": "请求体必须是合法 JSON。"}, status=HTTPStatus.BAD_REQUEST)
             return
@@ -18386,6 +23661,7 @@ def run() -> None:
     init_db()
     ensure_current_version_snapshot()
     start_scheduled_dingtalk_log_dispatcher()
+    start_dingtalk_calendar_sync_dispatcher()
     server = ThreadingHTTPServer((HOST, PORT), DailyPlannerHandler)
     print(f"Daily Planner running at http://{HOST}:{PORT}")
     print(f"Config file: {CONFIG_SOURCE_PATH}")

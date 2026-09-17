@@ -1053,16 +1053,10 @@ __HELP_DOCS_CSS__
       };
       const THEME_PREFERENCE_STORAGE_KEY = "daily_planner_theme_preference";
       const readStoredThemePreference = () => {
-        try {
-          const value = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
-          return value === "dark" || value === "light" ? value : "";
-        } catch (error) {
-          return "";
-        }
+        return "light";
       };
       const getAutoTheme = (currentDate = new Date()) => {
-        const hour = currentDate.getHours();
-        return hour >= 6 && hour < 19 ? "light" : "dark";
+        return "light";
       };
       const buildBodyBackgroundImage = (theme, backgroundImage) => {
         const baseLayers = theme === "dark"
@@ -1138,7 +1132,7 @@ __HELP_DOCS_CSS__
       };
       return function applyShellVisualSettings(settings) {
         const normalized = normalizeUiSettings(settings);
-        const theme = readStoredThemePreference() || getAutoTheme();
+        const theme = "light";
         document.body.dataset.theme = theme;
         const root = document.documentElement;
         const backgroundLayerStyle = buildBackgroundLayerStyle(normalized.background_image, normalized.background_mode);
@@ -1178,7 +1172,6 @@ __HELP_DOCS_CSS__
       <button class="theme-toggle tiny-btn" id="admin-account-button"__INITIAL_ACCOUNT_BUTTON_ATTRS__>修改密码</button>
       <button class="theme-toggle tiny-btn" id="admin-user-page"__INITIAL_USER_BUTTON_ATTRS__>用户页面</button>
       <button class="theme-toggle tiny-btn" id="admin-department-page"__INITIAL_DEPARTMENT_BUTTON_ATTRS__>日程管理</button>
-      <button type="button" class="theme-toggle tiny-btn" id="theme-toggle">黑夜模式</button>
       <button type="button" class="theme-toggle tiny-btn background-settings-button" id="background-settings-button" aria-expanded="false" aria-controls="background-settings-menu">背景设置</button>
       <button type="button" class="theme-toggle tiny-btn" id="help-docs-button">帮助文档</button>
       <div class="background-settings-menu" id="background-settings-menu" hidden>
@@ -1532,7 +1525,6 @@ __HELP_DOCS_OVERLAY__
     const adminDepartmentPageButton = document.getElementById("admin-department-page");
     const adminUserPageButton = document.getElementById("admin-user-page");
     const helpDocsButton = document.getElementById("help-docs-button");
-    const themeToggleButton = document.getElementById("theme-toggle");
     const backgroundSettingsButton = document.getElementById("background-settings-button");
     const backgroundSettingsMenu = document.getElementById("background-settings-menu");
     const backgroundImageInput = document.getElementById("background-image-input");
@@ -1712,27 +1704,17 @@ __HELP_DOCS_OVERLAY__
       }
     }
     function readStoredThemePreference() {
-      try {
-        const value = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
-        return value === "dark" || value === "light" ? value : "";
-      } catch (error) {
-        return "";
-      }
+      return "light";
     }
     function writeStoredThemePreference(theme) {
       try {
-        if (theme === "dark" || theme === "light") {
-          window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, theme);
-        } else {
-          window.localStorage.removeItem(THEME_PREFERENCE_STORAGE_KEY);
-        }
+        window.localStorage.removeItem(THEME_PREFERENCE_STORAGE_KEY);
       } catch (error) {
         // Ignore storage failures.
       }
     }
     function getAutoTheme(currentDate = new Date()) {
-      const hour = currentDate.getHours();
-      return hour >= AUTO_THEME_DAY_START_HOUR && hour < AUTO_THEME_NIGHT_START_HOUR ? "light" : "dark";
+      return "light";
     }
     function getNextAutoThemeSwitchDelay(currentDate = new Date()) {
       const nextSwitch = new Date(currentDate);
@@ -1748,13 +1730,6 @@ __HELP_DOCS_OVERLAY__
     }
     function scheduleAutoThemeRefresh() {
       window.clearTimeout(scheduleAutoThemeRefresh.timerId);
-      if (readStoredThemePreference()) {
-        return;
-      }
-      scheduleAutoThemeRefresh.timerId = window.setTimeout(() => {
-        applyVisualSettings(currentUiSettings);
-        scheduleAutoThemeRefresh();
-      }, getNextAutoThemeSwitchDelay());
     }
     function setBackgroundSettingsOpen(isOpen) {
       isBackgroundSettingsOpen = Boolean(isOpen);
@@ -1789,9 +1764,7 @@ __HELP_DOCS_OVERLAY__
         window.__bootUiSettings = window.__applyShellVisualSettings(currentUiSettings);
         currentUiSettings = normalizeUiSettings(window.__bootUiSettings);
       }
-      const theme = document.body.dataset.theme === "dark" ? "dark" : "light";
-      themeToggleButton.textContent = theme === "dark" ? "白天模式" : "黑夜模式";
-      themeToggleButton.setAttribute("aria-label", theme === "dark" ? "切换到白天模式" : "切换到黑夜模式");
+      document.body.dataset.theme = "light";
       regionOpacityInput.value = String(Math.round(currentUiSettings.region_opacity * 100));
       regionOpacityValue.textContent = formatOpacityPercent(currentUiSettings.region_opacity);
       backgroundImageName.textContent = describeBackgroundSetting(currentUiSettings.background_image);
@@ -3281,12 +3254,6 @@ __HELP_DOCS_OVERLAY__
       loadDingtalkIdentities().catch((error) => setMessage(dingtalkIdentitiesStatus, error.message || "加载失败", true));
     });
     document.getElementById("admin-account-save").addEventListener("click", saveAdminAccount);
-    themeToggleButton.addEventListener("click", () => {
-      const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
-      writeStoredThemePreference(nextTheme);
-      applyVisualSettings(currentUiSettings);
-      scheduleAutoThemeRefresh();
-    });
     backgroundSettingsButton.addEventListener("click", (event) => {
       event.stopPropagation();
       setBackgroundSettingsOpen(!isBackgroundSettingsOpen);
